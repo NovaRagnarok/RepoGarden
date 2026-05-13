@@ -24,6 +24,14 @@ For each configured repository, RepoGarden reads:
 - dirty (uncommitted) file names
 - small diff previews of dirty files for display
 
+## Update check
+
+Once per launch (cached for 24h under `~/.repogarden/update-check.json`), RepoGarden hits the npm registry at `https://registry.npmjs.org/@outsideheaven/repogarden/latest` to see whether a newer published version is available. If one is, a small toast in the running UI suggests the upgrade — RepoGarden never modifies the user's install.
+
+The check is opt-out via `REPOGARDEN_NO_UPDATE_CHECK=1` and is automatically skipped in demo mode (`REPOGARDEN_DEMO=1`) and on CI runners (`CI=true`).
+
+The implementation lives in `src/lib/update-check.ts`.
+
 ## Provider integrations
 
 ### Claude / Codex usage bar

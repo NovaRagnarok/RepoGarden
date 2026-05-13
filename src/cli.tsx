@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { render, useApp } from "ink";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { PassThrough } from "stream";
 
 import {
@@ -30,6 +30,7 @@ import { scanRootsProgressive, type ScannedRepo, type RootProgress } from "@/lib
 import { buildCreature, enrichScans, refreshCreaturesLight, type RepoCreature } from "@/lib/creature";
 import { loadMemory, saveMemory, type ProjectMemory } from "@/lib/memory";
 import { CLI_HELP_TEXT, hasHelpFlag } from "@/lib/cli-help";
+import { checkForUpdate, readCurrentVersion } from "@/lib/update-check";
 
 type Phase = "booting" | "onboarding" | "ready" | "settings" | "workbench" | "help" | "edit-roots";
 
@@ -142,6 +143,32 @@ const App = ({
     },
     [pushToast]
   );
+
+  // Fire-and-forget update check. Runs once per session, after the boot
+  // sequence settles. Cached for 24h under ~/.repogarden/update-check.json,
+  // opt out with REPOGARDEN_NO_UPDATE_CHECK=1 (and auto-skipped in demo
+  // mode + CI). The toast is informational — never blocks anything.
+  const didCheckUpdate = useRef(false);
+  useEffect(() => {
+    if (didCheckUpdate.current) return;
+    if (phase === "booting" || phase === "onboarding" || phase === "edit-roots") {
+      return;
+    }
+    didCheckUpdate.current = true;
+    void checkForUpdate({ current: readCurrentVersion() })
+      .then((result) => {
+        if (!result || !result.isOutdated) return;
+        pushToast(
+          `update available · v${result.latest} (npm i -g @outsideheaven/repogarden)`,
+          "info",
+          6000
+        );
+      })
+      .catch(() => {
+        // checkForUpdate never throws, but belt-and-braces — a toast that
+        // never appears is fine; a crash on launch is not.
+      });
+  }, [phase, pushToast]);
 
   // Light background refresh: every 30s, probe each repo with a single
   // `git status --porcelain=v2 --branch` to pick up push/commit/dirty

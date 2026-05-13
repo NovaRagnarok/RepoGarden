@@ -7,9 +7,10 @@ Usage:
   repogarden --help   show this text
 
 Environment:
-  REPOGARDEN_DISABLE_USAGE=1   hide the Claude/Codex usage bar
-  REPOGARDEN_DEMO=1            launch with demo data (for screenshots)
-  NO_MOTION=1                  reduce motion where supported
+  REPOGARDEN_DISABLE_USAGE=1     hide the Claude/Codex usage bar
+  REPOGARDEN_NO_UPDATE_CHECK=1   skip the once-a-day npm version check
+  REPOGARDEN_DEMO=1              launch with demo data (for screenshots)
+  NO_MOTION=1                    reduce motion where supported
 
 Requirements:
   Node 24+, git on PATH, terminal at least 80x24
