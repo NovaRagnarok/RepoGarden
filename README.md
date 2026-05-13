@@ -4,6 +4,39 @@ RepoGarden is a local-first pixel habitat where your repositories become tiny de
 
 The product is intentionally not dashboard-first. The default experience is a living scene that helps you notice projects, recover context, and resume with a small next move.
 
+## Preview
+
+```
+ a little local habitat                                        ╭────────╮ ╭───────╮ ╭─────────╮
+ REPOGARDEN                                                    │ GARDEN │ │ SHELF │ │ JOURNAL │
+ where your repos live                                         ╰────────╯ ╰───────╯ ╰─────────╯
+
+ roots: ~/repos                                                            • 2 happy  ! 2 noisy
+ • pocket-cron                                                             branch main · 0d ago
+ ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+ ┃                                                                                            ┃
+ ┃            ·   ·              ·                              ·                             ┃
+ ┃                        ·           ·                               ·                       ┃
+ ┃                                      ·                                                     ┃
+ ┃                                          ·                     ·              ╭──────╮     ┃
+ ┃                            ·  ·                  ·                            │ ▄  ▄ │     ┃
+ ┃            ·        ·                                                         │▗▟▜▛▙▖│     ┃
+ ┃                                      ·                                      · │▄▟██▙▄│     ┃
+ ┃                           ✦                         ·                 *  ·    │  ▛▜  │     ┃
+ ┃    *    ·     *                               ·         ·        ·         ✧  ╰──────╯     ┃
+ ┃   ▄▄▄▄▄                 ·              ▄███▄                                pocket-cron    ┃
+ ┃  ▐█▙█▟█▌                              ▗▟▙█▟▙▖              █▄▄▄█                           ┃
+ ┃  ▝▀▐█▌▀▘                                                   ▐▛█▜▌                        ·  ┃
+ ┃    ▐ ▌    ·             *          habit-fossil           ▟█▜█▛█▙                          ┃
+ ┃                                                *                                 ⋆         ┃
+ ┃ moss-cms  +  ·  ✧      *            ⋆  *          ·      tidepool                          ┃
+ ┃                                                                                            ┃
+ ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+ ↑↓/jk pick · ↵ bench · o folder …
+```
+
+Each repo becomes a tiny pixel creature whose look reflects branch state, recency, and dirty files. Pick one and press `↵` to drop into a per-repo workbench.
+
 ## Requirements
 
 - Node 24+
