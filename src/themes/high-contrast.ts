@@ -50,5 +50,13 @@ export const highContrastTheme = createTheme({
     warning: "#FFFF00",
     warningForeground: "#000000",
   },
+  // Arcade — punchy primaries + cute pop colors. Max saturation + slightly
+  // higher lightness so creatures glow against the pure-black background.
+  creaturePalette: {
+    hues: [355, 10, 25, 45, 60, 90, 120, 155, 180, 205, 235, 265],
+    saturation: 0.95,
+    lightness: 0.62,
+    lightnessJitter: 0.05,
+  },
   name: "high-contrast",
 });

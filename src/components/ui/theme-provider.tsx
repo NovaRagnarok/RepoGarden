@@ -1,5 +1,6 @@
 import * as React from "react";
 
+import type { CreaturePalette } from "@/lib/sprite";
 import { defaultTheme } from "@/themes/default";
 
 type BorderStyle =
@@ -66,6 +67,9 @@ export interface Theme {
   spacing: SpacingTokens;
   typography: TypographyTokens;
   border: BorderTokens;
+  /** Optional creature palette override. When absent, pickSpriteColors
+   *  falls back to DEFAULT_CREATURE_PALETTE (arcade vibe). */
+  creaturePalette?: CreaturePalette;
 }
 
 export interface MotionContextValue {

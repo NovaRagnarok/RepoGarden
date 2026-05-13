@@ -34,14 +34,10 @@ export const CreatureSprite = ({
     () => generateCreature(creature.scan.path || creature.id, w, h),
     [creature.scan.path, creature.id, w, h]
   );
-  const { body } = pickSpriteColors(creature.scan.path || creature.id, {
-    primary: theme.colors.primary,
-    accent: theme.colors.accent,
-    success: theme.colors.success,
-    warning: theme.colors.warning,
-    error: theme.colors.error,
-    info: theme.colors.info
-  });
+  const { body } = pickSpriteColors(
+    creature.scan.path || creature.id,
+    theme.creaturePalette
+  );
 
   const lines: string[] = [];
   for (let cy = 0; cy < h; cy += 1) {

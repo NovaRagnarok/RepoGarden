@@ -30,6 +30,15 @@ export const gruvboxTheme: Theme = {
     warning: "#fabd2f",
     warningForeground: "#282828",
   },
+  // Warm earth — orange, mustard, olive, sage, terra, brick. Saturation
+  // pulled in and lightness lifted just enough to keep creatures readable
+  // against gruvbox's brown background without breaking the muted vibe.
+  creaturePalette: {
+    hues: [8, 22, 38, 52, 78, 110, 145, 175],
+    saturation: 0.62,
+    lightness: 0.58,
+    lightnessJitter: 0.05,
+  },
   name: "gruvbox",
   spacing: {
     0: 0,

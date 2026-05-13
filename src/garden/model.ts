@@ -197,14 +197,10 @@ const buildScene = (props: GardenSceneProps): GardenScene => {
       placement.tile.charW,
       placement.tile.charH
     );
-    const { body } = pickSpriteColors(creature.scan.path || creature.id, {
-      primary: props.theme.primary,
-      accent: props.theme.accent,
-      success: props.theme.success,
-      warning: props.theme.warning,
-      error: props.theme.error,
-      info: props.theme.info
-    });
+    const { body } = pickSpriteColors(
+      creature.scan.path || creature.id,
+      props.theme.creaturePalette
+    );
     const vibeColor =
       creature.vibe.vibe === "blocked"
         ? props.theme.error

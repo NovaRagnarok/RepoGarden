@@ -806,45 +806,50 @@ export const creatureCharSize = (
 
 // Each vibe picks one of these theme tokens as a "hue anchor"; the per-creature
 // hash then rotates around that anchor in HSL space so repos within the same
-// Arcade palette — 12 hand-picked hues at fixed saturation + lightness so
-// every creature reads as punchy and clean rather than dusty/muted. The
-// previous theme-anchored ± rotation approach drifted into mauve/dusty
-// zones any time a random hue jitter landed mid-band; this list skips
-// those zones entirely (270-340° excluded — the muddy purple/mauve range
-// the user flagged) and keeps neighbors well-spaced.
-const ARCADE_HUES: readonly number[] = [
-  355, // crimson
-  10,  // tomato red
-  25,  // orange
-  45,  // amber
-  60,  // yellow
-  90,  // lime
-  120, // grass green
-  155, // mint
-  180, // cyan
-  205, // sky blue
-  235, // royal blue
-  265  // electric violet
-];
-// Fixed saturation + lightness keeps the palette feeling cohesive. High sat
-// for arcade punch; lightness around 60% so colors pop on both dark and
-// light terminals without washing out.
-const ARCADE_SATURATION = 0.78;
-const ARCADE_LIGHTNESS = 0.6;
-const ARCADE_LIGHTNESS_JITTER = 0.06;
-
 export interface SpriteColors {
   body: string;
 }
 
-export interface SpriteThemeColors {
-  primary: string;
-  accent: string;
-  success: string;
-  warning: string;
-  error: string;
-  info: string;
+/** A theme's creature palette. Hues are picked deterministically per
+ *  creature id; saturation + lightness are constant within the palette
+ *  (with a tiny lightness jitter for variety) so the palette reads as
+ *  cohesive instead of randomly distributed. */
+export interface CreaturePalette {
+  /** Hue angles (0-359). One picked per identity. */
+  hues: readonly number[];
+  /** 0-1 — defaults to 0.78 (arcade punch). Drop toward 0.4 for muted
+   *  themes like rosepine / gruvbox. */
+  saturation?: number;
+  /** 0-1 — defaults to 0.6. Bump toward 0.7 for neon themes; drop toward
+   *  0.5 for darker themes. */
+  lightness?: number;
+  /** ± lightness jitter so two creatures landing on the same hue still
+   *  read as slightly distinct. Defaults to 0.06. */
+  lightnessJitter?: number;
 }
+
+/** Arcade default — punchy primaries + cute pop colors, dusty mauve band
+ *  (270-340°) deliberately absent. Themes that don't ship their own
+ *  creaturePalette fall back to this. */
+export const DEFAULT_CREATURE_PALETTE: CreaturePalette = {
+  hues: [
+    355, // crimson
+    10,  // tomato red
+    25,  // orange
+    45,  // amber
+    60,  // yellow
+    90,  // lime
+    120, // grass green
+    155, // mint
+    180, // cyan
+    205, // sky blue
+    235, // royal blue
+    265  // electric violet
+  ],
+  saturation: 0.78,
+  lightness: 0.6,
+  lightnessJitter: 0.06
+};
 
 const parseHexChannel = (hex: string, start: number): number =>
   Number.parseInt(hex.slice(start, start + 2), 16);
@@ -905,21 +910,20 @@ const rgbToHex = (r: number, g: number, b: number): string => {
   return `#${clamp(r)}${clamp(g)}${clamp(b)}`;
 };
 
-/* themeColors is accepted but intentionally unused — the arcade palette is
- * fixed in HSL space so colors stay consistent across themes. Kept on the
- * signature so callers don't need updating if we later let a theme inject a
- * custom palette. */
 export const pickSpriteColors = (
   identity: string,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _themeColors: SpriteThemeColors
+  palette: CreaturePalette = DEFAULT_CREATURE_PALETTE
 ): SpriteColors => {
+  const hues = palette.hues.length > 0 ? palette.hues : DEFAULT_CREATURE_PALETTE.hues;
+  const saturation = palette.saturation ?? DEFAULT_CREATURE_PALETTE.saturation!;
+  const lightness = palette.lightness ?? DEFAULT_CREATURE_PALETTE.lightness!;
+  const lightnessJitter = palette.lightnessJitter ?? DEFAULT_CREATURE_PALETTE.lightnessJitter!;
   const rng = mulberry32(hashString(`body:${identity}`));
-  const hue = ARCADE_HUES[Math.floor(rng() * ARCADE_HUES.length)] ?? ARCADE_HUES[0];
+  const hue = hues[Math.floor(rng() * hues.length)] ?? hues[0] ?? 0;
   // Tiny lightness jitter so two creatures landing on the same hue still
-  // read as slightly distinct without breaking the cohesive arcade feel.
-  const lightnessDelta = (rng() - 0.5) * 2 * ARCADE_LIGHTNESS_JITTER;
-  const lightness = Math.max(0.5, Math.min(0.72, ARCADE_LIGHTNESS + lightnessDelta));
-  const [r, g, b] = hslToRgb(hue, ARCADE_SATURATION, lightness);
+  // read as slightly distinct without breaking the cohesive palette feel.
+  const delta = (rng() - 0.5) * 2 * lightnessJitter;
+  const finalL = Math.max(0.4, Math.min(0.78, lightness + delta));
+  const [r, g, b] = hslToRgb(hue, saturation, finalL);
   return { body: rgbToHex(r, g, b) };
 };

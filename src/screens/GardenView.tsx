@@ -79,7 +79,8 @@ const GardenViewInner = ({
         success: theme.colors.success,
         warning: theme.colors.warning,
         error: theme.colors.error,
-        info: theme.colors.info
+        info: theme.colors.info,
+        creaturePalette: theme.creaturePalette
       })
     };
   }, [
@@ -104,7 +105,8 @@ const GardenViewInner = ({
     theme.colors.success,
     theme.colors.warning,
     theme.colors.error,
-    theme.colors.info
+    theme.colors.info,
+    theme.creaturePalette
   ]);
 
   const hasEngineProps = engineProps !== null;

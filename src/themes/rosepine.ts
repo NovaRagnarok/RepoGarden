@@ -30,6 +30,15 @@ export const rosepineTheme: Theme = {
     warning: "#f6c177",
     warningForeground: "#191724",
   },
+  // Dusty romance — soft roses, gold, pine, foam, iris. Rose Pine's whole
+  // identity is muted/dusty, so the creature palette leans into it: low
+  // saturation, lifted lightness for that soft-watercolour read.
+  creaturePalette: {
+    hues: [345, 2, 22, 38, 165, 195, 220, 260],
+    saturation: 0.52,
+    lightness: 0.7,
+    lightnessJitter: 0.05,
+  },
   name: "rosepine",
   spacing: {
     0: 0,

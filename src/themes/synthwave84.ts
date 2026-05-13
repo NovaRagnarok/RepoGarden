@@ -30,6 +30,15 @@ export const synthwave84Theme: Theme = {
     warning: "#fede5d",
     warningForeground: "#262335",
   },
+  // Vapor neon — hot pink, electric violet, cyan, magenta, with sunset
+  // amber and chartreuse for accents. Bright lightness so the colors
+  // glow against synthwave's deep purple background.
+  creaturePalette: {
+    hues: [180, 200, 220, 250, 275, 320, 340, 350, 35, 60],
+    saturation: 0.9,
+    lightness: 0.68,
+    lightnessJitter: 0.06,
+  },
   name: "synthwave84",
   spacing: {
     0: 0,

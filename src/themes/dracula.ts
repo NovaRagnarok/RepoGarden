@@ -33,6 +33,15 @@ export const draculaTheme: Theme = {
     warning: "#F1FA8C",
     warningForeground: "#282A36",
   },
+  // Dracula's signature neon — cyan, green, orange, hot pink, purple, red,
+  // yellow. The 325° hot pink lives in what we otherwise call the "mauve
+  // band", but at this saturation it reads as iconic dracula pink, not dust.
+  creaturePalette: {
+    hues: [0, 30, 63, 135, 190, 220, 260, 325],
+    saturation: 0.85,
+    lightness: 0.66,
+    lightnessJitter: 0.05,
+  },
   name: "dracula",
   spacing: {
     0: 0,

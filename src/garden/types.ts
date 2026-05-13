@@ -22,6 +22,9 @@ export interface GardenThemeColors {
   warning: string;
   error: string;
   info: string;
+  /** Carried through verbatim from Theme.creaturePalette so the engine can
+   *  pick body colors without re-importing the theme provider. */
+  creaturePalette?: import("@/lib/sprite").CreaturePalette;
 }
 
 export interface GardenSceneProps {
