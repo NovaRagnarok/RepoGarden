@@ -1,5 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
+import { useMotion } from "@/components/ui/theme-provider";
+
 import {
   fakeName as fakeNameImpl,
   redact as redactImpl,
@@ -10,7 +12,9 @@ import {
   demoNameFor,
   demoBranchFor,
   demoSubjectFor,
-  demoAuthorFor
+  demoAuthorFor,
+  setActiveDemoIds,
+  clearActiveDemoIds
 } from "@/lib/demo-roster";
 import { hashString } from "@/lib/sprite";
 import type { RepoCreature } from "@/lib/creature";
@@ -64,6 +68,7 @@ export const PrivacyProvider = ({
   children: React.ReactNode;
   initialMode?: PrivacyMode;
 }) => {
+  const { reduced } = useMotion();
   const [state, setState] = useState<PrivacyState>({
     mode: initialMode,
     scrambleStartedAt: null,
@@ -97,11 +102,13 @@ export const PrivacyProvider = ({
     return () => clearInterval(id);
   }, [state.scrambleStartedAt]);
 
-  const startScramble = useCallback(() => ({
-    scrambleStartedAt: Date.now(),
-    scrambleProgress: 0,
-    scrambleTick: 0
-  }), []);
+  // Reduced motion: skip the scramble animation entirely and land on the
+  // settled state immediately. Same destination, no in-between chaos frames.
+  const startScramble = useCallback(() => (
+    reduced
+      ? { scrambleStartedAt: null, scrambleProgress: 1, scrambleTick: 0 }
+      : { scrambleStartedAt: Date.now(), scrambleProgress: 0, scrambleTick: 0 }
+  ), [reduced]);
 
   const setMode = useCallback((next: PrivacyMode) => {
     setState((s) => (s.mode === next ? s : { mode: next, ...startScramble() }));
@@ -308,10 +315,24 @@ export const maskCreature = (creature: RepoCreature, opts: MaskOpts): RepoCreatu
 
 /** Returns the input array when privacy is off and not scrambling, or a
  *  fresh masked copy otherwise. Re-runs each tick during the scramble so
- *  consumers naturally see the chaotic phase. */
+ *  consumers naturally see the chaotic phase.
+ *
+ *  Side effect: when mode === "demo", registers the active id set with the
+ *  demo-roster module so per-id callers (maskName, maskPath, maskCreature)
+ *  resolve to the same without-replacement assignment — fixing #7. This
+ *  has to run during render (not in useEffect) so the first paint with a
+ *  populated creature list already uses the unique-name map instead of
+ *  falling back to the hash-modulo path. `setActiveDemoIds` is
+ *  fingerprinted internally so the call is cheap on the no-op path. */
 export const useMaskedCreatures = (creatures: RepoCreature[]): RepoCreature[] => {
   const { mode, _scrambling, _scrambleProgress, _scrambleTick } = useInternalPrivacy();
+  useEffect(() => () => clearActiveDemoIds(), []);
   return useMemo(() => {
+    if (mode === "demo") {
+      setActiveDemoIds(creatures.map((c) => c.id));
+    } else {
+      clearActiveDemoIds();
+    }
     if (mode === "off" && !_scrambling) return creatures;
     const opts: MaskOpts = {
       mode,

@@ -91,10 +91,54 @@ const pickFrom = <T,>(list: readonly T[], seed: number, salt: string): T => {
   return list[idx] as T;
 };
 
+// Without-replacement assignment of demo names across a known id set. Same
+// id set always yields the same id→name map; sort key is the id string
+// (paths are stable, so this is stable across renders). Cycles with a "-2",
+// "-3" suffix when the set exceeds the roster size — so 17 creatures still
+// get unique names.
+export const buildDemoNameMap = (
+  ids: readonly string[]
+): Map<string, string> => {
+  const sorted = [...new Set(ids)].sort();
+  const map = new Map<string, string>();
+  sorted.forEach((id, i) => {
+    const baseIdx = i % DEMO_NAMES.length;
+    const cycle = Math.floor(i / DEMO_NAMES.length);
+    const base = DEMO_NAMES[baseIdx] as string;
+    map.set(id, cycle === 0 ? base : `${base}-${cycle + 1}`);
+  });
+  return map;
+};
+
+// Module-level active id set. `useMaskedCreatures` refreshes this each time
+// it runs in demo mode so per-id callers (maskName, maskPath, maskCreature)
+// all resolve to the same without-replacement assignment without having to
+// thread the full list through every context callback.
+let activeDemoNameMap: Map<string, string> | null = null;
+let activeDemoFingerprint = "";
+
+export const setActiveDemoIds = (ids: readonly string[]): void => {
+  const fingerprint = [...new Set(ids)].sort().join("|");
+  if (fingerprint === activeDemoFingerprint && activeDemoNameMap) return;
+  activeDemoFingerprint = fingerprint;
+  activeDemoNameMap = buildDemoNameMap(ids);
+};
+
+export const clearActiveDemoIds = (): void => {
+  activeDemoFingerprint = "";
+  activeDemoNameMap = null;
+};
+
 /** Pick a believable demo name for any stable id. Stable: same id always
- *  picks the same name across renders. */
-export const demoNameFor = (id: string): string =>
-  pickFrom(DEMO_NAMES, hashString(`demo-name:${id}`), "n");
+ *  picks the same name across renders. When the caller has previously
+ *  registered the full id set via `setActiveDemoIds`, names are unique
+ *  within that set; otherwise we fall back to a hash-modulo pick (which can
+ *  collide on small rosters — see #7). */
+export const demoNameFor = (id: string): string => {
+  const fromMap = activeDemoNameMap?.get(id);
+  if (fromMap) return fromMap;
+  return pickFrom(DEMO_NAMES, hashString(`demo-name:${id}`), "n");
+};
 
 export const demoBranchFor = (id: string): string =>
   pickFrom(DEMO_BRANCHES, hashString(`demo-branch:${id}`), "b");

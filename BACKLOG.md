@@ -29,9 +29,9 @@ Open `npm run dev` from the repo root and the terminal should read like a little
 - better creature placement / overlap handling in `GardenView`
 - richer SHELF view grouping labels (active vibe-divider strings already exist; copy/affordance pass)
 - memory editing polish — better diff/feedback when notes/blocker/note-to-future-self change
-- workbench mode toggle keybinding — currently mouse-only. Candidates: `ctrl+1`/`ctrl+2`, `alt+p`/`alt+n`, or single cycle key like `ctrl+shift+m`. Avoid plain letters (eaten by the editor) and `ctrl+p` (already palette).
+<!-- workbench mode toggle keybinding — done: ctrl+1 selects portrait, ctrl+2 selects notes (see WorkbenchScreen.tsx, listed in HelpOverlay). -->
 - PORTRAIT scrollable container — content can exceed terminal height on short windows; currently clips via `overflow: hidden`. A scrollable Panel pattern would let users see all sections.
-- JOURNAL polish: swap 5s polling for `fs.watch` on `~/.repogarden/events.jsonl`; tune the vibe-changed phrasing (`blocked→happy` currently reads as `happy: clean` — could be `back in flow`); make PgDn/PgUp also advance selection so scrolling and selection stay linked.
+- JOURNAL polish: swap 5s polling for `fs.watch` on `~/.repogarden/events.jsonl`; tune the vibe-changed phrasing (`blocked→happy` currently reads as `happy: clean` — could be `back in flow`).
 
 ## Priority B
 - more creature sprite variants beyond the current procedural pool

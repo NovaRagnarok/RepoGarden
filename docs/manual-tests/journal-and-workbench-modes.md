@@ -35,8 +35,8 @@ a few commits between them.
    chart"`, not `commit abc1234`). No numeric aggregates or charts anywhere.
 3. Press `j/k` — the journal cursor (`▸`) advances row by row.
 4. Press `↑/↓` — the left repo picker changes scope without scrolling the journal rows.
-5. Press `PgDn` / `PgUp` — the viewport pages, but the cursor stays on its
-   original row (selection and scroll are intentionally decoupled; see BACKLOG).
+5. Press `PgDn` / `PgUp` — selection advances by roughly one page and the
+   viewport scrolls so the new cursor stays visible.
 6. Press `/`, type a fragment of a repo name or commit subject, press enter.
    The timeline filters to matches. Press `esc` or clear to remove the filter.
 7. Click a creature in the left sidebar. The timeline scopes to just that

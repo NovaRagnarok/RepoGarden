@@ -1,6 +1,6 @@
 import { Box, Text } from "ink";
 
-import { useTheme } from "@/components/ui/theme-provider";
+import { useMotion, useTheme } from "@/components/ui/theme-provider";
 import { useAnimation } from "@/hooks/use-animation";
 
 export interface SkeletonProps {
@@ -15,9 +15,13 @@ export const Skeleton = ({
   animated = true,
 }: SkeletonProps) => {
   const theme = useTheme();
+  const { reduced } = useMotion();
   const frame = useAnimation(4);
 
-  const offset = animated ? frame % (width + 6) : -1;
+  // Reduced motion: render the static dots field with no traveling shimmer
+  // band. Same shape, no movement.
+  const motionActive = animated && !reduced;
+  const offset = motionActive ? frame % (width + 6) : -1;
 
   const _buildRow = (): string => {
     let row = "";
@@ -29,7 +33,7 @@ export const Skeleton = ({
   };
 
   const rows = Array.from({ length: height }, (_, rowIndex) => {
-    const rowOffset = animated ? (frame + rowIndex * 2) % (width + 6) : -1;
+    const rowOffset = motionActive ? (frame + rowIndex * 2) % (width + 6) : -1;
     let row = "";
     for (let i = 0; i < width; i += 1) {
       const inHighlight = i >= rowOffset - 3 && i <= rowOffset + 3;
