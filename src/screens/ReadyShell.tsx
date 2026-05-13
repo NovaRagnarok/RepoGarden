@@ -1378,9 +1378,19 @@ export const ReadyShell = ({
           <Text bold color={theme.colors.foreground}>
             REPOGARDEN
           </Text>
-          <Text dimColor color={theme.colors.mutedForeground}>
-            where your repos live
-          </Text>
+          {/* Tagline row also carries the mask-mode indicator. The indicator
+              is appended (not swapped) so the row height stays constant
+              regardless of state — no viewport shift on toggle. */}
+          <Box flexDirection="row" gap={1}>
+            <Text dimColor color={theme.colors.mutedForeground}>
+              where your repos live
+            </Text>
+            {privacy.enabled ? (
+              <Text bold color={theme.colors.warning}>
+                [◐ mask]
+              </Text>
+            ) : null}
+          </Box>
         </Box>
         <Box
           marginTop={mode === "narrow" ? 1 : 0}
@@ -1437,15 +1447,9 @@ export const ReadyShell = ({
               <Pagination total={gardenPageCount} current={safeGardenPageIndex + 1} />
             </Box>
           ) : null}
-          {/* Mask mode indicator — strong signal that the names you're
-              looking at aren't the real ones. Hidden when off. */}
-          {!isRescanning && privacy.enabled ? (
-            <Box marginTop={0}>
-              <Text bold color={theme.colors.warning}>
-                ◐ mask
-              </Text>
-            </Box>
-          ) : null}
+          {/* Mask-mode indicator lives in the title tagline now (left
+              column) so toggling it doesn't shift the viewport — see the
+              tagline row above. */}
         </Box>
       </Box>
       {/* roots on the left, vibes on the right of the same row.
