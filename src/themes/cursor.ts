@@ -30,6 +30,14 @@ export const cursorTheme: Theme = {
     warning: "#f1b467",
     warningForeground: "#181818",
   },
+  // Cursor — nord-flavored cool palette: gray, blue, frost, sage. Muted
+  // saturation for the minimal-IDE feel.
+  creaturePalette: {
+    hues: [350, 25, 50, 100, 150, 195, 215, 250],
+    saturation: 0.5,
+    lightness: 0.68,
+    lightnessJitter: 0.05,
+  },
   name: "cursor",
   spacing: {
     0: 0,

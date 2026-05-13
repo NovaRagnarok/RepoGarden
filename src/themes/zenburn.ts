@@ -30,6 +30,14 @@ export const zenburnTheme: Theme = {
     warning: "#f0dfaf",
     warningForeground: "#3f3f3f",
   },
+  // Zenburn — peaceful muted brown-green. Low saturation, soft lightness;
+  // the herd should feel as restful as the theme.
+  creaturePalette: {
+    hues: [10, 30, 50, 80, 110, 145, 175, 200],
+    saturation: 0.4,
+    lightness: 0.65,
+    lightnessJitter: 0.05,
+  },
   name: "zenburn",
   spacing: {
     0: 0,

@@ -30,6 +30,14 @@ export const palenightTheme: Theme = {
     warning: "#ffcb6b",
     warningForeground: "#292d3e",
   },
+  // Palenight — muted purple/blue/cool. Pale and washed, like the theme's
+  // name promises.
+  creaturePalette: {
+    hues: [350, 20, 60, 145, 175, 200, 225, 250],
+    saturation: 0.55,
+    lightness: 0.7,
+    lightnessJitter: 0.05,
+  },
   name: "palenight",
   spacing: {
     0: 0,

@@ -33,6 +33,14 @@ export const monokaiTheme: Theme = {
     warning: "#E6DB74",
     warningForeground: "#272822",
   },
+  // Classic Monokai — vivid pink, orange, yellow, lime, cyan, violet
+  // against dark olive. Saturated and snappy.
+  creaturePalette: {
+    hues: [340, 25, 45, 60, 90, 175, 200, 270],
+    saturation: 0.85,
+    lightness: 0.62,
+    lightnessJitter: 0.05,
+  },
   name: "monokai",
   spacing: {
     0: 0,

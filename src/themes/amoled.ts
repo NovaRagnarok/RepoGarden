@@ -30,6 +30,15 @@ export const amoledTheme: Theme = {
     warning: "#ffea00",
     warningForeground: "#000000",
   },
+  // Vivid neon on pure black — slightly softer than high-contrast but
+  // similarly bright. Skips the dusty band since amoled has no use for
+  // muted tones.
+  creaturePalette: {
+    hues: [355, 10, 30, 50, 90, 130, 165, 195, 220, 260],
+    saturation: 0.9,
+    lightness: 0.66,
+    lightnessJitter: 0.05,
+  },
   name: "amoled",
   spacing: {
     0: 0,

@@ -30,6 +30,15 @@ export const auraTheme: Theme = {
     warning: "#ffca85",
     warningForeground: "#15141b",
   },
+  // Aurora glow — purple/pink/cyan/lime against deep indigo. Embraces the
+  // 290° purple that aura is named for despite our default ban; at this
+  // saturation it reads as proper aura, not dust.
+  creaturePalette: {
+    hues: [350, 290, 265, 230, 195, 165, 145, 70],
+    saturation: 0.78,
+    lightness: 0.7,
+    lightnessJitter: 0.05,
+  },
   name: "aura",
   spacing: {
     0: 0,

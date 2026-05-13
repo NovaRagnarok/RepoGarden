@@ -30,6 +30,14 @@ export const osakaJadeTheme: Theme = {
     warning: "#e5c736",
     warningForeground: "#111c18",
   },
+  // Osaka Jade — jade green dominant with complementary warm and cool
+  // accents. Heavy in greens to match the theme's signature.
+  creaturePalette: {
+    hues: [5, 30, 50, 100, 150, 170, 190, 215],
+    saturation: 0.65,
+    lightness: 0.6,
+    lightnessJitter: 0.05,
+  },
   name: "osaka-jade",
   spacing: {
     0: 0,

@@ -30,6 +30,14 @@ export const nightowlTheme: Theme = {
     warning: "#ecc48d",
     warningForeground: "#011627",
   },
+  // Night Owl — deep ocean blue with warm coral, peach, lemon and cool
+  // mint accents. Slightly lifted lightness for the glow against navy.
+  creaturePalette: {
+    hues: [355, 20, 45, 65, 110, 175, 205, 230],
+    saturation: 0.7,
+    lightness: 0.66,
+    lightnessJitter: 0.05,
+  },
   name: "nightowl",
   spacing: {
     0: 0,

@@ -30,6 +30,14 @@ export const materialTheme: Theme = {
     warning: "#ffcb6b",
     warningForeground: "#263238",
   },
+  // Material Design — broad saturated palette. Picks across the wheel,
+  // mid-light so colors pop without going neon.
+  creaturePalette: {
+    hues: [355, 0, 25, 45, 60, 90, 125, 175, 200, 220, 250, 290],
+    saturation: 0.78,
+    lightness: 0.65,
+    lightnessJitter: 0.05,
+  },
   name: "material",
   spacing: {
     0: 0,

@@ -30,6 +30,14 @@ export const githubTheme: Theme = {
     warning: "#e3b341",
     warningForeground: "#0d1117",
   },
+  // GitHub — clean modern blues/greens/reds with neutral lightness so
+  // creatures stay readable on both the light and dark variants.
+  creaturePalette: {
+    hues: [350, 25, 45, 110, 175, 205, 220, 250],
+    saturation: 0.65,
+    lightness: 0.6,
+    lightnessJitter: 0.05,
+  },
   name: "github",
   spacing: {
     0: 0,

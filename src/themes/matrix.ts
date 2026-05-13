@@ -30,6 +30,14 @@ export const matrixTheme: Theme = {
     warning: "#e6ff57",
     warningForeground: "#0a0e0a",
   },
+  // Matrix — variations on phosphor green. Narrow hue range so the herd
+  // feels like a digital rain of subtly-different green creatures.
+  creaturePalette: {
+    hues: [90, 105, 120, 135, 150, 165],
+    saturation: 0.9,
+    lightness: 0.55,
+    lightnessJitter: 0.07,
+  },
   name: "matrix",
   spacing: {
     0: 0,

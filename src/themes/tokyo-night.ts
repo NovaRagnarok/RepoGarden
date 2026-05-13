@@ -33,6 +33,14 @@ export const tokyoNightTheme: Theme = {
     warning: "#E0AF68",
     warningForeground: "#1A1B26",
   },
+  // Tokyo Night — deep navy with soft neon-tinged accents. Pink, peach,
+  // sage, cyan, periwinkle, lavender — the city's evening palette.
+  creaturePalette: {
+    hues: [350, 25, 45, 95, 175, 200, 220, 265],
+    saturation: 0.6,
+    lightness: 0.7,
+    lightnessJitter: 0.05,
+  },
   name: "tokyo-night",
   spacing: {
     0: 0,

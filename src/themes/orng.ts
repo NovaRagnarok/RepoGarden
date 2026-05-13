@@ -30,6 +30,13 @@ export const orngTheme: Theme = {
     warning: "#ec5b2b",
     warningForeground: "#0a0a0a",
   },
+  // Orng — orange-centric, similar to lucent-orng. Warm-dominant palette.
+  creaturePalette: {
+    hues: [5, 15, 25, 35, 50, 80, 165, 200],
+    saturation: 0.78,
+    lightness: 0.62,
+    lightnessJitter: 0.05,
+  },
   name: "orng",
   spacing: {
     0: 0,

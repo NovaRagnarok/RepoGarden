@@ -33,6 +33,15 @@ export const catppuccinTheme: Theme = {
     warning: "#F9E2AF",
     warningForeground: "#1E1E2E",
   },
+  // Catppuccin Mocha — warm pastels: pink, peach, amber, sage, sky,
+  // lavender. The 290° lavender lives inside our default banned band but
+  // is iconic to catppuccin; the soft saturation reads as 'flavour', not dust.
+  creaturePalette: {
+    hues: [345, 15, 35, 55, 110, 145, 175, 200, 220, 265, 290],
+    saturation: 0.55,
+    lightness: 0.74,
+    lightnessJitter: 0.04,
+  },
   name: "catppuccin",
   spacing: {
     0: 0,

@@ -30,6 +30,14 @@ export const carbonfoxTheme: Theme = {
     warning: "#f1c21b",
     warningForeground: "#393939",
   },
+  // IBM Carbon dark — vibrant magenta/blue/green/yellow accents on
+  // industrial gray. Modern punchy without losing legibility.
+  creaturePalette: {
+    hues: [355, 15, 50, 110, 150, 195, 220, 270],
+    saturation: 0.78,
+    lightness: 0.66,
+    lightnessJitter: 0.05,
+  },
   name: "carbonfox",
   spacing: {
     0: 0,

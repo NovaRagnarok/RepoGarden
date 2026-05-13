@@ -30,6 +30,15 @@ export const shadesofpurpleTheme: Theme = {
     warning: "#ffd580",
     warningForeground: "#1a102b",
   },
+  // Shades of Purple — deep purple bg with vivid hot pink, cyan, yellow,
+  // mint accents. The hot pink + electric violet are this theme's identity,
+  // so we lean into the 280-340° band our default avoids.
+  creaturePalette: {
+    hues: [325, 340, 0, 50, 110, 175, 205, 260, 290],
+    saturation: 0.85,
+    lightness: 0.68,
+    lightnessJitter: 0.05,
+  },
   name: "shadesofpurple",
   spacing: {
     0: 0,

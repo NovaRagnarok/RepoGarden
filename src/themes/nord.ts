@@ -33,6 +33,14 @@ export const nordTheme: Theme = {
     warning: "#EBCB8B",
     warningForeground: "#2E3440",
   },
+  // Nord — arctic palette: aurora pinks, frost blues, polar greens, snow.
+  // Low saturation for the nordic minimal-cool feel.
+  creaturePalette: {
+    hues: [350, 25, 45, 100, 150, 195, 215, 250],
+    saturation: 0.45,
+    lightness: 0.68,
+    lightnessJitter: 0.05,
+  },
   name: "nord",
   spacing: {
     0: 0,

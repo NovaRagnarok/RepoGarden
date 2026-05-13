@@ -30,6 +30,14 @@ export const catppuccinMacchiatoTheme: Theme = {
     warning: "#eed49f",
     warningForeground: "#24273a",
   },
+  // Catppuccin Macchiato — sits between Mocha and Frappé. Pastel but with
+  // slightly more body than Frappé.
+  creaturePalette: {
+    hues: [345, 15, 35, 55, 110, 145, 175, 200, 220, 265, 290],
+    saturation: 0.52,
+    lightness: 0.72,
+    lightnessJitter: 0.04,
+  },
   name: "catppuccin-macchiato",
   spacing: {
     0: 0,

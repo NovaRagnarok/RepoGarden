@@ -30,6 +30,13 @@ export const opencodeTheme: Theme = {
     warning: "#f5a742",
     warningForeground: "#0a0a0a",
   },
+  // Opencode — peach/coral primary with cool teal/purple accents.
+  creaturePalette: {
+    hues: [10, 25, 35, 60, 110, 170, 200, 260],
+    saturation: 0.7,
+    lightness: 0.65,
+    lightnessJitter: 0.05,
+  },
   name: "opencode",
   spacing: {
     0: 0,

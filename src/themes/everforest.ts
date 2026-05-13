@@ -30,6 +30,14 @@ export const everforestTheme: Theme = {
     warning: "#e69875",
     warningForeground: "#2d353b",
   },
+  // Everforest — mossy forest floor with autumn warmth. Sage, fern,
+  // amber, terra, dusty rose, sky-through-canopy.
+  creaturePalette: {
+    hues: [10, 25, 50, 80, 110, 135, 170, 200],
+    saturation: 0.5,
+    lightness: 0.6,
+    lightnessJitter: 0.05,
+  },
   name: "everforest",
   spacing: {
     0: 0,

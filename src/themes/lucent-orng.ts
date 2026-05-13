@@ -30,6 +30,14 @@ export const lucentOrngTheme: Theme = {
     warning: "#ec5b2b",
     warningForeground: "#2a1a15",
   },
+  // Lucent-orng — orange-centric warm dark. Mostly warm hues with a few
+  // cool accents so the herd has variation without breaking theme.
+  creaturePalette: {
+    hues: [5, 15, 25, 35, 50, 80, 165, 200],
+    saturation: 0.78,
+    lightness: 0.62,
+    lightnessJitter: 0.05,
+  },
   name: "lucent-orng",
   spacing: {
     0: 0,

@@ -30,6 +30,14 @@ export const catppuccinFrappeTheme: Theme = {
     warning: "#e5c890",
     warningForeground: "#303446",
   },
+  // Catppuccin Frappé — cooler take on the same pastel palette. Slightly
+  // lower saturation and lightness than Mocha for the chillier feel.
+  creaturePalette: {
+    hues: [345, 15, 35, 55, 110, 145, 175, 200, 220, 265, 290],
+    saturation: 0.5,
+    lightness: 0.7,
+    lightnessJitter: 0.04,
+  },
   name: "catppuccin-frappe",
   spacing: {
     0: 0,

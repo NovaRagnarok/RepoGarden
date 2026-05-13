@@ -33,6 +33,15 @@ export const oneDarkTheme: Theme = {
     warning: "#E5C07B",
     warningForeground: "#282C34",
   },
+  // One Dark — Atom classic: red, yellow, green, cyan, blue, violet.
+  // Iconic 290° violet kept despite the default ban; moderate saturation
+  // for that comfortable IDE palette feel.
+  creaturePalette: {
+    hues: [355, 20, 50, 95, 175, 205, 250, 290],
+    saturation: 0.6,
+    lightness: 0.62,
+    lightnessJitter: 0.05,
+  },
   name: "one-dark",
   spacing: {
     0: 0,

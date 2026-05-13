@@ -30,6 +30,14 @@ export const vercelTheme: Theme = {
     warning: "#ffb224",
     warningForeground: "#000000",
   },
+  // Vercel — minimal monochrome base with crisp accent hues: red, blue,
+  // purple, green. Saturated against the deep black for that brand-card pop.
+  creaturePalette: {
+    hues: [355, 5, 30, 100, 175, 205, 230, 260],
+    saturation: 0.75,
+    lightness: 0.6,
+    lightnessJitter: 0.05,
+  },
   name: "vercel",
   spacing: {
     0: 0,

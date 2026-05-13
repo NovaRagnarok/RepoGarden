@@ -33,6 +33,14 @@ export const solarizedTheme: Theme = {
     warning: "#B58900",
     warningForeground: "#FDF6E3",
   },
+  // Solarized — Ethan Schoonover's classic palette: sand, terracotta,
+  // olive, teal, violet, magenta. Distinctive muted-warm-cool balance.
+  creaturePalette: {
+    hues: [15, 45, 65, 80, 165, 195, 260, 340],
+    saturation: 0.55,
+    lightness: 0.6,
+    lightnessJitter: 0.05,
+  },
   name: "solarized",
   spacing: {
     0: 0,

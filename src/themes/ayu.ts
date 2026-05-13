@@ -30,6 +30,14 @@ export const ayuTheme: Theme = {
     warning: "#e4a75c",
     warningForeground: "#0f1419",
   },
+  // Ayu's signature: amber/coral on dark indigo, with sky and leaf accents.
+  // Saturation around 0.7 keeps colors warm but not garish.
+  creaturePalette: {
+    hues: [15, 30, 50, 110, 150, 195, 215, 350],
+    saturation: 0.72,
+    lightness: 0.62,
+    lightnessJitter: 0.05,
+  },
   name: "ayu",
   spacing: {
     0: 0,

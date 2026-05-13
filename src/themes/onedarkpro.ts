@@ -30,6 +30,14 @@ export const onedarkproTheme: Theme = {
     warning: "#e5c07b",
     warningForeground: "#1e222a",
   },
+  // One Dark Pro — same Atom-derived palette as one-dark, identical
+  // creature treatment.
+  creaturePalette: {
+    hues: [355, 20, 50, 95, 175, 205, 250, 290],
+    saturation: 0.6,
+    lightness: 0.62,
+    lightnessJitter: 0.05,
+  },
   name: "onedarkpro",
   spacing: {
     0: 0,

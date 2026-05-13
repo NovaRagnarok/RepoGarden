@@ -33,6 +33,14 @@ export const defaultTheme: Theme = {
     warning: "#F59E0B",
     warningForeground: "#000000",
   },
+  // Default — modern saturated palette across the wheel. Mid-bright,
+  // versatile, ships the same arcade hue list as the fallback.
+  creaturePalette: {
+    hues: [355, 10, 25, 45, 60, 90, 120, 155, 180, 205, 235, 265],
+    saturation: 0.78,
+    lightness: 0.6,
+    lightnessJitter: 0.06,
+  },
   name: "default",
   spacing: {
     0: 0,

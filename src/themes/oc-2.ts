@@ -30,6 +30,15 @@ export const oc2Theme: Theme = {
     warning: "#fcd53a",
     warningForeground: "#1f1f1f",
   },
+  // OC-2 — punchy modern: peach, pink, amber, lime, mint, cyan, violet.
+  // The 335° pink is iconic to this theme; we let it land outside our
+  // default ban because oc-2 owns that color.
+  creaturePalette: {
+    hues: [10, 25, 45, 60, 95, 145, 195, 230, 270, 335],
+    saturation: 0.78,
+    lightness: 0.66,
+    lightnessJitter: 0.05,
+  },
   name: "oc-2",
   spacing: {
     0: 0,

@@ -30,6 +30,14 @@ export const vesperTheme: Theme = {
     warning: "#ffc799",
     warningForeground: "#101010",
   },
+  // Vesper — warm-muted dark, gentle palette. Sand/peach/sage/sky, no
+  // shouting colors.
+  creaturePalette: {
+    hues: [10, 25, 40, 60, 90, 150, 180, 215],
+    saturation: 0.5,
+    lightness: 0.66,
+    lightnessJitter: 0.05,
+  },
   name: "vesper",
   spacing: {
     0: 0,

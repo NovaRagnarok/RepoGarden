@@ -30,6 +30,15 @@ export const cobalt2Theme: Theme = {
     warning: "#ffc600",
     warningForeground: "#193549",
   },
+  // Cobalt2 — deep blue background with vivid yellow/orange/pink/cyan
+  // accents. The signature hot pink lives at 325°, kept at high sat so it
+  // pops rather than dusts.
+  creaturePalette: {
+    hues: [325, 0, 25, 45, 60, 110, 175, 205, 235],
+    saturation: 0.9,
+    lightness: 0.62,
+    lightnessJitter: 0.05,
+  },
   name: "cobalt2",
   spacing: {
     0: 0,

@@ -30,6 +30,14 @@ export const kanagawaTheme: Theme = {
     warning: "#d7a657",
     warningForeground: "#1f1f28",
   },
+  // Kanagawa — Hokusai's wave: indigo, sumi ink, sakura, sand, jade.
+  // Muted saturation for the sumi-e wash feel.
+  creaturePalette: {
+    hues: [340, 15, 35, 65, 110, 145, 180, 215, 240],
+    saturation: 0.55,
+    lightness: 0.65,
+    lightnessJitter: 0.05,
+  },
   name: "kanagawa",
   spacing: {
     0: 0,

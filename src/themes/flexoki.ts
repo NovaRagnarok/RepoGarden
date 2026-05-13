@@ -30,6 +30,14 @@ export const flexokiTheme: Theme = {
     warning: "#da702c",
     warningForeground: "#100f0f",
   },
+  // Flexoki — ink on warm parchment. Earthy palette: terra, amber,
+  // mustard, olive, teal-ink, plum-ink. Muted but warm.
+  creaturePalette: {
+    hues: [10, 25, 40, 60, 80, 110, 175, 250],
+    saturation: 0.45,
+    lightness: 0.62,
+    lightnessJitter: 0.05,
+  },
   name: "flexoki",
   spacing: {
     0: 0,

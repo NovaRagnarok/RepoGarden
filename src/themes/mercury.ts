@@ -30,6 +30,14 @@ export const mercuryTheme: Theme = {
     warning: "#fc9b6f",
     warningForeground: "#171721",
   },
+  // Mercury — cool clean pastels: sky, teal, periwinkle, soft coral.
+  // Light/soft for the minimal-cool feel.
+  creaturePalette: {
+    hues: [350, 25, 60, 145, 175, 200, 220, 250],
+    saturation: 0.5,
+    lightness: 0.7,
+    lightnessJitter: 0.05,
+  },
   name: "mercury",
   spacing: {
     0: 0,
