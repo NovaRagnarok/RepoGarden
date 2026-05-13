@@ -94,6 +94,8 @@ const makeSprite = (placement: Placement): GardenSpriteInfo => ({
   charH: placement.tile.charRows,
   spriteCols: placement.tile.spriteCols,
   name: placement.tile.creature.scan.name,
+  vibeGlyph: "·",
+  vibeColor: "#888888",
   wiggle: { halfCycleMs: 1000, phaseMs: 0 }
 });
 

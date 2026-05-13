@@ -145,18 +145,14 @@ const SettingsPreview = ({
           sprite.charW,
           sprite.charH
         );
-        const { body } = pickSpriteColors(
-          sprite.identity,
-          sprite.vibe,
-          {
-            primary: theme.colors.primary,
-            accent: theme.colors.accent,
-            success: theme.colors.success,
-            warning: theme.colors.warning,
-            error: theme.colors.error,
-            info: theme.colors.info
-          }
-        );
+        const { body } = pickSpriteColors(sprite.identity, {
+          primary: theme.colors.primary,
+          accent: theme.colors.accent,
+          success: theme.colors.success,
+          warning: theme.colors.warning,
+          error: theme.colors.error,
+          info: theme.colors.info
+        });
         return {
           sprite,
           frameA,

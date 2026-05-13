@@ -21,7 +21,7 @@ import {
   mulberry32,
   pickSpriteColors
 } from "@/lib/sprite";
-import type { Vibe } from "@/lib/vibe";
+import { vibeGlyph, type Vibe } from "@/lib/vibe";
 
 import { sceneSeedForCreatures } from "@/garden/stars";
 import type {
@@ -197,18 +197,22 @@ const buildScene = (props: GardenSceneProps): GardenScene => {
       placement.tile.charW,
       placement.tile.charH
     );
-    const { body } = pickSpriteColors(
-      creature.scan.path || creature.id,
-      creature.vibe.vibe,
-      {
-        primary: props.theme.primary,
-        accent: props.theme.accent,
-        success: props.theme.success,
-        warning: props.theme.warning,
-        error: props.theme.error,
-        info: props.theme.info
-      }
-    );
+    const { body } = pickSpriteColors(creature.scan.path || creature.id, {
+      primary: props.theme.primary,
+      accent: props.theme.accent,
+      success: props.theme.success,
+      warning: props.theme.warning,
+      error: props.theme.error,
+      info: props.theme.info
+    });
+    const vibeColor =
+      creature.vibe.vibe === "blocked"
+        ? props.theme.error
+        : creature.vibe.vibe === "noisy"
+          ? props.theme.warning
+          : creature.vibe.vibe === "sleepy"
+            ? props.theme.info
+            : props.theme.success;
     sprites.set(creature.id, {
       frameA,
       frameB,
@@ -217,6 +221,8 @@ const buildScene = (props: GardenSceneProps): GardenScene => {
       charH: placement.tile.charH,
       spriteCols: placement.tile.spriteCols,
       name: creature.scan.name,
+      vibeGlyph: vibeGlyph(creature.vibe.vibe),
+      vibeColor,
       wiggle: buildWiggleProfile(creature.scan.path || creature.id, creature.vibe.vibe)
     });
   }

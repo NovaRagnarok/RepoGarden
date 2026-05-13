@@ -65,12 +65,16 @@ test("computeFocusFrameCells builds a closed box around the sprite", () => {
   assert.ok(tr.col > tl.col);
 });
 
-test("computeFocusFrameCells renders the full name on its own row below the box", () => {
+test("computeFocusFrameCells returns only box edges — the name is painted by the regular name pass", () => {
   const cells = computeFocusFrameCells(
     { tile: makeTile(0, "cat", 6, 4), x: 10, charY: 5 },
     { canvasW: 60, canvasH: 30 }
   );
-  // Box bottom is on row charY + charRows = 9; name row sits at 10.
+  // Box bottom is on row charY + charRows = 9; name row at 10 should have no
+  // focus-frame cells anymore.
+  const nameRowCells = cells.filter((c) => c.row === 10);
+  assert.equal(nameRowCells.length, 0);
+  // Box edges still rendered.
   const bottomRow = cells
     .filter((c) => c.row === 9)
     .sort((a, b) => a.col - b.col)
@@ -78,27 +82,7 @@ test("computeFocusFrameCells renders the full name on its own row below the box"
     .join("");
   assert.equal(bottomRow.startsWith("╰"), true);
   assert.equal(bottomRow.endsWith("╯"), true);
-  // Bottom edge no longer carries the name.
   assert.equal(bottomRow.includes("cat"), false);
-  const nameRow = cells
-    .filter((c) => c.row === 10)
-    .sort((a, b) => a.col - b.col)
-    .map((c) => c.char)
-    .join("");
-  assert.equal(nameRow, "cat");
-});
-
-test("computeFocusFrameCells keeps long names intact on the row below the box", () => {
-  const cells = computeFocusFrameCells(
-    { tile: makeTile(0, "GreenCardGuide", 6, 4), x: 10, charY: 5 },
-    { canvasW: 60, canvasH: 30 }
-  );
-  const nameRow = cells
-    .filter((c) => c.row === 10)
-    .sort((a, b) => a.col - b.col)
-    .map((c) => c.char)
-    .join("");
-  assert.equal(nameRow, "GreenCardGuide");
 });
 
 test("computeFocusFrameCells slides right when the box would clip the left edge", () => {

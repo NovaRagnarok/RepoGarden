@@ -74,6 +74,11 @@ export interface GardenSpriteInfo {
   charH: number;
   spriteCols: number;
   name: string;
+  /** Single-character vibe glyph painted just before the name strip in the
+   *  same colour as the sidebar's vibe dot. Carries the state signal that
+   *  used to live in the body colour. */
+  vibeGlyph: string;
+  vibeColor: string;
   wiggle: WiggleProfile;
 }
 

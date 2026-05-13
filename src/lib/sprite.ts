@@ -1,5 +1,4 @@
 import type { ScannedRepo } from "@/lib/scanner";
-import type { Vibe } from "@/lib/vibe";
 
 export type SubPixel = 0 | 1;
 export type SubMatrix = SubPixel[][];
@@ -807,16 +806,17 @@ export const creatureCharSize = (
 
 // Each vibe picks one of these theme tokens as a "hue anchor"; the per-creature
 // hash then rotates around that anchor in HSL space so repos within the same
-// vibe stay thematically related but remain visually distinct.
-const VIBE_ANCHOR_TOKENS: Record<
-  Vibe,
-  ReadonlyArray<keyof SpriteThemeColors>
-> = {
-  happy: ["success", "accent"],
-  noisy: ["warning", "accent"],
-  blocked: ["error", "warning"],
-  sleepy: ["info", "accent"]
-};
+// Every theme token contributes a base hue for the creature palette. Vibe no
+// longer steers body color — that signal lives on the name strip's vibe dot
+// instead — so we anchor on the full set and let identity pick freely.
+const BODY_ANCHOR_TOKENS: ReadonlyArray<keyof SpriteThemeColors> = [
+  "primary",
+  "accent",
+  "success",
+  "warning",
+  "error",
+  "info"
+];
 
 export interface SpriteColors {
   body: string;
@@ -892,26 +892,25 @@ const rgbToHex = (r: number, g: number, b: number): string => {
 
 export const pickSpriteColors = (
   identity: string,
-  vibe: Vibe,
   themeColors: SpriteThemeColors
 ): SpriteColors => {
-  // Two RNG draws total: one to choose the vibe anchor, the rest to jitter
-  // hue + lightness. mulberry32 + the existing identity hash keep this fully
-  // deterministic per (creature, vibe) pair, so a creature's color is stable
-  // until its vibe shifts.
-  const rng = mulberry32(hashString(`${identity}:${vibe}`));
-  const anchors = VIBE_ANCHOR_TOKENS[vibe];
-  const anchorToken = anchors[Math.floor(rng() * anchors.length)] ?? anchors[0];
+  // Color is now purely identity-derived — vibe shifts no longer churn a
+  // creature's body color. The palette spans every theme token plus a wide
+  // ±90° hue rotation so we get effectively the full color wheel from the
+  // 6 anchors, rather than the narrow per-vibe spread the old logic produced.
+  const rng = mulberry32(hashString(`body:${identity}`));
+  const anchorToken =
+    BODY_ANCHOR_TOKENS[Math.floor(rng() * BODY_ANCHOR_TOKENS.length)] ?? BODY_ANCHOR_TOKENS[0];
   const anchorHex = themeColors[anchorToken];
   const [ar, ag, ab] = hexToRgb(anchorHex);
   const [h, s, l] = rgbToHsl(ar, ag, ab);
-  // ±20° hue rotation around the anchor for per-creature variation; lightness
-  // jitter so even sprites landing on the same hue stay distinguishable.
-  // Saturation has a floor so muted-anchor themes (e.g., GitHub) still render
-  // legible bodies against the terminal background; lightness has a floor
-  // for the same reason (don't drop near-black on a dark terminal).
-  const hueDelta = (rng() - 0.5) * 40;
-  const lightnessDelta = (rng() - 0.5) * 0.12;
+  // Wider rotation than before (±90° vs ±20°) — each identity gets a hue
+  // far enough from its anchor that the resulting palette covers the wheel.
+  // Saturation has a floor so muted-anchor themes (e.g., GitHub) still
+  // render legible bodies; lightness has a floor for the same reason
+  // (don't drop near-black on a dark terminal).
+  const hueDelta = (rng() - 0.5) * 180;
+  const lightnessDelta = (rng() - 0.5) * 0.18;
   const finalH = h + hueDelta;
   const finalS = Math.max(0.45, Math.min(0.95, s));
   const finalL = Math.max(0.5, Math.min(0.72, l + lightnessDelta));

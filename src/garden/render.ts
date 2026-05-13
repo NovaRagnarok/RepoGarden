@@ -161,15 +161,31 @@ export const renderGardenFrame = (
     const info = model.scene.sprites.get(creature.id);
     if (!info) continue;
     const nameRow = visual.charY + info.charH + NAME_GAP_ROWS;
-    const nameStart = visual.x + Math.floor((info.spriteCols - info.name.length) / 2);
+    // Label is "<glyph> <space> <name>" — 2 cells of prefix carry the vibe
+    // signal that body color used to. Center the WHOLE label under the
+    // sprite so a single-char glyph doesn't pull the name off-center.
+    const labelLen = info.name.length + 2;
+    const labelStart = visual.x + Math.floor((info.spriteCols - labelLen) / 2);
+    const isFocused = placement.tile.index === model.props.focusIndex;
     const isHovered =
-      placement.tile.index === model.hoverIndex &&
-      placement.tile.index !== model.props.focusIndex;
-    const color = isHovered ? model.props.theme.accent : model.props.theme.foreground;
+      placement.tile.index === model.hoverIndex && !isFocused;
+    const nameColor = isFocused
+      ? model.props.theme.primary
+      : isHovered
+        ? model.props.theme.accent
+        : model.props.theme.foreground;
+    // Glyph keeps its vibe colour even when focused/hovered — it's a
+    // status signal, not a focus signal.
+    setCell(frame, labelStart, nameRow, {
+      char: info.vibeGlyph,
+      fg: info.vibeColor,
+      bold: true
+    });
     for (let i = 0; i < info.name.length; i += 1) {
-      setCell(frame, nameStart + i, nameRow, {
+      setCell(frame, labelStart + 2 + i, nameRow, {
         char: info.name[i],
-        fg: color
+        fg: nameColor,
+        bold: isFocused
       });
     }
   }

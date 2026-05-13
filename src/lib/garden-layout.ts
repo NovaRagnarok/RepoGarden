@@ -580,7 +580,6 @@ export const computeFocusFrameCells = (
 ): FocusFrameCell[] => {
   const { tile, x, charY } = placement;
   const spriteCols = tile.spriteCols;
-  const fullName = tile.creature.scan.name;
 
   // Box hugs the sprite tightly — 1 col of breathing room on each side and
   // the bottom edge lands on the empty `NAME_GAP_ROWS` row between sprite
@@ -592,7 +591,6 @@ export const computeFocusFrameCells = (
   const boxBottom = charY + tile.charRows;
 
   const canvasW = bounds?.canvasW ?? Number.POSITIVE_INFINITY;
-  const canvasH = bounds?.canvasH ?? Number.POSITIVE_INFINITY;
 
   if (bounds) {
     if (boxLeft < 0) {
@@ -607,14 +605,6 @@ export const computeFocusFrameCells = (
     }
     boxLeft = Math.max(0, boxLeft);
     boxRight = Math.min(bounds.canvasW - 1, boxRight);
-  }
-
-  // Truncate only when the canvas itself is too narrow to fit the full name.
-  const maxNameLen = Math.max(0, Math.floor(canvasW));
-  let displayName = fullName;
-  if (displayName.length > maxNameLen) {
-    displayName =
-      maxNameLen >= 2 ? displayName.slice(0, maxNameLen - 1) + "…" : "…";
   }
 
   const cells: FocusFrameCell[] = [];
@@ -634,21 +624,10 @@ export const computeFocusFrameCells = (
     const ch = c === boxLeft ? "╰" : c === boxRight ? "╯" : "─";
     cells.push({ row: boxBottom, col: c, char: ch, alwaysBold: false });
   }
-
-  // Name row sits one row below the box — the same row that holds the
-  // unfocused name, so picking a creature doesn't shift its label.
-  const nameRow = boxBottom + NAME_GAP_ROWS;
-  if (displayName.length > 0 && nameRow < canvasH) {
-    const boxWidth = boxRight - boxLeft + 1;
-    let nameStart = boxLeft + Math.floor((boxWidth - displayName.length) / 2);
-    const maxStart = Math.max(0, Math.floor(canvasW) - displayName.length);
-    nameStart = Math.max(0, Math.min(maxStart, nameStart));
-    for (let i = 0; i < displayName.length; i += 1) {
-      const c = nameStart + i;
-      if (c < 0 || c >= canvasW) continue;
-      cells.push({ row: nameRow, col: c, char: displayName[i], alwaysBold: true });
-    }
-  }
+  // Name + vibe glyph are painted by the regular name pass in render.ts so
+  // the focused state can keep the glyph in vibe colour while the name flips
+  // to primary+bold. Centering matches the unfocused state exactly — no
+  // 1-cell shift on focus.
 
   return cells;
 };
