@@ -410,9 +410,15 @@ const Root = () => {
     config.reducedMotion || isReducedMotion()
   );
 
+  // Demo mode for headless screenshot capture. Setting REPOGARDEN_DEMO=1
+  // boots straight into demo mode so the captured frame already shows
+  // believable repo names + commit subjects from the demo roster. The
+  // typed `demo` sequence in garden view is the interactive equivalent.
+  const demoBoot = process.env.REPOGARDEN_DEMO === "1" ? "demo" : "off";
+
   return (
     <ThemeProvider theme={activeTheme} reducedMotion={reducedMotion}>
-      <PrivacyProvider>
+      <PrivacyProvider initialMode={demoBoot}>
         <ToastProvider>
           <App
             initialThemeId={initialChoice.id}

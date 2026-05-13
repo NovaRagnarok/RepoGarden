@@ -98,6 +98,11 @@ export const ReadyShell = ({
   // creature consumer downstream sees the same masked version, so the engine
   // and sidebar render fake names without needing privacy awareness.
   const creatures = useMaskedCreatures(rawCreatures);
+  // Hidden trigger for demo mode: typing 'd','e','m','o' in sequence in the
+  // garden view toggles demo mode. Buffer the last few characters and reset
+  // when the next input would no longer be a prefix of "demo".
+  const demoSequenceRef = useRef<string>("");
+  const demoSequenceLastKeyRef = useRef<number | null>(null);
   // Action handlers (workbench, open folder, toggle hidden) need the real
   // underlying creature even while privacy is on — opening "~/▓▓▓" would just
   // fail. Resolve by id from the unmasked prop.
@@ -313,6 +318,34 @@ export const ReadyShell = ({
       // Let JournalView own event scrolling (j/k), detail toggles, kind/time
       // filters, and the workbench open shortcut.
       return;
+    }
+
+    // Hidden trigger: typing 'd','e','m','o' in sequence (within ~1.5s
+    // between keys) toggles demo mode. The buffer only advances when the
+    // input extends "demo" as a prefix, so a stray 'm' still toggles
+    // mask mode and a stray 'o' still opens the folder. When 'd' starts
+    // the sequence, subsequent matching keys are consumed (don't fire
+    // their normal bindings) so we don't accidentally open a folder mid-
+    // word. After the full sequence fires (or fails the prefix check)
+    // the buffer resets.
+    const DEMO_SEQUENCE = "demo";
+    const SEQUENCE_TIMEOUT_MS = 1500;
+    const sequenceNow = Date.now();
+    if (sequenceNow - (demoSequenceRef.current.length > 0 ? (demoSequenceLastKeyRef.current ?? 0) : sequenceNow) > SEQUENCE_TIMEOUT_MS) {
+      demoSequenceRef.current = "";
+    }
+    if (input.length === 1) {
+      const candidate = demoSequenceRef.current + input;
+      if (DEMO_SEQUENCE.startsWith(candidate)) {
+        demoSequenceRef.current = candidate;
+        demoSequenceLastKeyRef.current = sequenceNow;
+        if (candidate === DEMO_SEQUENCE) {
+          privacy.setMode(privacy.mode === "demo" ? "off" : "demo");
+          demoSequenceRef.current = "";
+        }
+        return;
+      }
+      demoSequenceRef.current = "";
     }
 
     // Sidebar navigation in garden/shelf. The "home" row sits above the
@@ -1114,8 +1147,9 @@ export const ReadyShell = ({
     const showVibeReason = !(focus.vibe.vibe === "blocked" && blocker);
 
     // scan.path on the focus is intentionally unmasked so the garden engine
-    // keeps stable sprite identity; redact for display only.
-    const path = privacy.maskText(tildify(focus.scan.path), "path");
+    // keeps stable sprite identity; redact (mask) or remap (demo) for display
+    // only.
+    const path = privacy.maskPath(tildify(focus.scan.path), focus.id);
 
     return (
       <Box
@@ -1268,7 +1302,7 @@ export const ReadyShell = ({
         paddingY={1}
         footer={
           <Text dimColor color={theme.colors.mutedForeground}>
-            {privacy.maskText(tildify(focus.scan.path), "path")}
+            {privacy.maskPath(tildify(focus.scan.path), focus.id)}
           </Text>
         }
       >

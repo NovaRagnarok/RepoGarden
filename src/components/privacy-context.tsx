@@ -6,37 +6,47 @@ import {
   scrambleName,
   type RedactKind
 } from "@/lib/privacy";
+import {
+  demoNameFor,
+  demoBranchFor,
+  demoSubjectFor,
+  demoAuthorFor
+} from "@/lib/demo-roster";
 import { hashString } from "@/lib/sprite";
 import type { RepoCreature } from "@/lib/creature";
 
-// How long the name-scramble lasts when the user toggles privacy. Long enough
-// to read as a deliberate transition (not a glitch), short enough that the
-// new state arrives before the user reaches for the next key.
+// How long the name-scramble lasts when mode flips. Long enough to read as a
+// deliberate transition (not a glitch), short enough that the new state
+// arrives before the user reaches for the next key.
 export const SCRAMBLE_DURATION_MS = 700;
 const SCRAMBLE_TICK_MS = 50;
 
+export type PrivacyMode = "off" | "mask" | "demo";
+
 interface PrivacyState {
-  enabled: boolean;
+  mode: PrivacyMode;
   /** Timestamp when the current scramble started, or null when settled. */
   scrambleStartedAt: number | null;
-  /** 0..1 progress of the current scramble. Meaningful only when
-   *  scrambleStartedAt !== null. */
   scrambleProgress: number;
-  /** Increments each interval tick so consumers re-render with fresh random
-   *  letters during the chaotic phase. */
   scrambleTick: number;
 }
 
 export interface PrivacyContextValue {
-  /** The user's most recent intent. Commits immediately on toggle even though
-   *  the visual scramble takes ~700 ms to complete. */
+  mode: PrivacyMode;
+  /** Convenience — true when mode !== "off". */
   enabled: boolean;
+  /** Toggles off ↔ mask. The user-facing `m` hotkey calls this. Demo mode
+   *  has a separate trigger and is exited via setMode("off"). */
   toggle: () => void;
-  setEnabled: (next: boolean) => void;
+  setMode: (next: PrivacyMode) => void;
   /** True while the name-scramble animation is mid-flight. */
   scrambling: boolean;
   maskName: (id: string, originalName: string) => string;
   maskText: (text: string, kind?: RedactKind) => string;
+  /** Returns the original path when mode is off, redacted when masking,
+   *  or a demo path `~/work/<demoName>` when in demo mode. The id arg
+   *  lets demo mode pick a stable demo name. */
+  maskPath: (originalPath: string, id: string) => string;
 }
 
 interface InternalContextValue extends PrivacyContextValue {
@@ -47,17 +57,23 @@ interface InternalContextValue extends PrivacyContextValue {
 
 const PrivacyContext = createContext<InternalContextValue | null>(null);
 
-export const PrivacyProvider = ({ children }: { children: React.ReactNode }) => {
+export const PrivacyProvider = ({
+  children,
+  initialMode = "off"
+}: {
+  children: React.ReactNode;
+  initialMode?: PrivacyMode;
+}) => {
   const [state, setState] = useState<PrivacyState>({
-    enabled: false,
+    mode: initialMode,
     scrambleStartedAt: null,
     scrambleProgress: 0,
     scrambleTick: 0
   });
 
-  // Drive the scramble animation. Each toggle bumps scrambleStartedAt, which
-  // restarts this effect — interrupting an in-flight animation immediately
-  // (the cleanup clears the old interval).
+  // Drive the scramble animation. Each mode change bumps scrambleStartedAt
+  // which restarts this effect — interrupting an in-flight animation
+  // immediately (the cleanup clears the old interval).
   useEffect(() => {
     if (state.scrambleStartedAt === null) return;
     const startedAt = state.scrambleStartedAt;
@@ -87,52 +103,97 @@ export const PrivacyProvider = ({ children }: { children: React.ReactNode }) => 
     scrambleTick: 0
   }), []);
 
-  const toggle = useCallback(() => {
-    setState((s) => ({ enabled: !s.enabled, ...startScramble() }));
+  const setMode = useCallback((next: PrivacyMode) => {
+    setState((s) => (s.mode === next ? s : { mode: next, ...startScramble() }));
   }, [startScramble]);
 
-  const setEnabled = useCallback((next: boolean) => {
-    setState((s) => (s.enabled === next ? s : { enabled: next, ...startScramble() }));
+  // Toggle is the user-facing m-hotkey path. Cycles off ↔ mask, leaving demo
+  // mode reachable only through the hidden triggers.
+  const toggle = useCallback(() => {
+    setState((s) => ({
+      mode: s.mode === "off" ? "mask" : "off",
+      ...startScramble()
+    }));
   }, [startScramble]);
 
   const scrambling = state.scrambleStartedAt !== null;
+  const enabled = state.mode !== "off";
+
+  const targetNameFor = (id: string, originalName: string): string => {
+    switch (state.mode) {
+      case "mask":
+        return fakeNameImpl(id);
+      case "demo":
+        return demoNameFor(id);
+      default:
+        return originalName;
+    }
+  };
 
   const maskName = useCallback(
     (id: string, originalName: string) => {
-      const target = state.enabled ? fakeNameImpl(id) : originalName;
+      const target = targetNameFor(id, originalName);
       if (!scrambling) return target;
-      // Vary seed across creatures (so they churn out of sync) and across
-      // ticks (so the random letters keep changing). Dividing tick by 2
-      // slows the churn slightly — at the raw 50 ms tick it reads as noise.
       const seed = hashString(`scramble:${id}:${Math.floor(state.scrambleTick / 2)}`);
       return scrambleName(target, state.scrambleProgress, seed);
     },
-    [state.enabled, scrambling, state.scrambleTick, state.scrambleProgress]
+    [state.mode, scrambling, state.scrambleTick, state.scrambleProgress]
   );
 
   const maskText = useCallback(
-    (text: string, kind?: RedactKind) => (state.enabled ? redactImpl(text, kind) : text),
-    [state.enabled]
+    (text: string, kind?: RedactKind) => {
+      if (state.mode === "off") return text;
+      if (state.mode === "demo") {
+        // Demo mode renders plausible content via maskCreature; this helper
+        // is only invoked by display sites that have a raw text string with
+        // no creature handle. Best we can do is leave it real (it's already
+        // demo-friendly when the demoified creature flows through).
+        return text;
+      }
+      return redactImpl(text, kind);
+    },
+    [state.mode]
+  );
+
+  const maskPath = useCallback(
+    (originalPath: string, id: string) => {
+      if (state.mode === "off") return originalPath;
+      if (state.mode === "demo") return `~/work/${demoNameFor(id)}`;
+      return redactImpl(originalPath, "path");
+    },
+    [state.mode]
   );
 
   const value = useMemo<InternalContextValue>(
     () => ({
-      enabled: state.enabled,
+      mode: state.mode,
+      enabled,
       toggle,
-      setEnabled,
+      setMode,
       scrambling,
       maskName,
       maskText,
+      maskPath,
       _scrambleProgress: state.scrambleProgress,
       _scrambleTick: state.scrambleTick,
       _scrambling: scrambling
     }),
-    [state.enabled, toggle, setEnabled, scrambling, maskName, maskText, state.scrambleProgress, state.scrambleTick]
+    [
+      state.mode,
+      enabled,
+      toggle,
+      setMode,
+      scrambling,
+      maskName,
+      maskText,
+      maskPath,
+      state.scrambleProgress,
+      state.scrambleTick
+    ]
   );
   return <PrivacyContext.Provider value={value}>{children}</PrivacyContext.Provider>;
 };
 
-/** Throws if used outside a PrivacyProvider — same contract as useTheme. */
 export const usePrivacy = (): PrivacyContextValue => {
   const ctx = useContext(PrivacyContext);
   if (!ctx) throw new Error("usePrivacy must be used inside <PrivacyProvider>");
@@ -146,7 +207,7 @@ const useInternalPrivacy = (): InternalContextValue => {
 };
 
 interface MaskOpts {
-  enabled: boolean;
+  mode: PrivacyMode;
   scramble?: { progress: number; tick: number };
 }
 
@@ -154,7 +215,12 @@ interface MaskOpts {
  *  the calling hook supplies fresh opts each tick during scramble so output
  *  changes per frame. */
 export const maskCreature = (creature: RepoCreature, opts: MaskOpts): RepoCreature => {
-  const targetName = opts.enabled ? fakeNameImpl(creature.id) : creature.scan.name;
+  const targetName =
+    opts.mode === "mask"
+      ? fakeNameImpl(creature.id)
+      : opts.mode === "demo"
+        ? demoNameFor(creature.id)
+        : creature.scan.name;
   const displayName = opts.scramble
     ? scrambleName(
         targetName,
@@ -163,25 +229,50 @@ export const maskCreature = (creature: RepoCreature, opts: MaskOpts): RepoCreatu
       )
     : targetName;
 
-  // Disabled + no scramble: pass-through.
-  if (!opts.enabled && !opts.scramble) return creature;
+  // Off + no scramble: pass-through.
+  if (opts.mode === "off" && !opts.scramble) return creature;
 
-  // Disabled mid-scramble (transitioning OFF): keep every real field but
-  // show the animated name on its way back to the real value.
-  if (!opts.enabled) {
+  // Off mid-scramble (transitioning back to off): keep real fields, animate
+  // the name back to its real value.
+  if (opts.mode === "off") {
+    return { ...creature, scan: { ...creature.scan, name: displayName } };
+  }
+
+  // Demo mode: swap names + branches + commit subjects + authors with plausible
+  // demo content keyed off the creature id. scan.path stays real for sprite
+  // identity (engine uses path || id); display sites that show the path call
+  // maskPath separately.
+  if (opts.mode === "demo") {
     return {
       ...creature,
-      scan: { ...creature.scan, name: displayName }
+      scan: {
+        ...creature.scan,
+        name: displayName,
+        branch: demoBranchFor(creature.id),
+        lastCommitSubject: demoSubjectFor(creature.id),
+        recentCommits: creature.scan.recentCommits?.map((c, idx) => ({
+          ...c,
+          subject: demoSubjectFor(`${creature.id}:${idx}`),
+          author: demoAuthorFor(`${creature.id}:${idx}`)
+        })),
+        dirtyChanges: undefined,
+        dirtyFiles: undefined
+      },
+      memory: {
+        ...creature.memory,
+        // Demo mode wipes notes/blockers since they're highly likely to be
+        // private. We deliberately don't generate plausible fake notes —
+        // that'd risk a screenshot looking like advice the user wrote.
+        noteToFutureSelf: undefined,
+        currentBlocker: undefined
+      }
     };
   }
 
-  // Enabled (with or without scramble): full mask. NOTE: scan.path stays
-  // unmasked because the garden engine derives sprite identity (frames +
-  // body color + wiggle) from creature.scan.path || creature.id — redacting
-  // it would collapse every masked creature to the same shape and palette,
-  // which defeats the visual continuity we want across the toggle. The path
-  // is masked at the two visible display sites (focus card + compact detail)
-  // by calling privacy.maskText directly.
+  // Mask mode: full redaction with the same scan.path-preservation rationale
+  // as before. scan.path stays unmasked because the garden engine derives
+  // sprite identity from creature.scan.path || creature.id — redacting it
+  // would collapse every masked creature to the same shape and palette.
   return {
     ...creature,
     scan: {
@@ -219,13 +310,13 @@ export const maskCreature = (creature: RepoCreature, opts: MaskOpts): RepoCreatu
  *  fresh masked copy otherwise. Re-runs each tick during the scramble so
  *  consumers naturally see the chaotic phase. */
 export const useMaskedCreatures = (creatures: RepoCreature[]): RepoCreature[] => {
-  const { enabled, _scrambling, _scrambleProgress, _scrambleTick } = useInternalPrivacy();
+  const { mode, _scrambling, _scrambleProgress, _scrambleTick } = useInternalPrivacy();
   return useMemo(() => {
-    if (!enabled && !_scrambling) return creatures;
+    if (mode === "off" && !_scrambling) return creatures;
     const opts: MaskOpts = {
-      enabled,
+      mode,
       scramble: _scrambling ? { progress: _scrambleProgress, tick: _scrambleTick } : undefined
     };
     return creatures.map((c) => maskCreature(c, opts));
-  }, [creatures, enabled, _scrambling, _scrambleProgress, _scrambleTick]);
+  }, [creatures, mode, _scrambling, _scrambleProgress, _scrambleTick]);
 };

@@ -30,7 +30,8 @@ import {
   starAtCell
 } from "@/garden/stars";
 import { wiggleFrameAt } from "@/garden/model";
-import type { Vibe } from "@/lib/vibe";
+import { vibeGlyph, type Vibe } from "@/lib/vibe";
+import { DEMO_NAMES, demoVibeFor } from "@/lib/demo-roster";
 
 export interface SettingsScreenProps {
   currentThemeId: string;
@@ -63,23 +64,73 @@ interface PreviewCell {
 
 interface PreviewSprite {
   identity: string;
+  name: string;
   vibe: Vibe;
+  /** Top-left of the sprite cells, inside the preview canvas. */
   x: number;
   y: number;
   charW: number;
   charH: number;
+  /** Row where the vibe glyph + name label paints (sprite bottom + 1). */
+  labelRow: number;
+  /** Column where the label starts (centered to sprite under-width). */
+  labelStart: number;
+  labelText: string;
 }
 
+// Lay out as many creatures as fit in the preview canvas, in a 4-wide x 3-tall
+// sprite grid with a single label row beneath each. Each entry is sourced from
+// the demo roster so a theme swap shows the full palette spread + every vibe
+// glyph at once — the previous 2-sprite preview wasn't enough garden to read
+// the theme's character.
 const buildPreviewSprites = (innerW: number, innerH: number): PreviewSprite[] => {
   const charW = 4;
   const charH = 3;
-  const topY = Math.max(0, Math.floor((Math.min(4, innerH) - charH) / 2));
-  const leftX = Math.max(1, Math.floor(innerW * 0.22) - Math.floor(charW / 2));
-  const rightX = Math.max(leftX + charW + 2, Math.floor(innerW * 0.72) - Math.floor(charW / 2));
-  return [
-    { identity: "preview-bell", vibe: "happy", x: leftX, y: topY, charW, charH },
-    { identity: "preview-moth", vibe: "sleepy", x: rightX, y: topY, charW, charH }
-  ];
+  // Each creature occupies charH + 1 (label) rows of vertical space. We need
+  // one row of starfield padding on top so creatures don't crowd the panel
+  // header. Each column needs charW cells; we pad columns by 3 cells so the
+  // labels have breathing room.
+  const colSpacing = 3;
+  const colWidth = charW + colSpacing;
+  const rowSpacing = 2;
+  const rowHeight = charH + 1 + rowSpacing;
+  const topPad = 1;
+  const cols = Math.max(1, Math.floor((innerW - 1) / colWidth));
+  const rows = Math.max(1, Math.floor((innerH - topPad) / rowHeight));
+  const count = Math.min(DEMO_NAMES.length, cols * rows);
+  // Centre the grid horizontally so leftover cells distribute evenly on both
+  // sides — keeps the preview from feeling left-anchored on wide panels.
+  const usedW = cols * charW + (cols - 1) * colSpacing;
+  const leftOffset = Math.max(0, Math.floor((innerW - usedW) / 2));
+  const sprites: PreviewSprite[] = [];
+  for (let i = 0; i < count; i += 1) {
+    const r = Math.floor(i / cols);
+    const c = i % cols;
+    const x = leftOffset + c * colWidth;
+    const y = topPad + r * rowHeight;
+    const name = DEMO_NAMES[i] as string;
+    const identity = `demo:${name}`;
+    // Label is "<glyph> <space> <truncated-name>" — same shape as the real
+    // garden's name strip. Truncate name so the label never exceeds the
+    // column width.
+    const maxNameLen = Math.max(2, colWidth - 2);
+    const shortName = name.length > maxNameLen ? `${name.slice(0, maxNameLen - 1)}…` : name;
+    const labelText = shortName;
+    const labelStart = x + Math.floor((charW - labelText.length) / 2);
+    sprites.push({
+      identity,
+      name,
+      vibe: demoVibeFor(identity),
+      x,
+      y,
+      charW,
+      charH,
+      labelRow: y + charH,
+      labelStart,
+      labelText
+    });
+  }
+  return sprites;
 };
 
 const renderRow = (cells: PreviewCell[], key: number): React.ReactNode => {
@@ -165,11 +216,13 @@ const SettingsPreview = ({
     ]
   );
 
-  const swatchRows = innerH >= 6 ? 2 : innerH >= 4 ? 1 : 0;
-  const skyRows = Math.max(2, innerH - swatchRows - (swatchRows > 0 ? 1 : 0));
-
+  // Whole preview canvas is treated as one continuous scene: starfield
+  // background + sprite grid + vibe-glyph-and-name labels. The previous
+  // swatch rows are gone — the creature bodies already showcase the palette
+  // and the vibe glyphs the four vibe accent colors, so the swatch grid was
+  // duplicating signal that the herd already carries.
   const cells: PreviewCell[][] = [];
-  for (let y = 0; y < skyRows; y += 1) {
+  for (let y = 0; y < innerH; y += 1) {
     const row: PreviewCell[] = [];
     for (let x = 0; x < innerW; x += 1) {
       const star = starAtCell(sceneSeed, x, y);
@@ -182,6 +235,18 @@ const SettingsPreview = ({
     }
     cells.push(row);
   }
+  const vibeColor = (v: Vibe): string => {
+    switch (v) {
+      case "blocked":
+        return theme.colors.error;
+      case "noisy":
+        return theme.colors.warning;
+      case "sleepy":
+        return theme.colors.info;
+      default:
+        return theme.colors.success;
+    }
+  };
   for (const { sprite, frameA, frameB, body, wiggle } of spriteFrames) {
     const useFrameB = !reducedMotion && wiggleFrameAt(wiggle, now) === 1;
     const frame = useFrameB ? frameB : frameA;
@@ -189,7 +254,7 @@ const SettingsPreview = ({
       for (let cx = 0; cx < sprite.charW; cx += 1) {
         const targetY = sprite.y + cy;
         const targetX = sprite.x + cx;
-        if (targetY < 0 || targetY >= skyRows) continue;
+        if (targetY < 0 || targetY >= innerH) continue;
         if (targetX < 0 || targetX >= innerW) continue;
         const sy = cy * SUB_PER_CELL;
         const sx = cx * SUB_PER_CELL;
@@ -201,53 +266,30 @@ const SettingsPreview = ({
         cells[targetY][targetX] = { char: quadrantChar(tl, tr, bl, br), fg: body };
       }
     }
-  }
-
-  const swatchPicks: { label: string; color: string }[][] = [
-    [
-      { label: "primary", color: theme.colors.primary },
-      { label: "accent", color: theme.colors.accent },
-      { label: "success", color: theme.colors.success },
-      { label: "warning", color: theme.colors.warning }
-    ],
-    [
-      { label: "error", color: theme.colors.error },
-      { label: "info", color: theme.colors.info },
-      { label: "fg", color: theme.colors.foreground },
-      { label: "muted", color: theme.colors.mutedForeground }
-    ]
-  ];
-  const swatchBlock = "███";
-  if (swatchRows > 0) {
-    cells.push(
-      Array.from({ length: innerW }, () => ({ char: " ", fg: theme.colors.background }))
-    );
-    for (let r = 0; r < swatchRows; r += 1) {
-      const picks = swatchPicks[r] ?? [];
-      const row: PreviewCell[] = [];
-      let consumedW = 0;
-      const between = 1;
-      for (const pick of picks) {
-        const segment = `${pick.label} ${swatchBlock}`;
-        if (consumedW + segment.length + (consumedW > 0 ? between : 0) > innerW) break;
-        if (consumedW > 0) {
-          for (let i = 0; i < between; i += 1) {
-            row.push({ char: " ", fg: theme.colors.background });
-          }
-          consumedW += between;
-        }
-        for (const ch of `${pick.label} `) {
-          row.push({ char: ch, fg: theme.colors.mutedForeground });
-        }
-        for (const ch of swatchBlock) {
-          row.push({ char: ch, fg: pick.color });
-        }
-        consumedW += segment.length;
+    // Vibe glyph painted at the left edge of the sprite column on the label
+    // row; name truncated to fit centered beneath the sprite. Mirrors the
+    // real garden's "<glyph> <name>" treatment so the preview reads as a
+    // shrunken garden, not a separate UI.
+    if (sprite.labelRow >= 0 && sprite.labelRow < innerH) {
+      const glyphCol = sprite.x;
+      if (glyphCol >= 0 && glyphCol < innerW) {
+        cells[sprite.labelRow][glyphCol] = {
+          char: vibeGlyph(sprite.vibe),
+          fg: vibeColor(sprite.vibe),
+          bold: true
+        };
       }
-      while (row.length < innerW) {
-        row.push({ char: " ", fg: theme.colors.background });
+      for (let i = 0; i < sprite.labelText.length; i += 1) {
+        const col = sprite.labelStart + i;
+        if (col < 0 || col >= innerW) continue;
+        // Don't overwrite the glyph cell if the centered label happened to
+        // align with it.
+        if (col === glyphCol) continue;
+        cells[sprite.labelRow][col] = {
+          char: sprite.labelText[i] as string,
+          fg: theme.colors.foreground
+        };
       }
-      cells.push(row);
     }
   }
 
