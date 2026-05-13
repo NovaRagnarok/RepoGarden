@@ -40,8 +40,8 @@ jobs:
       - name: npm pack
         run: |
           npm pack --pack-destination .
-          ls -l repogarden-tui-*.tgz
+          ls -l outsideheaven-repogarden-*.tgz
       - name: install tarball globally
-        run: npm install -g ./repogarden-tui-*.tgz
+        run: npm install -g ./outsideheaven-repogarden-*.tgz
       - name: verify bin works
-        run: repogarden-tui --help
+        run: repogarden --help
