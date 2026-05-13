@@ -175,14 +175,19 @@ export const maskCreature = (creature: RepoCreature, opts: MaskOpts): RepoCreatu
     };
   }
 
-  // Enabled (with or without scramble): full mask.
+  // Enabled (with or without scramble): full mask. NOTE: scan.path stays
+  // unmasked because the garden engine derives sprite identity (frames +
+  // body color + wiggle) from creature.scan.path || creature.id — redacting
+  // it would collapse every masked creature to the same shape and palette,
+  // which defeats the visual continuity we want across the toggle. The path
+  // is masked at the two visible display sites (focus card + compact detail)
+  // by calling privacy.maskText directly.
   return {
     ...creature,
     scan: {
       ...creature.scan,
       name: displayName,
       branch: creature.scan.branch ? redactImpl(creature.scan.branch, "branch") : creature.scan.branch,
-      path: creature.scan.path ? redactImpl(creature.scan.path, "path") : creature.scan.path,
       lastCommitSubject: creature.scan.lastCommitSubject
         ? redactImpl(creature.scan.lastCommitSubject, "subject")
         : creature.scan.lastCommitSubject,

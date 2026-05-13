@@ -1113,7 +1113,9 @@ export const ReadyShell = ({
     // skip the reason line to avoid a back-to-back duplicate.
     const showVibeReason = !(focus.vibe.vibe === "blocked" && blocker);
 
-    const path = tildify(focus.scan.path);
+    // scan.path on the focus is intentionally unmasked so the garden engine
+    // keeps stable sprite identity; redact for display only.
+    const path = privacy.maskText(tildify(focus.scan.path), "path");
 
     return (
       <Box
@@ -1266,7 +1268,7 @@ export const ReadyShell = ({
         paddingY={1}
         footer={
           <Text dimColor color={theme.colors.mutedForeground}>
-            {tildify(focus.scan.path)}
+            {privacy.maskText(tildify(focus.scan.path), "path")}
           </Text>
         }
       >
