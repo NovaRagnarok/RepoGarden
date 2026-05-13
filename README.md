@@ -13,7 +13,7 @@ repogarden
 
 ## Preview
 
-![RepoGarden TUI — four pixel-art repo creatures in a starry habitat](docs/images/preview.png)
+![RepoGarden TUI — a starry habitat populated with pixel-art repo creatures in assorted colors, a sidebar listing each one, and a focus card showing the selected repo's details](docs/images/preview.png)
 
 Each repo becomes a tiny pixel creature whose look reflects branch state, recency, and dirty files. Pick one and press `↵` to drop into a per-repo workbench.
 
@@ -46,7 +46,7 @@ Each repo becomes a tiny pixel creature whose look reflects branch state, recenc
  ┃   ╰───────╯               ·                                             ·           *      ┃
  ┃                                                                                            ┃
  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
- ↑↓ move · ↵ open · / filter · g view · s settings · ? help · q quit                 RepoGarden
+ ↑↓ move · ↵ open · / filter · g view · s settings · ? help · q quit               ★ RepoGarden
 ```
 
 </details>
