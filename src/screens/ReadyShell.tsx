@@ -275,7 +275,7 @@ export const ReadyShell = ({
         onEditRoots();
         return;
       }
-      if (input === "P") {
+      if (input === "m") {
         privacy.toggle();
         return;
       }
@@ -384,10 +384,9 @@ export const ReadyShell = ({
       onEditRoots();
       return;
     }
-    // Capital P — privacy toggle. Distinct from lowercase p (edit roots) since
-    // Ink passes the literal character. Journal mode has its own copy of this
-    // handler higher up since it owns its own key-routing branch.
-    if (input === "P") {
+    // 'm' for mask. Journal mode has its own copy of this handler higher up
+    // since it owns its own key-routing branch.
+    if (input === "m") {
       privacy.toggle();
       return;
     }
@@ -1436,12 +1435,12 @@ export const ReadyShell = ({
               <Pagination total={gardenPageCount} current={safeGardenPageIndex + 1} />
             </Box>
           ) : null}
-          {/* Privacy mode indicator — strong signal that the names you're
+          {/* Mask mode indicator — strong signal that the names you're
               looking at aren't the real ones. Hidden when off. */}
           {!isRescanning && privacy.enabled ? (
             <Box marginTop={0}>
               <Text bold color={theme.colors.warning}>
-                ◐ private
+                ◐ mask
               </Text>
             </Box>
           ) : null}
