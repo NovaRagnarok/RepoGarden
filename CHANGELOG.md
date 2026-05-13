@@ -1,0 +1,35 @@
+# Changelog
+
+All notable changes to RepoGarden land here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows [SemVer](https://semver.org/spec/v2.0.0.html). Earlier history lives in `git log`.
+
+## [0.3.0] — 2026-05-13
+
+### Added
+
+- macOS-friendly **focus-event recovery**: the TUI now listens for xterm focus events (mode 1004) and, on focus-in, defensively releases the DEC 2026 Synchronized Update Mode bracket the kernel can leave half-open across a Space swipe. Fixes the "fullscreen terminal froze after swiping to another Space" symptom.
+- Quiet **npm update check** on startup. Hits `registry.npmjs.org` once per launch, cached for 24h under `~/.repogarden/update-check.json`. Surfaces a single info toast when a newer version is published — never blocks boot, never modifies the install. Opt out with `REPOGARDEN_NO_UPDATE_CHECK=1`; auto-skipped in demo mode and on CI.
+- In-app **first-run privacy notice**: two dim lines on the onboarding screen noting that scans stay local and that `~/.repogarden` is safe to delete.
+- Animated **README demo GIF**, reproducible from `tape/demo.tape` via `vhs`. Boot → onboarding → garden → shelf → journal, ending on the garden for a clean loop.
+- README **"First 5 minutes"** walkthrough using real key bindings sourced from the help overlay.
+- Expanded `--help` text covering env vars (`REPOGARDEN_DISABLE_USAGE`, `REPOGARDEN_NO_UPDATE_CHECK`, `REPOGARDEN_DEMO`, `NO_MOTION`), requirements, data path, and reset.
+- New PR template with a habitat-first check and a typecheck/test/build/manual-smoke list.
+
+### Fixed
+
+- **macOS Space-swipe freeze** (#8): fullscreen terminal swiping to another Space and back left the TUI visually frozen until relaunch. Root cause was the synchronized-update bracket landing without its matching close after a mid-write process suspension.
+
+### Changed
+
+- "Alpha" → "early beta" across `README.md`, `SECURITY.md`, and `--help`. Supported-versions table now tracks `0.2.x → 0.3.x` instead of the stale `0.1.x`.
+- `REPOGARDEN_DISABLE_USAGE` examples now show both installed (`repogarden`) and from-source (`npm run dev`) forms side by side.
+- Bug-report template asks for TUI-specific context: which screen, terminal size, install method, and whether `REPOGARDEN_DISABLE_USAGE=1` changes the symptom.
+- `CONTRIBUTING.md` gained a short "Good first issues" pointer to the labeled tracker.
+- Journal manual-test doc synced with `j/k` cursor and arrow-driven repo-picker behavior.
+
+### Internal
+
+- New module `src/lib/focus.ts` (focus-event parser, mirrors `mouse.ts`).
+- New module `src/lib/update-check.ts` (pure logic, injectable I/O).
+- 8 new tests for focus parsing, 13 new tests for update-check. Test count: 247 → 268.
+- Tape scripts under `tape/` regenerate the README GIF deterministically against an isolated `/tmp/repogarden-demo-home`.
+- Five new issue labels: `journal`, `workbench`, `accessibility`, `privacy`, `demo`, `friend-alpha`, `macos`.
