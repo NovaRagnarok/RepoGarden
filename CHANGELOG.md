@@ -2,6 +2,18 @@
 
 All notable changes to RepoGarden land here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows [SemVer](https://semver.org/spec/v2.0.0.html). Earlier history lives in `git log`.
 
+## [0.3.3] — 2026-05-13
+
+### Added
+
+- **Journal updates land via `fs.watch`** (#1). New writes to `~/.repogarden/events.jsonl` now propagate in ~100 ms instead of waiting up to 5 s. A 30 s safety-net poll still runs so updates arrive on filesystems where `fs.watch` is unreliable (network mounts, some WSL-mounted Windows paths).
+- **Persistent usage-bar disable toggle** (#5). New `u` keypress in Settings flips `usageBarDisabled` in `~/.repogarden/tui.json`; `useUsage` short-circuits on it (no credential reads, no network). `REPOGARDEN_DISABLE_USAGE=1` still wins for single-run launches.
+- **PORTRAIT pages with PgUp/PgDn** (#4). Long actions / notes / activity / changes / commits lists no longer clip off the bottom of short terminals. Each list section paginates by its slice limit (the same one `d` toggles), and shows a dim "showing N–M of T · PgUp/PgDn to scroll" indicator when more remains.
+
+### Internal
+
+- Test count: 280 → 283. New helpers `sectionPageSize` and `sectionItemCount` in `src/lib/portrait.ts`; new `subscribeToEventsFile` in `src/lib/events.ts`.
+
 ## [0.3.2] — 2026-05-13
 
 ### Fixed
