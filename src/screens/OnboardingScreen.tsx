@@ -115,6 +115,15 @@ export const OnboardingScreen = ({
               <Text>3. open the folder and do one small thing</Text>
               <Text>4. come back later and pick up the trail</Text>
             </Box>
+
+            <Box flexDirection="column" paddingBottom={1}>
+              <Text dimColor color={theme.colors.mutedForeground}>
+                stays local · reads only the folders you give it
+              </Text>
+              <Text dimColor color={theme.colors.mutedForeground}>
+                app state lives in ~/.repogarden · safe to delete
+              </Text>
+            </Box>
           </>
         ) : null}
 
