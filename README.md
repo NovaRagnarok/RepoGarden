@@ -27,9 +27,9 @@ repogarden
 
 ## Preview
 
-![RepoGarden TUI — a starry habitat populated with pixel-art repo creatures in assorted colors, a sidebar listing each one, and a focus card showing the selected repo's details](docs/images/preview.png)
+![RepoGarden TUI — onboarding, then a starry habitat fills with pixel-art repo creatures, then cycles through shelf and journal views](docs/images/demo.gif)
 
-Each repo becomes a tiny pixel creature whose look reflects branch state, recency, and dirty files. Pick one and press `↵` to drop into a per-repo workbench.
+Each repo becomes a tiny pixel creature whose look reflects branch state, recency, and dirty files. Pick one and press `↵` to drop into a per-repo workbench. (Regenerate the recording with `vhs tape/demo.tape` — see [`tape/README.md`](tape/README.md).)
 
 <details>
 <summary>ASCII version (regenerable from <code>scripts/tui-observe.sh</code>)</summary>
