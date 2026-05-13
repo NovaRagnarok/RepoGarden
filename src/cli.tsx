@@ -29,7 +29,7 @@ import { loadConfig, updateConfig } from "@/lib/config";
 import { scanRootsProgressive, type ScannedRepo, type RootProgress } from "@/lib/scanner";
 import { buildCreature, enrichScans, refreshCreaturesLight, type RepoCreature } from "@/lib/creature";
 import { loadMemory, saveMemory, type ProjectMemory } from "@/lib/memory";
-import { CLI_HELP_TEXT, hasHelpFlag } from "@/lib/cli-help";
+import { CLI_HELP_TEXT, hasHelpFlag, hasVersionFlag } from "@/lib/cli-help";
 import { checkForUpdate, readCurrentVersion } from "@/lib/update-check";
 
 type Phase = "booting" | "onboarding" | "ready" | "settings" | "workbench" | "help" | "edit-roots";
@@ -485,7 +485,14 @@ const LEAVE_ALT = "\x1b[?25h\x1b[?1049l";
 const BSU = "\x1b[?2026h";
 const ESU = "\x1b[?2026l";
 
-if (hasHelpFlag(process.argv.slice(2))) {
+const cliArgs = process.argv.slice(2);
+
+if (hasVersionFlag(cliArgs)) {
+  console.log(`repogarden ${readCurrentVersion()}`);
+  process.exit(0);
+}
+
+if (hasHelpFlag(cliArgs)) {
   console.log(CLI_HELP_TEXT);
   process.exit(0);
 }

@@ -2,6 +2,12 @@
 
 All notable changes to RepoGarden land here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows [SemVer](https://semver.org/spec/v2.0.0.html). Earlier history lives in `git log`.
 
+## [0.3.1] — 2026-05-13
+
+### Added
+
+- `repogarden --version` (alias `-v`) prints the running package version and exits.
+
 ## [0.3.0] — 2026-05-13
 
 ### Added

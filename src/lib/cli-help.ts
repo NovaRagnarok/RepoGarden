@@ -3,8 +3,9 @@ export const CLI_HELP_TEXT = `RepoGarden
 A local terminal habitat for your git repos. (early beta)
 
 Usage:
-  repogarden          launch the TUI
-  repogarden --help   show this text
+  repogarden            launch the TUI
+  repogarden --help     show this text
+  repogarden --version  print version and exit
 
 Environment:
   REPOGARDEN_DISABLE_USAGE=1     hide the Claude/Codex usage bar
@@ -28,3 +29,6 @@ More: https://github.com/NovaRagnarok/RepoGarden`;
 
 export const hasHelpFlag = (args: string[]): boolean =>
   args.includes("--help") || args.includes("-h");
+
+export const hasVersionFlag = (args: string[]): boolean =>
+  args.includes("--version") || args.includes("-v");
