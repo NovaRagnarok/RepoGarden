@@ -307,13 +307,26 @@ export const gardenPageCapacity = (
   topRightDeadZone?: { width: number; height: number }
 ): number => {
   const usableW = Math.max(PAGE_SLOT_W, canvasW - 1);
-  const usableH = Math.max(PAGE_SLOT_H, canvasH - SKY_ROWS - GROUND_ROWS);
+  // Match placeCreatures: reserve the name strip at the bottom so capacity
+  // math agrees with what the placer actually accepts. Without this match
+  // pagination would pack the last row tight and the placer would reject
+  // those slots, forcing overlap-packing — the exact thing pagination is
+  // here to prevent.
+  const nameReserve = NAME_GAP_ROWS + NAME_H;
+  const usableH = Math.max(PAGE_SLOT_H, canvasH - SKY_ROWS - GROUND_ROWS - nameReserve);
   const cols = Math.max(1, Math.floor(usableW / PAGE_SLOT_W));
   const rows = Math.max(1, Math.floor(usableH / PAGE_SLOT_H));
   const grid = cols * rows;
   let blocked = 0;
   if (deadZone) {
-    blocked += slotsBlockedByZone(deadZone.width, deadZone.height, PAGE_SLOT_W, PAGE_SLOT_H, cols, rows);
+    blocked += slotsBlockedByZone(
+      deadZone.width,
+      deadZone.height + nameReserve,
+      PAGE_SLOT_W,
+      PAGE_SLOT_H,
+      cols,
+      rows
+    );
   }
   if (topRightDeadZone) {
     blocked += slotsBlockedByZone(
@@ -403,7 +416,12 @@ export const placeCreatures = (
   const minSlotH = maxSpriteRows + SLOT_PAD_Y;
 
   const usableW = Math.max(minSlotW, canvasW - 1);
-  const usableH = Math.max(minSlotH, canvasH - SKY_ROWS - GROUND_ROWS);
+  // Reserve enough rows at the bottom for the name strip beneath every
+  // sprite (NAME_GAP_ROWS + NAME_H). Without this the lowest row of sprites
+  // pushes its name row into the GROUND row — the name silently clips
+  // against the panel's content edge.
+  const NAME_RESERVE = NAME_GAP_ROWS + NAME_H;
+  const usableH = Math.max(minSlotH, canvasH - SKY_ROWS - GROUND_ROWS - NAME_RESERVE);
   const maxGridCols = Math.max(1, Math.floor(usableW / minSlotW));
   const maxGridRows = Math.max(1, Math.floor(usableH / minSlotH));
   const maxGridCapacity = maxGridCols * maxGridRows;
@@ -453,7 +471,12 @@ export const placeCreatures = (
       const slotRight = gridLeft + (c + 1) * slotW;
       const slotTop = gridTop + r * slotH;
       const slotBottom = gridTop + (r + 1) * slotH;
-      if (deadZone && slotRight > deadLeft && slotBottom > deadTop) continue;
+      // Extend the bottom by NAME_RESERVE when testing against the focus
+      // card — the name row sits below the sprite footprint and the
+      // unextended check let names paint into the card's territory where
+      // the overlay then covered them.
+      const slotBottomWithName = slotBottom + NAME_RESERVE;
+      if (deadZone && slotRight > deadLeft && slotBottomWithName > deadTop) continue;
       if (topRightDeadZone && slotRight > trLeft && slotTop < trBottom) continue;
       slots.push({ row: r, col: c, x: slotX, y: slotY, width: slotW, height: slotH });
     }
