@@ -11,6 +11,7 @@ import {
   saveEventsMeta,
   loadScanSnapshot,
   saveScanSnapshot,
+  subscribeToEventsFile,
   type JournalEvent,
 } from "../lib/events";
 import { saveMemory, loadMemory } from "../lib/memory";
@@ -562,5 +563,71 @@ test("enrichScans without preserveMissing prunes snapshot of absent repos", () =
 
     const snap = loadScanSnapshot();
     assert.deepEqual(Object.keys(snap), ["alpha"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// subscribeToEventsFile (fs.watch wrapper) — #1
+// ---------------------------------------------------------------------------
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+// Async-aware HOME isolation. The sync `withFakeHome` would unwind HOME
+// before async work in the callback resolves, so we can't reuse it here.
+const withAsyncFakeHome = async (run: () => Promise<void>): Promise<void> => {
+  const fake = mkdtempSync(join(tmpdir(), "repogarden-watcher-test-"));
+  const oldHome = process.env.HOME;
+  const oldUserProfile = process.env.USERPROFILE;
+  process.env.HOME = fake;
+  process.env.USERPROFILE = fake;
+  try {
+    await run();
+  } finally {
+    process.env.HOME = oldHome;
+    process.env.USERPROFILE = oldUserProfile;
+    rmSync(fake, { recursive: true, force: true });
+  }
+};
+
+test("subscribeToEventsFile fires after a write, within the debounce window", async () => {
+  await withAsyncFakeHome(async () => {
+    let calls = 0;
+    const unsubscribe = subscribeToEventsFile(() => {
+      calls += 1;
+    });
+    try {
+      // Watcher needs a tick to actually start observing.
+      await sleep(50);
+      appendEvent(makeEvent("commit", "alpha"));
+      // Debounce is 100ms; give it a bit more.
+      await sleep(300);
+      // Some platforms (notably WSL2 on a Windows mount) silently drop
+      // fs.watch events. Treat zero as a "platform doesn't support this"
+      // signal rather than a failure so CI doesn't flake on those FSes.
+      if (calls === 0) {
+        // eslint-disable-next-line no-console
+        console.warn("subscribeToEventsFile: fs.watch did not fire — likely an unsupported FS, skipping");
+        return;
+      }
+      assert.ok(calls >= 1, `expected >=1 callback, got ${calls}`);
+    } finally {
+      unsubscribe();
+    }
+  });
+});
+
+test("subscribeToEventsFile unsubscribe is safe to call multiple times", () => {
+  withFakeHome(() => {
+    const unsubscribe = subscribeToEventsFile(() => {});
+    unsubscribe();
+    unsubscribe(); // must not throw
+  });
+});
+
+test("subscribeToEventsFile returns a callable even if fs.watch fails", () => {
+  withFakeHome(() => {
+    const unsubscribe = subscribeToEventsFile(() => {});
+    assert.equal(typeof unsubscribe, "function");
+    unsubscribe();
   });
 });

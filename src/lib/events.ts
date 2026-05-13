@@ -5,6 +5,7 @@ import {
   readFileSync,
   renameSync,
   unlinkSync,
+  watch,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -243,6 +244,69 @@ export const readEvents = (opts: ReadEventsOptions = {}): JournalEvent[] => {
   return opts.limit !== undefined && opts.limit > 0
     ? events.slice(0, opts.limit)
     : events;
+};
+
+// ---------------------------------------------------------------------------
+// File-change subscription
+// ---------------------------------------------------------------------------
+
+const WATCHER_DEBOUNCE_MS = 100;
+
+/**
+ * Subscribe to changes on the events.jsonl file via `fs.watch`. The callback
+ * fires after a short debounce (which absorbs the multi-event chatter
+ * appendFileSync triggers on macOS FSEvents and gives the writer time to
+ * flush).
+ *
+ * Watches the parent directory rather than the file directly so a missing
+ * file (first-launch / post-reset) still resolves once it appears. Falls
+ * back silently when fs.watch is unsupported (network mounts, some WSL
+ * paths, certain VM-mounted filesystems) — callers should keep a slow
+ * safety-net poll so updates still arrive in those environments.
+ *
+ * Returns an unsubscribe function. Always safe to call.
+ */
+export const subscribeToEventsFile = (onChange: () => void): (() => void) => {
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let watcher: ReturnType<typeof watch> | null = null;
+  let closed = false;
+
+  const fire = () => {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null;
+      if (!closed) onChange();
+    }, WATCHER_DEBOUNCE_MS);
+  };
+
+  try {
+    ensureGlobalDir();
+    watcher = watch(globalDir(), (_eventType, filename) => {
+      // `filename` is null on some platforms; treat that as "definitely
+      // possibly relevant" rather than dropping the event.
+      if (filename === null || filename === "events.jsonl") {
+        fire();
+      }
+    });
+    watcher.on("error", () => {
+      try { watcher?.close(); } catch { /* already closed */ }
+      watcher = null;
+    });
+  } catch {
+    // fs.watch isn't supported here. Caller's safety-net poll covers us.
+  }
+
+  return () => {
+    closed = true;
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+      debounceTimer = null;
+    }
+    if (watcher) {
+      try { watcher.close(); } catch { /* already closed */ }
+      watcher = null;
+    }
+  };
 };
 
 // ---------------------------------------------------------------------------

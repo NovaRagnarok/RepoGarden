@@ -1,14 +1,17 @@
 /**
- * use-events.ts — React hook that reads JournalEvents from disk and
- * re-polls every 5 seconds. Filtering is intentionally light here; the
- * Journal screen owns richer UI filters so it can switch scope/range/kind
- * without re-reading from disk.
+ * use-events.ts — React hook that reads JournalEvents from disk. Updates
+ * land via fs.watch (~100 ms after a write); a slow safety-net poll keeps
+ * things fresh on filesystems where fs.watch can't fire (network mounts,
+ * some WSL paths). Filtering is intentionally light here; the Journal
+ * screen owns richer UI filters so it can switch scope/range/kind without
+ * re-reading from disk.
  */
 
 import { useEffect, useState } from "react";
 
 import {
   readEvents,
+  subscribeToEventsFile,
   type JournalEvent,
   type JournalEventKind,
 } from "@/lib/events";
@@ -63,10 +66,19 @@ export const useEvents = (opts?: UseEventsOptions): JournalEvent[] => {
     };
 
     tick();
-    const id = setInterval(tick, 5_000);
+    // Primary update path: fs.watch on the events file fires within ~100ms
+    // of a write. Falls back to a no-op subscription on filesystems that
+    // don't support it; the safety-net poll below covers that case.
+    const unsubscribe = subscribeToEventsFile(tick);
+    // Safety-net poll, much slower than the old 5s tick. Mostly redundant
+    // when fs.watch is working; the load comes from caller-driven actions
+    // (note save, blocker add, etc.) which already re-render this hook
+    // via dep changes anyway.
+    const id = setInterval(tick, 30_000);
     return () => {
       cancelled = true;
       clearInterval(id);
+      unsubscribe();
     };
   }, [enabled, repoId, limit, kindsKey]);
 
