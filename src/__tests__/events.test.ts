@@ -24,11 +24,14 @@ import type { ScannedRepo } from "../lib/scanner";
 const withFakeHome = (run: (home: string) => void) => {
   const fake = mkdtempSync(join(tmpdir(), "repogarden-events-test-"));
   const oldHome = process.env.HOME;
+  const oldUserProfile = process.env.USERPROFILE;
   process.env.HOME = fake;
+  process.env.USERPROFILE = fake;
   try {
     run(fake);
   } finally {
     process.env.HOME = oldHome;
+    process.env.USERPROFILE = oldUserProfile;
     rmSync(fake, { recursive: true, force: true });
   }
 };

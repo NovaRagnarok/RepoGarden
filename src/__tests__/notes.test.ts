@@ -29,11 +29,14 @@ import { loadMemory } from "../lib/memory";
 const withFakeHome = (run: () => void) => {
   const fake = mkdtempSync(join(tmpdir(), "repogarden-home-notes-"));
   const oldHome = process.env.HOME;
+  const oldUserProfile = process.env.USERPROFILE;
   process.env.HOME = fake;
+  process.env.USERPROFILE = fake;
   try {
     run();
   } finally {
     process.env.HOME = oldHome;
+    process.env.USERPROFILE = oldUserProfile;
     rmSync(fake, { recursive: true, force: true });
   }
 };
