@@ -30,6 +30,7 @@ const shortcuts: Shortcut[] = [
   { key: "d", description: "journal: toggle event details", category: "garden" },
   { key: "ctrl+1 / ctrl+2", description: "switch portrait / notes mode", category: "workbench" },
   { key: "1-6 / ←→", description: "portrait: change section", category: "workbench" },
+  { key: "PgUp / PgDn", description: "portrait: scroll list section", category: "workbench" },
   { key: "a / v", description: "portrait: actions / overview", category: "workbench" },
   { key: "↵ / d", description: "portrait: follow action / details", category: "workbench" },
   { key: "n", description: "portrait: open notes", category: "workbench" },

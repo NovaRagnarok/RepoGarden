@@ -40,7 +40,9 @@ import {
   buildPortraitModel,
   cyclePortraitSection,
   PORTRAIT_SECTIONS,
+  sectionItemCount,
   sectionLabel,
+  sectionPageSize,
   type PortraitModel,
   type PortraitSectionId,
   type PortraitSeverity,
@@ -99,6 +101,12 @@ export const WorkbenchScreen = ({ creature, onClose, usageBarDisabled = false }:
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [portraitSectionIndex, setPortraitSectionIndex] = useState(0);
   const [portraitDetailsOpen, setPortraitDetailsOpen] = useState(false);
+  // Within-section scroll offset for the active PORTRAIT section. Reset to
+  // 0 whenever the active section changes (or detailsOpen flips and the
+  // page size shrinks) so each visit starts at the top. PgUp/PgDn page
+  // through; #4 — workbench portrait would otherwise clip its tail on
+  // short terminals with long dirty-file or commit lists.
+  const [portraitScrollOffset, setPortraitScrollOffset] = useState(0);
   const [portraitEvents, setPortraitEvents] = useState<JournalEvent[]>(() =>
     readEvents({ repoId: creature.id, limit: 40 })
   );
@@ -132,6 +140,10 @@ export const WorkbenchScreen = ({ creature, onClose, usageBarDisabled = false }:
     () => buildPortraitModel(creature, notes, portraitEvents),
     [creature, notes, portraitEvents]
   );
+
+  useEffect(() => {
+    setPortraitScrollOffset(0);
+  }, [portraitSection, portraitDetailsOpen]);
 
   const fullWidth = Math.max(20, columns - 2);
 
@@ -580,6 +592,22 @@ export const WorkbenchScreen = ({ creature, onClose, usageBarDisabled = false }:
         setPortraitDetailsOpen((value) => !value);
         return;
       }
+      if (key.pageDown) {
+        const pageSize = sectionPageSize(portraitSection, portraitDetailsOpen);
+        const total = sectionItemCount(portraitSection, portraitModel, creature);
+        if (pageSize > 0 && total > pageSize) {
+          const maxOffset = Math.max(0, total - pageSize);
+          setPortraitScrollOffset((offset) => Math.min(maxOffset, offset + pageSize));
+        }
+        return;
+      }
+      if (key.pageUp) {
+        const pageSize = sectionPageSize(portraitSection, portraitDetailsOpen);
+        if (pageSize > 0) {
+          setPortraitScrollOffset((offset) => Math.max(0, offset - pageSize));
+        }
+        return;
+      }
       if (input === "n") {
         switchMode("notes");
         return;
@@ -996,6 +1024,7 @@ export const WorkbenchScreen = ({ creature, onClose, usageBarDisabled = false }:
           model={portraitModel}
           activeSection={portraitSection}
           detailsOpen={portraitDetailsOpen}
+          scrollOffset={portraitScrollOffset}
           status={uiMode.kind === "status" ? uiMode : undefined}
           compact={isCompact}
         />
@@ -1135,7 +1164,7 @@ export const WorkbenchScreen = ({ creature, onClose, usageBarDisabled = false }:
             {workbenchMode === "portrait"
               ? isCompact
                 ? "1-6 section · enter details/action · n notes · esc back"
-                : "1-6 section · j/k/←/→ section · a actions · v overview · enter act/details · d details · n notes · c copy summary · p copy path · r refresh · ctrl+2 notes · esc back"
+                : "1-6 section · j/k/←/→ section · PgUp/PgDn scroll · a actions · v overview · enter act/details · d details · n notes · c copy summary · p copy path · r refresh · ctrl+2 notes · esc back"
               : isCompact
                 ? "ctrl+1 portrait · ctrl+n new · ctrl+f find · ctrl+p palette · auto-save · esc back"
                 : "ctrl+1 portrait · tab indent · shift+tab outdent · ctrl+←/→ switch · ctrl+n new · ctrl+r rename · ctrl+d delete · ctrl+f find · ctrl+j/b next/prev · ctrl+g line · ctrl+p palette · ctrl+a select all · ctrl+y copy · ctrl+v paste · ctrl+x cut · ctrl+z undo · auto-save · esc back"}
@@ -1340,6 +1369,10 @@ interface PortraitModeProps {
   model: PortraitModel;
   activeSection: PortraitSectionId;
   detailsOpen: boolean;
+  /** Within-section scroll offset into the list. Section-scoped: the
+   *  WorkbenchScreen resets to 0 on every section change so each section
+   *  starts at the top. */
+  scrollOffset?: number;
   status?: Extract<Mode, { kind: "status" }>;
   compact?: boolean;
 }
@@ -1401,6 +1434,7 @@ const PortraitMode = ({
   model,
   activeSection,
   detailsOpen,
+  scrollOffset = 0,
   status,
   compact = false,
 }: PortraitModeProps) => {
@@ -1488,12 +1522,26 @@ const PortraitMode = ({
     );
   }
 
+  const renderPageIndicator = (total: number, limit: number) => {
+    if (total <= limit) return null;
+    const start = Math.min(scrollOffset, Math.max(0, total - limit)) + 1;
+    const end = Math.min(scrollOffset + limit, total);
+    return (
+      <Box paddingTop={1}>
+        <Text dimColor color={theme.colors.mutedForeground}>
+          showing {start}–{end} of {total} · PgUp/PgDn to scroll
+        </Text>
+      </Box>
+    );
+  };
+
   const renderSection = () => {
     switch (activeSection) {
-      case "actions":
+      case "actions": {
+        const limit = detailsOpen ? 8 : 5;
         return (
           <Panel title="next actions" paddingY={0} width={panelWidth}>
-            {model.actions.slice(0, detailsOpen ? 8 : 5).map((action, index) => (
+            {model.actions.slice(scrollOffset, scrollOffset + limit).map((action, index) => (
               <Box key={action.id} flexDirection="column" paddingTop={index === 0 ? 0 : 1}>
                 <Box flexDirection="row" columnGap={1}>
                   <Text color={severityColor(action.severity, theme)} bold>
@@ -1513,6 +1561,7 @@ const PortraitMode = ({
                 </Text>
               </Box>
             ))}
+            {renderPageIndicator(model.actions.length, limit)}
             <Box paddingTop={1}>
               <Text dimColor color={theme.colors.mutedForeground}>
                 enter follows the first action · n opens notes
@@ -1520,14 +1569,16 @@ const PortraitMode = ({
             </Box>
           </Panel>
         );
+      }
 
-      case "notes":
+      case "notes": {
+        const limit = detailsOpen ? 10 : 5;
         return (
           <Panel title="notes signal" paddingY={0} width={panelWidth}>
             {model.notes.length === 0 ? (
               <Text dimColor color={theme.colors.mutedForeground}>no notes yet · press n to start one</Text>
             ) : (
-              model.notes.slice(0, detailsOpen ? 10 : 5).map((note) => (
+              model.notes.slice(scrollOffset, scrollOffset + limit).map((note) => (
                 <Box key={note.id} flexDirection="column" paddingTop={note.active ? 0 : 1}>
                   <Box flexDirection="row" columnGap={1}>
                     <Text color={note.kind === "blocker" ? theme.colors.error : note.kind === "future-self" ? theme.colors.info : theme.colors.primary} bold={note.active || note.kind !== "regular"}>
@@ -1555,10 +1606,13 @@ const PortraitMode = ({
                 <Markdown width={innerWidth}>{model.futureSelf}</Markdown>
               </Box>
             ) : null}
+            {renderPageIndicator(model.notes.length, limit)}
           </Panel>
         );
+      }
 
-      case "activity":
+      case "activity": {
+        const limit = detailsOpen ? 8 : 5;
         return (
           <Panel title="activity" paddingY={0} width={panelWidth}>
             <Box flexDirection="column">
@@ -1575,7 +1629,7 @@ const PortraitMode = ({
               {model.events.length === 0 ? (
                 <Text dimColor color={theme.colors.mutedForeground}>no journal events for this repo yet</Text>
               ) : (
-                model.events.slice(0, detailsOpen ? 8 : 5).map((event) => (
+                model.events.slice(scrollOffset, scrollOffset + limit).map((event) => (
                   <Box key={event.id} flexDirection="row" columnGap={1}>
                     <Box width={12}>
                       <Text dimColor color={theme.colors.mutedForeground}>{event.timeLabel}</Text>
@@ -1585,10 +1639,13 @@ const PortraitMode = ({
                 ))
               )}
             </Box>
+            {renderPageIndicator(model.events.length, limit)}
           </Panel>
         );
+      }
 
-      case "changes":
+      case "changes": {
+        const limit = detailsOpen ? 16 : 8;
         return (
           <Panel
             title={totalDirtyFiles > 0 ? `changes · ${totalDirtyFiles} files` : "changes"}
@@ -1600,7 +1657,7 @@ const PortraitMode = ({
             ) : null}
             {dirtyFiles.length > 0 ? (
               <Box flexDirection="column">
-                {dirtyFiles.slice(0, detailsOpen ? 16 : 8).map((file) => (
+                {dirtyFiles.slice(scrollOffset, scrollOffset + limit).map((file) => (
                   <Box key={`${file.code}:${file.filename}`} flexDirection="row" columnGap={1}>
                     <Box width={12}>
                       <Text color={file.untracked ? theme.colors.info : file.staged ? theme.colors.success : theme.colors.warning}>
@@ -1681,10 +1738,13 @@ const PortraitMode = ({
                 </Text>
               </Box>
             ) : null}
+            {renderPageIndicator(dirtyFiles.length, limit)}
           </Panel>
         );
+      }
 
-      case "commits":
+      case "commits": {
+        const limit = detailsOpen ? 10 : 6;
         return (
           <Panel title="commits" paddingY={0} width={panelWidth}>
             {creature.scan.lastCommitSubject ? (
@@ -1697,7 +1757,7 @@ const PortraitMode = ({
               {model.commits.length === 0 ? (
                 <Text dimColor color={theme.colors.mutedForeground}>no commits visible in this scan</Text>
               ) : (
-                model.commits.slice(0, detailsOpen ? 10 : 6).map((commit) => (
+                model.commits.slice(scrollOffset, scrollOffset + limit).map((commit) => (
                   <Box key={commit.sha} flexDirection="row" columnGap={1}>
                     <Box width={9}>
                       <Text color={theme.colors.accent}>{commit.shortSha}</Text>
@@ -1715,8 +1775,10 @@ const PortraitMode = ({
                 ))
               )}
             </Box>
+            {renderPageIndicator(model.commits.length, limit)}
           </Panel>
         );
+      }
 
       case "overview":
       default:

@@ -147,6 +147,54 @@ export const cyclePortraitSection = (current: number, direction: 1 | -1): number
   return (start + direction + PORTRAIT_SECTIONS.length) % PORTRAIT_SECTIONS.length;
 };
 
+/** Total scrollable items in a section, used together with `sectionPageSize`
+ *  to clamp PgUp/PgDn offsets in PORTRAIT. Overview returns 0 — it isn't
+ *  scrollable by design (the stats block + top-3 actions fit on every
+ *  reasonable terminal). */
+export const sectionItemCount = (
+  section: PortraitSectionId,
+  model: PortraitModel,
+  creature: RepoCreature
+): number => {
+  switch (section) {
+    case "actions":
+      return model.actions.length;
+    case "notes":
+      return model.notes.length;
+    case "activity":
+      return model.events.length;
+    case "changes":
+      return creature.scan.dirtyFiles?.length ?? model.changes.length;
+    case "commits":
+      return model.commits.length;
+    case "overview":
+      return 0;
+  }
+};
+
+/** Page size for each scrollable portrait section. Tracks the limit each
+ *  section's renderer applies inline (`.slice(0, N)`). `detailsOpen` mirrors
+ *  the `d` toggle. Overview is non-scrollable. */
+export const sectionPageSize = (
+  section: PortraitSectionId,
+  detailsOpen: boolean
+): number => {
+  switch (section) {
+    case "actions":
+      return detailsOpen ? 8 : 5;
+    case "notes":
+      return detailsOpen ? 10 : 5;
+    case "activity":
+      return detailsOpen ? 8 : 5;
+    case "changes":
+      return detailsOpen ? 16 : 8;
+    case "commits":
+      return detailsOpen ? 10 : 6;
+    case "overview":
+      return 0;
+  }
+};
+
 export const relativeAgeLabel = (iso: string | undefined, now = new Date()): string => {
   const time = parseTime(iso);
   if (time === null) return "unknown";

@@ -11,6 +11,8 @@ import {
   cyclePortraitSection,
   PORTRAIT_SECTIONS,
   relativeAgeLabel,
+  sectionItemCount,
+  sectionPageSize,
 } from "../lib/portrait";
 
 const NOW = new Date("2026-05-11T12:00:00.000Z");
@@ -116,6 +118,32 @@ test("relativeAgeLabel returns compact human labels", () => {
 test("cyclePortraitSection wraps across every section", () => {
   assert.equal(cyclePortraitSection(0, -1), PORTRAIT_SECTIONS.length - 1);
   assert.equal(cyclePortraitSection(PORTRAIT_SECTIONS.length - 1, 1), 0);
+});
+
+test("sectionPageSize tracks each section's slice limit (details on/off)", () => {
+  assert.equal(sectionPageSize("actions", false), 5);
+  assert.equal(sectionPageSize("actions", true), 8);
+  assert.equal(sectionPageSize("changes", false), 8);
+  assert.equal(sectionPageSize("changes", true), 16);
+  assert.equal(sectionPageSize("commits", false), 6);
+  assert.equal(sectionPageSize("commits", true), 10);
+  // Overview isn't scrollable.
+  assert.equal(sectionPageSize("overview", false), 0);
+  assert.equal(sectionPageSize("overview", true), 0);
+});
+
+test("sectionItemCount reads the underlying list lengths off the model", () => {
+  const c = creature();
+  const model = buildPortraitModel(c, notesState(), [
+    event("commit", "2026-05-11T11:00:00.000Z", { subject: "x" }),
+    event("note-edited", "2026-05-11T10:00:00.000Z", { repoName: "alpha" }),
+  ]);
+  assert.equal(sectionItemCount("commits", model, c), model.commits.length);
+  assert.equal(sectionItemCount("notes", model, c), model.notes.length);
+  assert.equal(sectionItemCount("activity", model, c), model.events.length);
+  // changes prefers dirtyFiles.length when present (matches the panel slice).
+  assert.equal(sectionItemCount("changes", model, c), c.scan.dirtyFiles?.length ?? 0);
+  assert.equal(sectionItemCount("overview", model, c), 0);
 });
 
 test("buildPortraitNoteSummaries classifies note signal", () => {
