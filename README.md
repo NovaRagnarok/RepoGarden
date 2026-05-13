@@ -6,6 +6,13 @@ The product is intentionally not dashboard-first. The default experience is a li
 
 ## Preview
 
+![RepoGarden TUI — four pixel-art repo creatures in a starry habitat](docs/images/preview.png)
+
+Each repo becomes a tiny pixel creature whose look reflects branch state, recency, and dirty files. Pick one and press `↵` to drop into a per-repo workbench.
+
+<details>
+<summary>ASCII version (regenerable from <code>scripts/tui-observe.sh</code>)</summary>
+
 ```
  a little local habitat                                        ╭────────╮ ╭───────╮ ╭─────────╮
  REPOGARDEN                                                    │ GARDEN │ │ SHELF │ │ JOURNAL │
@@ -35,7 +42,7 @@ The product is intentionally not dashboard-first. The default experience is a li
  ↑↓/jk pick · ↵ bench · o folder …
 ```
 
-Each repo becomes a tiny pixel creature whose look reflects branch state, recency, and dirty files. Pick one and press `↵` to drop into a per-repo workbench.
+</details>
 
 ## Requirements
 
