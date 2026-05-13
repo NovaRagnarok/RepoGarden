@@ -9,7 +9,7 @@ export const Credit = () => {
   return (
     <Box flexDirection="row">
       <Link href="https://github.com/NovaRagnarok/RepoGarden" color={theme.colors.mutedForeground}>
-        github.com/NovaRagnarok/RepoGarden
+        RepoGarden
       </Link>
     </Box>
   );
