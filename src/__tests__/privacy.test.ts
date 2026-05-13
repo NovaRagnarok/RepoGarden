@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { fakeName, redact } from "../lib/privacy";
+import { fakeName, redact, scrambleName } from "../lib/privacy";
 
 test("fakeName is deterministic for a given id", () => {
   const id = "/home/user/repos/pocket-cron";
@@ -79,4 +79,49 @@ test("redact(vibe) returns a per-vibe generic line", () => {
   assert.notEqual(redact("happy", "vibe"), redact("noisy", "vibe"));
   // Unknown vibe falls back to a generic line.
   assert.ok(redact("unknown", "vibe").length > 0);
+});
+
+test("scrambleName output matches target length", () => {
+  const targets = ["plum", "plum-thistle", "tiny-mossy-fern", "a"];
+  for (const t of targets) {
+    for (const progress of [0, 0.25, 0.5, 0.75, 1]) {
+      const out = scrambleName(t, progress, 42);
+      assert.equal(out.length, t.length, `length mismatch at progress ${progress} for "${t}"`);
+    }
+  }
+});
+
+test("scrambleName at progress=1 returns the target verbatim", () => {
+  assert.equal(scrambleName("plum-thistle-mole", 1, 1), "plum-thistle-mole");
+  assert.equal(scrambleName("a-b-c", 1, 999), "a-b-c");
+});
+
+test("scrambleName preserves hyphens and spaces at every progress level", () => {
+  const target = "tiny-mossy-fern";
+  for (let p = 0; p <= 1; p += 0.1) {
+    const out = scrambleName(target, p, 7);
+    for (let i = 0; i < target.length; i += 1) {
+      if (target[i] === "-") {
+        assert.equal(out[i], "-", `expected '-' at index ${i}, got '${out[i]}' at progress ${p}`);
+      }
+    }
+  }
+});
+
+test("scrambleName reveals left-to-right as progress climbs", () => {
+  const target = "abcdefgh";
+  // At progress 0.5, roughly the first half should be settled.
+  const out = scrambleName(target, 0.5, 1);
+  // The first char settles when progress >= 1/8 = 0.125, so at 0.5 the first
+  // 4 chars (settle thresholds 0.125, 0.25, 0.375, 0.5) are all revealed.
+  assert.equal(out.slice(0, 4), "abcd");
+});
+
+test("scrambleName varies output across seeds at the same progress", () => {
+  const target = "abcdefghij";
+  const a = scrambleName(target, 0.1, 1);
+  const b = scrambleName(target, 0.1, 2);
+  // Both have the same prefix-revealed character (first char settles at 0.1),
+  // but the random-char positions should differ at least sometimes.
+  assert.notEqual(a, b);
 });

@@ -86,6 +86,35 @@ export const fakeName = (id: string): string => {
   return `${pick(ADJECTIVES)}-${pick(ADJECTIVES)}-${pick(NOUNS)}`;
 };
 
+/** Characters the scramble effect cycles through. Lowercase a-z matches the
+ *  shape of fake names, so the chaotic phase reads as "letters churning"
+ *  rather than "garbage characters." */
+const SCRAMBLE_CHARS = "abcdefghijklmnopqrstuvwxyz";
+
+/** Animate a name toward `target` by replacing each character with a random
+ *  letter until that position's reveal threshold is crossed. Characters
+ *  settle left-to-right as progress climbs 0 → 1. Hyphens and spaces never
+ *  scramble so word boundaries stay legible throughout the animation.
+ *
+ *  Pure — same `(target, progress, seed)` always returns the same string.
+ *  Vary `seed` per frame to get the visible churn. */
+export const scrambleName = (target: string, progress: number, seed: number): string => {
+  const rng = mulberry32(seed >>> 0);
+  let out = "";
+  for (let i = 0; i < target.length; i += 1) {
+    const ch = target[i];
+    // Character i settles when progress >= (i + 1) / length. Last char snaps
+    // exactly at progress = 1.
+    const settleAt = (i + 1) / target.length;
+    if (progress >= settleAt || ch === "-" || ch === " ") {
+      out += ch;
+    } else {
+      out += SCRAMBLE_CHARS[Math.floor(rng() * SCRAMBLE_CHARS.length)];
+    }
+  }
+  return out;
+};
+
 export type RedactKind = "subject" | "branch" | "author" | "path" | "note" | "vibe";
 
 const NOTE_PLACEHOLDER = "▓▓ private content ▓▓";
