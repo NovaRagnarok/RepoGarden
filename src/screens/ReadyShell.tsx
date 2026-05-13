@@ -1579,8 +1579,8 @@ export const ReadyShell = ({
         <Box flexShrink={1}>
           <Text dimColor color={theme.colors.mutedForeground} wrap="truncate-end">
             {journalActive
-              ? "↑↓ repo · jk events · ↵ bench · o folder · / search · f/F type · t/T time · d details · g garden · r rescan · p roots · s settings · ? help · q quit"
-              : `↑↓/jk pick · ↵ bench · o folder · h hide · c card · / filter · g ${view === "garden" ? "shelf" : view === "shelf" ? "journal" : "garden"} · r rescan · p roots · s settings · ? help · q quit`}
+              ? "↑↓ repo · jk events · ↵ open · / search · g view · s settings · ? help"
+              : "↑↓ move · ↵ open · / filter · g view · s settings · ? help · q quit"}
           </Text>
         </Box>
         <Box flexDirection="row" columnGap={2} flexShrink={0} alignItems="flex-end">
