@@ -36,8 +36,10 @@ import { DEMO_NAMES, demoVibeFor } from "@/lib/demo-roster";
 export interface SettingsScreenProps {
   currentThemeId: string;
   reducedMotion?: boolean;
+  usageBarDisabled?: boolean;
   onPickTheme: (id: string) => void;
   onToggleReducedMotion?: () => void;
+  onToggleUsageBar?: () => void;
   onClose: () => void;
 }
 
@@ -315,8 +317,10 @@ const SettingsPreview = ({
 export const SettingsScreen = ({
   currentThemeId,
   reducedMotion = false,
+  usageBarDisabled = false,
   onPickTheme,
   onToggleReducedMotion,
+  onToggleUsageBar,
   onClose
 }: SettingsScreenProps) => {
   const appliedTheme = useTheme();
@@ -367,6 +371,10 @@ export const SettingsScreen = ({
     }
     if (input === "m" && onToggleReducedMotion) {
       onToggleReducedMotion();
+      return;
+    }
+    if (input === "u" && onToggleUsageBar) {
+      onToggleUsageBar();
       return;
     }
     if (key.escape || input === "q") {
@@ -574,13 +582,21 @@ export const SettingsScreen = ({
         </Box>
 
         <Box ref={motionPanelRef} flexDirection="column">
-          <Panel title="motion" paddingY={0}>
+          <Panel title="preferences" paddingY={0}>
             <Box flexDirection="row" justifyContent="space-between">
               <Text color={previewTheme.colors.foreground}>
-                reduced motion · quiets stars, wiggle, wander, transitions
+                <Text bold>m</Text> reduced motion · quiets stars, wiggle, wander, transitions
               </Text>
               <Text color={reducedMotion ? previewTheme.colors.success : previewTheme.colors.mutedForeground}>
                 {reducedMotion ? "● on" : "○ off"}
+              </Text>
+            </Box>
+            <Box flexDirection="row" justifyContent="space-between">
+              <Text color={previewTheme.colors.foreground}>
+                <Text bold>u</Text> usage bar · reads Claude/Codex CLI credentials locally
+              </Text>
+              <Text color={usageBarDisabled ? previewTheme.colors.mutedForeground : previewTheme.colors.success}>
+                {usageBarDisabled ? "○ off" : "● on"}
               </Text>
             </Box>
           </Panel>
@@ -614,7 +630,7 @@ export const SettingsScreen = ({
           </Text>
           <Box flexDirection="row" justifyContent="space-between">
             <Text dimColor color={previewTheme.colors.mutedForeground}>
-              click preview · dbl-click/enter apply · ↑/↓ pick · m motion · esc back
+              click preview · dbl-click/enter apply · ↑/↓ pick · m motion · u usage · esc back
             </Text>
             <Credit />
           </Box>

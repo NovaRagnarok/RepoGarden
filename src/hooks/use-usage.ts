@@ -17,10 +17,21 @@ import {
  * setup just makes the bar noisier than it is useful. "stale" entries still
  * surface (cached data + softened badge) since they carry real information.
  */
-export const useUsage = (intervalMs = 120_000): ProviderUsage[] => {
+export interface UseUsageOptions {
+  /** Caller-supplied disable flag (typically the persistent settings
+   *  toggle). Combined with the env-driven `isUsageFeatureDisabled()` —
+   *  either one suppresses the network call. */
+  disabled?: boolean;
+}
+
+export const useUsage = (
+  intervalMs = 120_000,
+  opts: UseUsageOptions = {}
+): ProviderUsage[] => {
   const [data, setData] = useState<ProviderUsage[]>([]);
+  const { disabled = false } = opts;
   useEffect(() => {
-    if (isUsageFeatureDisabled()) {
+    if (disabled || isUsageFeatureDisabled()) {
       setData([]);
       return;
     }
@@ -47,6 +58,6 @@ export const useUsage = (intervalMs = 120_000): ProviderUsage[] => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [intervalMs]);
+  }, [intervalMs, disabled]);
   return data;
 };

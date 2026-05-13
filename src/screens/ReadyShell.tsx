@@ -58,6 +58,10 @@ export interface ReadyShellProps {
   rescanError?: string;
   scanProgress?: { done: number; total: number };
   scanProgressByRoot?: RootProgress[];
+  /** When true, suppresses the Claude/Codex usage bar entirely (no network
+   *  calls, no footer row). Mirrors the env-level
+   *  REPOGARDEN_DISABLE_USAGE=1 toggle as a persistent settings choice. */
+  usageBarDisabled?: boolean;
 }
 
 const vibeBadgeVariant: Record<Vibe, "default" | "warning" | "error" | "info" | "success"> = {
@@ -84,14 +88,15 @@ export const ReadyShell = ({
   isRescanning,
   rescanError,
   scanProgress,
-  scanProgressByRoot
+  scanProgressByRoot,
+  usageBarDisabled = false
 }: ReadyShellProps) => {
   const theme = useTheme();
   const { reduced: reducedMotion } = useMotion();
   const { latest: latestStatus } = useToasts();
   const { columns, rows } = useTerminalSize();
   const responsive = getTerminalLayout(columns, rows);
-  const usage = useUsage();
+  const usage = useUsage(undefined, { disabled: usageBarDisabled });
   const mode = layoutMode(columns);
   const privacy = usePrivacy();
   // Mask creature names + sensitive fields when privacy mode is on. Every

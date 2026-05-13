@@ -53,6 +53,7 @@ import { vibeGlyph } from "@/lib/vibe";
 export interface WorkbenchScreenProps {
   creature: RepoCreature;
   onClose: () => void;
+  usageBarDisabled?: boolean;
 }
 
 // In-memory, session-scoped last-used workbench mode. NOT persisted to disk —
@@ -68,13 +69,13 @@ type Mode =
   | { kind: "confirm-delete" }
   | { kind: "status"; message: string; variant: "success" | "warning" | "error" };
 
-export const WorkbenchScreen = ({ creature, onClose }: WorkbenchScreenProps) => {
+export const WorkbenchScreen = ({ creature, onClose, usageBarDisabled = false }: WorkbenchScreenProps) => {
   const theme = useTheme();
   const { columns, rows } = useTerminalSize();
   const responsive = getTerminalLayout(columns, rows);
   const isCompact = responsive.tier === "compact";
   const focusManager = useFocusManager();
-  const usage = useUsage();
+  const usage = useUsage(undefined, { disabled: usageBarDisabled });
 
   const [notes, setNotes] = useState<NotesState>(() => loadNotes(creature.id));
   const activeId = notes.index.active;

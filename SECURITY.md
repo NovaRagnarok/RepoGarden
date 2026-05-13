@@ -49,7 +49,9 @@ The implementation lives in:
 
 The endpoints used here are not documented public APIs and may change.
 
-To disable the usage bar entirely for a run:
+To disable the usage bar persistently, open Settings (`s`) and press `u`. The toggle is stored in `~/.repogarden/tui.json` as `usageBarDisabled` and is consulted on every launch.
+
+For a one-off run that bypasses whatever is saved:
 
 ```bash
 # installed package
@@ -58,6 +60,8 @@ REPOGARDEN_DISABLE_USAGE=1 repogarden
 # from source
 REPOGARDEN_DISABLE_USAGE=1 npm run dev
 ```
+
+The env var wins over the saved setting; either path suppresses all reads of the provider CLI credentials.
 
 ## Supported versions
 

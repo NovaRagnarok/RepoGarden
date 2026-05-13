@@ -12,13 +12,18 @@ export interface TuiConfig {
   scanRoots: string[];
   view: ReadyView;
   reducedMotion: boolean;
+  /** Persistently hides the Claude/Codex usage bar. Env
+   *  REPOGARDEN_DISABLE_USAGE=1 still overrides this for a single run
+   *  (per-run flag wins). */
+  usageBarDisabled: boolean;
 }
 
 const DEFAULT_CONFIG: TuiConfig = {
   themeId: "high-contrast",
   scanRoots: [],
   view: "garden",
-  reducedMotion: false
+  reducedMotion: false,
+  usageBarDisabled: false
 };
 
 const isReadyView = (value: unknown): value is ReadyView =>
@@ -40,7 +45,11 @@ export const loadConfig = (): TuiConfig => {
       reducedMotion:
         typeof parsed.reducedMotion === "boolean"
           ? parsed.reducedMotion
-          : DEFAULT_CONFIG.reducedMotion
+          : DEFAULT_CONFIG.reducedMotion,
+      usageBarDisabled:
+        typeof parsed.usageBarDisabled === "boolean"
+          ? parsed.usageBarDisabled
+          : DEFAULT_CONFIG.usageBarDisabled
     };
   } catch {
     return DEFAULT_CONFIG;

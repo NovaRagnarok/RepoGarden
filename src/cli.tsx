@@ -53,6 +53,7 @@ interface AppProps {
   initialRoots: string[];
   initialView: ReadyView;
   initialReducedMotion: boolean;
+  initialUsageBarDisabled: boolean;
   onThemeChange: (theme: Theme) => void;
   onReducedMotionChange: (reduced: boolean) => void;
 }
@@ -62,6 +63,7 @@ const App = ({
   initialRoots,
   initialView,
   initialReducedMotion,
+  initialUsageBarDisabled,
   onThemeChange,
   onReducedMotionChange
 }: AppProps) => {
@@ -77,6 +79,7 @@ const App = ({
   const [activeWorkbench, setActiveWorkbench] = useState<RepoCreature | null>(null);
   const [readyView, setReadyView] = useState<ReadyView>(initialView);
   const [reducedMotion, setReducedMotion] = useState<boolean>(initialReducedMotion);
+  const [usageBarDisabled, setUsageBarDisabled] = useState<boolean>(initialUsageBarDisabled);
   const [scanProgress, setScanProgress] = useState<{ done: number; total: number } | undefined>();
   const [scanProgressByRoot, setScanProgressByRoot] = useState<RootProgress[] | undefined>();
 
@@ -265,6 +268,13 @@ const App = ({
     pushToast(`reduced motion · ${next ? "on" : "off"}`, "info");
   };
 
+  const handleToggleUsageBar = () => {
+    const next = !usageBarDisabled;
+    setUsageBarDisabled(next);
+    updateConfig({ usageBarDisabled: next });
+    pushToast(`usage bar · ${next ? "off" : "on"}`, "info");
+  };
+
   const handleRescan = async () => {
     if (roots.length === 0) {
       setPhase("onboarding");
@@ -351,7 +361,9 @@ const App = ({
       <SettingsScreen
         currentThemeId={themeId}
         reducedMotion={reducedMotion}
+        usageBarDisabled={usageBarDisabled}
         onToggleReducedMotion={handleToggleReducedMotion}
+        onToggleUsageBar={handleToggleUsageBar}
         onPickTheme={handlePickTheme}
         onClose={() => setPhase("ready")}
       />
@@ -378,6 +390,7 @@ const App = ({
     return (
       <WorkbenchScreen
         creature={activeWorkbench}
+        usageBarDisabled={usageBarDisabled}
         onClose={() => {
           // The workbench owns note persistence now; we only stamp
           // lastVisitedAt so the creature's vibe and sort order reflect
@@ -424,6 +437,7 @@ const App = ({
       rescanError={rescanError}
       scanProgress={scanProgress}
       scanProgressByRoot={scanProgressByRoot}
+      usageBarDisabled={usageBarDisabled}
     />
   );
 };
@@ -458,6 +472,7 @@ const Root = () => {
             initialRoots={config.scanRoots}
             initialView={config.view}
             initialReducedMotion={reducedMotion}
+            initialUsageBarDisabled={config.usageBarDisabled}
             onThemeChange={setActiveTheme}
             onReducedMotionChange={setReducedMotion}
           />
