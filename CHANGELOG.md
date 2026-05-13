@@ -2,6 +2,18 @@
 
 All notable changes to RepoGarden land here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows [SemVer](https://semver.org/spec/v2.0.0.html). Earlier history lives in `git log`.
 
+## [0.3.2] — 2026-05-13
+
+### Fixed
+
+- **Demo mode roster collisions** (#7). Eight scanned repos would frequently end up with two creatures sharing a name (e.g. two `salt-and-paper` entries) because the per-id resolver was a hash modulo into a 16-name pool. Replaced with a without-replacement assignment over the active id set, with `-2`/`-3` suffixes once the roster is exhausted. Refreshed `docs/images/demo.gif`.
+- **Reduced-motion polish** (#6) on three sites that previously animated regardless of the setting: the privacy mode-toggle scramble (now lands settled instantly), `Spinner` (holds the first frame), and `Skeleton` (renders the static dot field with no shimmer).
+
+### Closed without changes
+
+- #2 (PgUp/PgDn → selection): already wired in `JournalView`; updated the BACKLOG and the journal manual-test doc to stop describing the old decoupled-scrolling intent.
+- #3 (workbench mode keybinding): `ctrl+1` / `ctrl+2` already select portrait/notes and are listed in the help overlay; updated the BACKLOG to stop calling it mouse-only.
+
 ## [0.3.1] — 2026-05-13
 
 ### Added
