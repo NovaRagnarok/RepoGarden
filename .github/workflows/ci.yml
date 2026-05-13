@@ -1,0 +1,47 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: ['24']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: node dist/cli.js --help
+
+  pack-smoke:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - run: npm ci
+      # Pack ignores "private": true, so this works for friend-alpha without
+      # publishing. The smoke test catches missing prepare/files/bin wiring.
+      - name: npm pack
+        run: |
+          npm pack --pack-destination .
+          ls -l repogarden-tui-*.tgz
+      - name: install tarball globally
+        run: npm install -g ./repogarden-tui-*.tgz
+      - name: verify bin works
+        run: repogarden-tui --help

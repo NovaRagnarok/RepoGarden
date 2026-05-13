@@ -1,0 +1,463 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { readEvents } from "../lib/events";
+import { saveMemory } from "../lib/memory";
+import {
+  createNote,
+  deleteNote,
+  deriveBlockerFromNotes,
+  loadNotes,
+  renameNote,
+  sanitizeNoteName,
+  saveNoteBody,
+  setActive,
+} from "../lib/notes";
+import { inferVibe } from "../lib/vibe";
+import { loadMemory } from "../lib/memory";
+
+const withFakeHome = (run: () => void) => {
+  const fake = mkdtempSync(join(tmpdir(), "repogarden-home-notes-"));
+  const oldHome = process.env.HOME;
+  process.env.HOME = fake;
+  try {
+    run();
+  } finally {
+    process.env.HOME = oldHome;
+    rmSync(fake, { recursive: true, force: true });
+  }
+};
+
+test("loadNotes seeds a single scratch note when no legacy memory exists", () => {
+  withFakeHome(() => {
+    const state = loadNotes("alpha");
+    assert.equal(state.index.order.length, 1);
+    const only = state.index.notes[state.index.order[0]];
+    assert.equal(only.name, "scratch");
+    assert.equal(state.index.active, only.id);
+    assert.equal(state.bodies[only.id], "");
+  });
+});
+
+test("loadNotes migrates legacy blocker + future-self into named notes", () => {
+  withFakeHome(() => {
+    saveMemory("beta", {
+      currentBlocker: "stuck on auth",
+      noteToFutureSelf: "rotate the keys monday",
+    });
+    const state = loadNotes("beta");
+    assert.equal(state.index.order.length, 2);
+    const names = state.index.order.map((id) => state.index.notes[id].name);
+    assert.deepEqual(names, ["blocker", "note to future self"]);
+    const blockerId = state.index.order[0];
+    const futureId = state.index.order[1];
+    assert.equal(state.bodies[blockerId], "stuck on auth");
+    assert.equal(state.bodies[futureId], "rotate the keys monday");
+    assert.equal(state.index.active, blockerId);
+  });
+});
+
+test("loadNotes is idempotent: subsequent calls do not re-migrate", () => {
+  withFakeHome(() => {
+    saveMemory("gamma", { currentBlocker: "x" });
+    const first = loadNotes("gamma");
+    saveMemory("gamma", { currentBlocker: "y" }); // change legacy after first load
+    const second = loadNotes("gamma");
+    assert.equal(second.index.order.length, 1);
+    // The body should still be the original migrated value, not the changed legacy.
+    assert.equal(second.bodies[second.index.order[0]], "x");
+  });
+});
+
+test("saveNoteBody persists and bumps updatedAt", async () => {
+  withFakeHome(() => {
+    saveMemory("delta", { currentBlocker: "old" });
+    const initial = loadNotes("delta");
+    const id = initial.index.order[0];
+    const originalUpdatedAt = initial.index.notes[id].updatedAt;
+    // Spin for a millisecond so the timestamp can advance.
+    const start = Date.now();
+    while (Date.now() === start) {
+      /* spin */
+    }
+    const next = saveNoteBody("delta", initial, id, "new content");
+    assert.equal(next.bodies[id], "new content");
+    assert.notEqual(next.index.notes[id].updatedAt, originalUpdatedAt);
+    const reloaded = loadNotes("delta");
+    assert.equal(reloaded.bodies[id], "new content");
+  });
+});
+
+test("createNote appends a new note and makes it active", () => {
+  withFakeHome(() => {
+    const initial = loadNotes("epsilon");
+    const { state: after, id } = createNote("epsilon", initial, "design sketch");
+    assert.equal(after.index.order.length, 2);
+    assert.equal(after.index.notes[id].name, "design sketch");
+    assert.equal(after.index.active, id);
+    const reloaded = loadNotes("epsilon");
+    assert.equal(reloaded.index.order.length, 2);
+    assert.equal(reloaded.index.active, id);
+  });
+});
+
+test("createNote falls back to numbered name when given empty string", () => {
+  withFakeHome(() => {
+    const initial = loadNotes("zeta");
+    const { state: after, id } = createNote("zeta", initial, "   ");
+    assert.equal(after.index.notes[id].name, "note 2");
+  });
+});
+
+
+test("sanitizeNoteName strips controls, collapses whitespace, and caps length", () => {
+  const long = `${"x".repeat(90)}\nignored`;
+  const sanitized = sanitizeNoteName(`  sprint\n\tplan  `);
+  assert.equal(sanitized, "sprint plan");
+  const capped = sanitizeNoteName(long);
+  assert.equal(capped.length, 80);
+  assert.equal(capped.endsWith("…"), true);
+});
+
+test("createNote deduplicates note names case-insensitively", () => {
+  withFakeHome(() => {
+    const initial = loadNotes("sigma");
+    const first = createNote("sigma", initial, "scratch").state;
+    const second = createNote("sigma", first, "Scratch").state;
+    const names = second.index.order.map((id) => second.index.notes[id].name);
+    assert.deepEqual(names, ["scratch", "scratch 2", "Scratch 3"]);
+  });
+});
+
+test("deleteNote removes file and reassigns active", () => {
+  withFakeHome(() => {
+    saveMemory("eta", {
+      currentBlocker: "a",
+      noteToFutureSelf: "b",
+    });
+    const initial = loadNotes("eta");
+    const [firstId, secondId] = initial.index.order;
+    const after = deleteNote("eta", initial, firstId);
+    assert.equal(after.index.order.length, 1);
+    assert.equal(after.index.order[0], secondId);
+    assert.equal(after.index.active, secondId);
+    assert.equal(after.bodies[firstId], undefined);
+    // File on disk gone.
+    const path = join(
+      process.env.HOME!,
+      ".repogarden",
+      "projects",
+      "eta",
+      "notes",
+      `${firstId}.md`
+    );
+    assert.equal(existsSync(path), false);
+  });
+});
+
+test("deleteNote on the only note auto-creates a fresh scratch", () => {
+  withFakeHome(() => {
+    const initial = loadNotes("theta");
+    const onlyId = initial.index.order[0];
+    const after = deleteNote("theta", initial, onlyId);
+    assert.equal(after.index.order.length, 1);
+    const replacementId = after.index.order[0];
+    assert.notEqual(replacementId, onlyId);
+    assert.equal(after.index.notes[replacementId].name, "scratch");
+    assert.equal(after.bodies[replacementId], "");
+  });
+});
+
+test("setActive switches the active note and persists", () => {
+  withFakeHome(() => {
+    saveMemory("iota", { currentBlocker: "a", noteToFutureSelf: "b" });
+    const initial = loadNotes("iota");
+    const secondId = initial.index.order[1];
+    const after = setActive("iota", initial, secondId);
+    assert.equal(after.index.active, secondId);
+    const reloaded = loadNotes("iota");
+    assert.equal(reloaded.index.active, secondId);
+  });
+});
+
+test("renameNote updates display name without changing id", () => {
+  withFakeHome(() => {
+    const initial = loadNotes("kappa");
+    const id = initial.index.order[0];
+    const after = renameNote("kappa", initial, id, "  fresh name  ");
+    assert.equal(after.index.notes[id].name, "fresh name");
+    assert.equal(after.index.order[0], id);
+    const reloaded = loadNotes("kappa");
+    assert.equal(reloaded.index.notes[id].name, "fresh name");
+  });
+});
+
+
+test("renameNote deduplicates against other notes", () => {
+  withFakeHome(() => {
+    const initial = loadNotes("tau");
+    const scratchId = initial.index.active;
+    const { state } = createNote("tau", initial, "design");
+    const renamed = renameNote("tau", state, scratchId, "DESIGN");
+    assert.equal(renamed.index.notes[scratchId].name, "DESIGN 2");
+  });
+});
+
+test("deriveBlockerFromNotes returns body of the 'blocker' note", () => {
+  withFakeHome(() => {
+    saveMemory("mu", { currentBlocker: "auth flow", noteToFutureSelf: "look later" });
+    const state = loadNotes("mu");
+    assert.equal(deriveBlockerFromNotes(state), "auth flow");
+  });
+});
+
+test("deriveBlockerFromNotes is case-insensitive and trims the name", () => {
+  withFakeHome(() => {
+    const initial = loadNotes("nu");
+    const { state } = createNote("nu", initial, "  BLOCKER  ");
+    const blockerId = state.index.active;
+    const written = saveNoteBody("nu", state, blockerId, "the thing");
+    assert.equal(deriveBlockerFromNotes(written), "the thing");
+  });
+});
+
+test("deriveBlockerFromNotes returns undefined when blocker note is empty", () => {
+  withFakeHome(() => {
+    saveMemory("xi", { currentBlocker: "   " });
+    const state = loadNotes("xi");
+    assert.equal(deriveBlockerFromNotes(state), undefined);
+  });
+});
+
+test("deriveBlockerFromNotes returns undefined when no blocker note exists", () => {
+  withFakeHome(() => {
+    const state = loadNotes("omicron");
+    assert.equal(deriveBlockerFromNotes(state), undefined);
+  });
+});
+
+test("blocker note still drives the 'blocked' vibe via memory mirror", () => {
+  withFakeHome(() => {
+    // Simulate the workbench's sync effect: load notes, derive, write to memory.
+    saveMemory("pi", { currentBlocker: "stuck on migration" });
+    const state = loadNotes("pi");
+    const derived = deriveBlockerFromNotes(state);
+    saveMemory("pi", { ...loadMemory("pi"), currentBlocker: derived });
+    const memory = loadMemory("pi");
+    const vibe = inferVibe({
+      repo: {
+        id: "pi",
+        name: "pi",
+        path: "/tmp/pi",
+        isDirty: false,
+        ahead: 0,
+        lastCommitAt: new Date().toISOString(),
+      },
+      memory,
+    });
+    assert.equal(vibe.vibe, "blocked");
+    assert.match(vibe.reason, /stuck on migration/);
+  });
+});
+
+test("emptying the blocker note clears the legacy mirror", () => {
+  withFakeHome(() => {
+    saveMemory("rho", { currentBlocker: "initial" });
+    const initial = loadNotes("rho");
+    const blockerId = initial.index.order[0];
+    const cleared = saveNoteBody("rho", initial, blockerId, "");
+    const derived = deriveBlockerFromNotes(cleared);
+    saveMemory("rho", { ...loadMemory("rho"), currentBlocker: derived });
+    assert.equal(loadMemory("rho").currentBlocker, undefined);
+  });
+});
+
+test("loadNotes reconciles when a note file is removed out-of-band", () => {
+  withFakeHome(() => {
+    saveMemory("lambda", { currentBlocker: "a", noteToFutureSelf: "b" });
+    const initial = loadNotes("lambda");
+    const firstId = initial.index.order[0];
+    rmSync(
+      join(process.env.HOME!, ".repogarden", "projects", "lambda", "notes", `${firstId}.md`)
+    );
+    const reloaded = loadNotes("lambda");
+    assert.equal(reloaded.index.order.length, 1);
+    assert.equal(reloaded.index.order.includes(firstId), false);
+  });
+});
+
+
+test("createNote and renameNote sanitize pasted whitespace in names", () => {
+  withFakeHome(() => {
+    const initial = loadNotes("upsilon");
+    const { state, id } = createNote("upsilon", initial, "  design\n\t sketch  ");
+    assert.equal(state.index.notes[id].name, "design sketch");
+
+    const renamed = renameNote("upsilon", state, id, "  renamed\r\nthing  ");
+    assert.equal(renamed.index.notes[id].name, "renamed thing");
+  });
+});
+
+test("saveNoteBody normalizes CRLF and CR bodies to LF", () => {
+  withFakeHome(() => {
+    const initial = loadNotes("phi");
+    const id = initial.index.active;
+    const next = saveNoteBody("phi", initial, id, "a\r\nb\rc");
+    assert.equal(next.bodies[id], "a\nb\nc");
+
+    const path = join(process.env.HOME!, ".repogarden", "projects", "phi", "notes", `${id}.md`);
+    assert.equal(readFileSync(path, "utf8"), "a\nb\nc");
+    assert.equal(loadNotes("phi").bodies[id], "a\nb\nc");
+  });
+});
+
+test("loadNotes ignores unsafe note ids from a hand-edited index", () => {
+  withFakeHome(() => {
+    const project = join(process.env.HOME!, ".repogarden", "projects", "chi");
+    const notesDir = join(project, "notes");
+    mkdirSync(notesDir, { recursive: true });
+    const stamp = new Date().toISOString();
+    writeFileSync(
+      join(project, "notes.json"),
+      JSON.stringify(
+        {
+          version: 1,
+          active: "../escape",
+          order: ["../escape", "safe_id"],
+          notes: {
+            "../escape": { id: "../escape", name: "bad", createdAt: stamp, updatedAt: stamp },
+            safe_id: { id: "safe_id", name: "safe", createdAt: stamp, updatedAt: stamp },
+          },
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+    writeFileSync(join(notesDir, "safe_id.md"), "safe body", "utf8");
+
+    const loaded = loadNotes("chi");
+    assert.deepEqual(loaded.index.order, ["safe_id"]);
+    assert.equal(loaded.index.active, "safe_id");
+    assert.equal(loaded.bodies.safe_id, "safe body");
+  });
+});
+
+test("saveNoteBody emits note-edited for same-length content edits", () => {
+  withFakeHome(() => {
+    const initial = loadNotes("psi");
+    const id = initial.index.active;
+    const first = saveNoteBody("psi", initial, id, "ab", "repo psi");
+    saveNoteBody("psi", first, id, "cd", "repo psi");
+    const events = readEvents({ repoId: "psi" });
+    assert.equal(
+      events.some((event) => event.kind === "note-edited" && event.payload.charsDelta === 0),
+      true
+    );
+  });
+});
+
+test("saveNoteBody does not advance metadata or emit events when the body write fails", () => {
+  withFakeHome(() => {
+    const initial = loadNotes("persist-fail-body");
+    const id = initial.index.active;
+    const persisted = saveNoteBody("persist-fail-body", initial, id, "stable body");
+    const previousUpdatedAt = persisted.index.notes[id].updatedAt;
+    const project = join(process.env.HOME!, ".repogarden", "projects", "persist-fail-body");
+    const bodyPath = join(project, "notes", `${id}.md`);
+
+    // Structural failure: replace the body file with a non-empty directory so
+    // atomicWriteFile's final rename(tmp → bodyPath) fails (ENOTEMPTY/EISDIR)
+    // regardless of process permissions. The previous chmod-based simulation
+    // was a no-op when the test ran as root (e.g., container CI).
+    rmSync(bodyPath, { force: true });
+    mkdirSync(bodyPath, { recursive: true });
+    writeFileSync(join(bodyPath, ".keep"), "");
+
+    const failed = saveNoteBody(
+      "persist-fail-body",
+      persisted,
+      id,
+      "lost body",
+      "persist fail body repo"
+    );
+
+    // Core invariants: index metadata was not advanced, no event leaked out,
+    // and the failed body text was not silently adopted into in-memory state.
+    assert.equal(failed.index.notes[id].updatedAt, previousUpdatedAt);
+    assert.deepEqual(readEvents({ repoId: "persist-fail-body" }), []);
+    assert.notEqual(failed.bodies[id], "lost body");
+  });
+});
+
+test("saveNoteBody keeps the new body but skips metadata when the index write fails", () => {
+  withFakeHome(() => {
+    const initial = loadNotes("persist-fail-index");
+    const id = initial.index.active;
+    const previousUpdatedAt = initial.index.notes[id].updatedAt;
+    const project = join(process.env.HOME!, ".repogarden", "projects", "persist-fail-index");
+    const bodyPath = join(project, "notes", `${id}.md`);
+    const notesIndexPath = join(project, "notes.json");
+
+    rmSync(notesIndexPath, { recursive: true, force: true });
+    mkdirSync(notesIndexPath, { recursive: true });
+
+    const failed = saveNoteBody(
+      "persist-fail-index",
+      initial,
+      id,
+      "durable body",
+      "persist fail index repo"
+    );
+
+    assert.equal(failed.bodies[id], "durable body");
+    assert.equal(failed.index.notes[id].updatedAt, previousUpdatedAt);
+    assert.equal(readFileSync(bodyPath, "utf8"), "durable body");
+    assert.deepEqual(readEvents({ repoId: "persist-fail-index" }), []);
+
+    rmSync(notesIndexPath, { recursive: true, force: true });
+    writeFileSync(
+      notesIndexPath,
+      JSON.stringify(initial.index, null, 2),
+      "utf8"
+    );
+    const reloaded = loadNotes("persist-fail-index");
+    assert.equal(reloaded.bodies[id], "durable body");
+    assert.equal(reloaded.index.notes[id].updatedAt, previousUpdatedAt);
+  });
+});
+
+test("renameNote emits note-renamed when repoName is provided", () => {
+  withFakeHome(() => {
+    const initial = loadNotes("omega");
+    const id = initial.index.active;
+    renameNote("omega", initial, id, "journal plan", "omega repo");
+    const events = readEvents({ repoId: "omega" });
+    assert.equal(events.length, 1);
+    assert.equal(events[0].kind, "note-renamed");
+    assert.equal(events[0].payload.from, "scratch");
+    assert.equal(events[0].payload.to, "journal plan");
+  });
+});
+
+test("deleteNote emits note-deleted when repoName is provided", () => {
+  withFakeHome(() => {
+    const initial = loadNotes("omega-delete");
+    const id = initial.index.active;
+    deleteNote("omega-delete", initial, id, "omega delete repo");
+    const events = readEvents({ repoId: "omega-delete" });
+    assert.equal(events.length, 1);
+    assert.equal(events[0].kind, "note-deleted");
+    assert.equal(events[0].payload.name, "scratch");
+  });
+});

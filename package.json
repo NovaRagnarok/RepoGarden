@@ -1,0 +1,71 @@
+{
+  "name": "@repogarden/tui",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "author": "RepoGarden contributors",
+  "description": "RepoGarden terminal UI built on Ink + termcn primitives.",
+  "keywords": [
+    "tui",
+    "ink",
+    "git",
+    "developer-tools",
+    "local-first",
+    "repogarden"
+  ],
+  "homepage": "https://github.com/NovaRagnarok/RepoGarden#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NovaRagnarok/RepoGarden.git"
+  },
+  "bugs": {
+    "url": "https://github.com/NovaRagnarok/RepoGarden/issues"
+  },
+  "funding": [
+    {
+      "type": "github",
+      "url": "https://github.com/sponsors/NovaRagnarok"
+    },
+    {
+      "type": "ko-fi",
+      "url": "https://ko-fi.com/outsideheaven"
+    }
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "type": "module",
+  "bin": {
+    "repogarden-tui": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "scripts": {
+    "dev": "tsx src/cli.tsx",
+    "build": "tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json -f",
+    "prepare": "npm run build",
+    "prepack": "npm run build",
+    "start": "node dist/cli.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test --test-concurrency=1 src/__tests__/*.test.ts",
+    "observe:tui": "./scripts/tui-observe.sh"
+  },
+  "dependencies": {
+    "cli-spinners": "^3.4.0",
+    "ink": "^6.8.0",
+    "ink-text-input": "^6.0.0",
+    "react": "^19.2.6"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.4",
+    "@types/react": "^19.2.14",
+    "tsc-alias": "^1.8.10",
+    "tsx": "^4.19.2",
+    "typescript": "^6.0.3"
+  }
+}

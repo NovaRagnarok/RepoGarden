@@ -1,0 +1,1599 @@
+import { Box, Text, measureElement, type DOMElement } from "ink";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+
+import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Banner } from "@/components/ui/banner";
+import { Card } from "@/components/ui/card";
+import { Markdown } from "@/components/ui/markdown";
+import { MultiProgress, type MultiProgressItem } from "@/components/ui/multi-progress";
+import { Panel } from "@/components/ui/panel";
+import { ProgressBar } from "@/components/ui/progress-bar";
+import { ProgressCircle } from "@/components/ui/progress-circle";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Sparkline } from "@/components/ui/sparkline";
+import { Spinner } from "@/components/ui/spinner";
+import { useMotion, useTheme } from "@/components/ui/theme-provider";
+import { Toaster, useToasts } from "@/components/ui/toast-host";
+import type { RootProgress } from "@/lib/scanner";
+import { useInput } from "@/hooks/use-input";
+import { useMouse } from "@/hooks/use-mouse";
+import { layoutMode, useTerminalSize } from "@/hooks/use-terminal-size";
+import type { RepoCreature } from "@/lib/creature";
+import { tildify } from "@/lib/scanner";
+import { vibeGlyph, type Vibe } from "@/lib/vibe";
+import { GardenView } from "@/screens/GardenView";
+import { CreatureSprite } from "@/components/CreatureSprite";
+import { Credit } from "@/components/Credit";
+import { DitherOverlay } from "@/components/DitherOverlay";
+import { UsageBar, UsageBarPlaceholder } from "@/components/UsageBar";
+import { useUsage } from "@/hooks/use-usage";
+import { useEvents } from "@/hooks/use-events";
+import { JournalView } from "@/screens/JournalView";
+import { ResizePrompt } from "@/components/ResizePrompt";
+import { computeOverlayCardSlot, getTerminalLayout } from "@/lib/responsive-layout";
+
+export type ReadyView = "garden" | "shelf" | "journal";
+
+export interface ReadyShellProps {
+  creatures: RepoCreature[];
+  rootsLabel?: string;
+  view?: ReadyView;
+  onSetView?: (view: ReadyView) => void;
+  onOpenSettings?: () => void;
+  onOpenWorkbench?: (creature: RepoCreature) => void;
+  onOpenFolder?: (creature: RepoCreature) => void;
+  onCreaturePlacementChange?: (changes: Array<{
+    creature: RepoCreature;
+    offset: { offsetX: number; offsetY: number };
+  }>) => void;
+  onOpenHelp?: () => void;
+  onEditRoots?: () => void;
+  onRescan?: () => void;
+  onToggleHidden?: (creature: RepoCreature) => void;
+  onQuit?: () => void;
+  isRescanning?: boolean;
+  rescanError?: string;
+  scanProgress?: { done: number; total: number };
+  scanProgressByRoot?: RootProgress[];
+}
+
+const vibeBadgeVariant: Record<Vibe, "default" | "warning" | "error" | "info" | "success"> = {
+  sleepy: "info",
+  blocked: "error",
+  noisy: "warning",
+  happy: "success"
+};
+
+export const ReadyShell = ({
+  creatures,
+  rootsLabel,
+  view = "garden",
+  onSetView,
+  onOpenSettings,
+  onOpenWorkbench,
+  onOpenFolder,
+  onCreaturePlacementChange,
+  onOpenHelp,
+  onEditRoots,
+  onRescan,
+  onToggleHidden,
+  onQuit,
+  isRescanning,
+  rescanError,
+  scanProgress,
+  scanProgressByRoot
+}: ReadyShellProps) => {
+  const theme = useTheme();
+  const { reduced: reducedMotion } = useMotion();
+  const { latest: latestStatus } = useToasts();
+  const { columns, rows } = useTerminalSize();
+  const responsive = getTerminalLayout(columns, rows);
+  const usage = useUsage();
+  const mode = layoutMode(columns);
+  const [focusIndex, setFocusIndex] = useState(0);
+  // Sidebar selection: a literal "home" row sits above the creatures in every
+  // wide ready view. When true, the cursor lives on that row — garden/shelf
+  // render with no focus ring or overlay card, and the journal scopes to all
+  // repos. When false, the cursor is on focusList[focusIndex] and that
+  // creature drives every focus-dependent UI element.
+  const [homeSelected, setHomeSelected] = useState(false);
+
+  // ---- view transition machinery --------------------------------------
+  // `view` is the user's intent (set the instant they click a segment).
+  // `displayView` is what we render. They diverge only across a list↔
+  // garden/shelf boundary so we can paint a dither cross-fade between the
+  // two frames. Garden↔shelf passes through immediately — GardenView's own
+  // placement tween already covers that swap.
+  //
+  // Dither runs for TRANSITION_MS. We commit the new view at the midpoint,
+  // so the user sees: old frame → rising noise → swap hidden by peak noise
+  // → falling noise → new frame.
+  const TRANSITION_MS = 1400;
+  const GARDEN_SHELF_TRANSITION_MS = 1400;
+  const [displayView, setDisplayView] = useState<ReadyView>(view);
+  const [ditherStartedAt, setDitherStartedAt] = useState<number | null>(null);
+  const transitionTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const gardenShelfTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [gardenShelfTransitioning, setGardenShelfTransitioning] = useState(false);
+  useEffect(() => {
+    if (view === displayView) return;
+    if (reducedMotion) {
+      // Skip both the dither cross-fade and the garden↔shelf hold — swap
+      // straight to the new view. Sprite layout already snaps because the
+      // garden layoutTransition is gated on reducedMotion too.
+      if (gardenShelfTimerRef.current) clearTimeout(gardenShelfTimerRef.current);
+      gardenShelfTimerRef.current = null;
+      transitionTimersRef.current.forEach((id) => clearTimeout(id));
+      transitionTimersRef.current = [];
+      setGardenShelfTransitioning(false);
+      setDitherStartedAt(null);
+      setDisplayView(view);
+      return;
+    }
+    const crossesJournalBoundary =
+      (view === "journal" && displayView !== "journal") ||
+      (displayView === "journal" && view !== "journal");
+    if (!crossesJournalBoundary) {
+      // garden ↔ shelf — GardenView's own tween handles the creature motion.
+      // Keep the detail card hidden until that short placement swap settles;
+      // otherwise the moving sprite cuts through the card's text block.
+      if (gardenShelfTimerRef.current) clearTimeout(gardenShelfTimerRef.current);
+      setGardenShelfTransitioning(true);
+      setDisplayView(view);
+      gardenShelfTimerRef.current = setTimeout(() => {
+        setGardenShelfTransitioning(false);
+        gardenShelfTimerRef.current = null;
+      }, GARDEN_SHELF_TRANSITION_MS);
+      return;
+    }
+    if (gardenShelfTimerRef.current) {
+      clearTimeout(gardenShelfTimerRef.current);
+      gardenShelfTimerRef.current = null;
+    }
+    setGardenShelfTransitioning(false);
+    // Cancel any in-flight transition timers — a second click should restart
+    // the dither, not stack on top of the prior one.
+    transitionTimersRef.current.forEach((id) => clearTimeout(id));
+    transitionTimersRef.current = [];
+    setDitherStartedAt(performance.now());
+    const swap = setTimeout(() => setDisplayView(view), Math.floor(TRANSITION_MS / 2));
+    const end = setTimeout(() => setDitherStartedAt(null), TRANSITION_MS);
+    transitionTimersRef.current.push(swap, end);
+  }, [view, displayView, reducedMotion]);
+  useEffect(() => () => {
+    transitionTimersRef.current.forEach((id) => clearTimeout(id));
+    if (gardenShelfTimerRef.current) clearTimeout(gardenShelfTimerRef.current);
+  }, []);
+  // ---------------------------------------------------------------------
+
+  const [filter, setFilter] = useState("");
+  const [filterMode, setFilterMode] = useState(false);
+  const [cardVisible, setCardVisible] = useState(true);
+  const journalActive = view === "journal";
+  const creatureFilter = journalActive ? "" : filter;
+
+  const shownCreatures = useMemo(
+    () => creatures.filter((c) => !c.memory.hidden),
+    [creatures]
+  );
+  const hiddenCreatures = useMemo(
+    () => creatures.filter((c) => c.memory.hidden),
+    [creatures]
+  );
+  const visibleCreatures = useMemo(() => {
+    if (!creatureFilter.trim()) return shownCreatures;
+    const needle = creatureFilter.toLowerCase();
+    return shownCreatures.filter((c) => c.scan.name.toLowerCase().includes(needle));
+  }, [shownCreatures, creatureFilter]);
+  const visibleHiddenCreatures = useMemo(() => {
+    if (!creatureFilter.trim()) return hiddenCreatures;
+    const needle = creatureFilter.toLowerCase();
+    return hiddenCreatures.filter((c) => c.scan.name.toLowerCase().includes(needle));
+  }, [hiddenCreatures, creatureFilter]);
+  // Combined list the cursor can traverse — shown first, then hidden. The
+  // garden only renders shown creatures, so a focus that falls inside the
+  // hidden tail simply has no garden highlight.
+  const focusList = useMemo(
+    () => [...visibleCreatures, ...visibleHiddenCreatures],
+    [visibleCreatures, visibleHiddenCreatures]
+  );
+  const gardenFocusIndex = homeSelected
+    ? -1
+    : focusIndex < visibleCreatures.length
+      ? focusIndex
+      : -1;
+
+  useEffect(() => {
+    if (focusIndex >= focusList.length && focusList.length > 0) {
+      setFocusIndex(focusList.length - 1);
+    }
+  }, [focusList.length, focusIndex]);
+
+  // When a repo is unhidden via 'h', follow it to its new spot in the shown
+  // list rather than leaving the cursor parked in the hidden section.
+  const followAfterUnhideRef = useRef<string | null>(null);
+  useEffect(() => {
+    const id = followAfterUnhideRef.current;
+    if (!id) return;
+    const idx = focusList.findIndex((c) => c.id === id);
+    if (idx >= 0) setFocusIndex(idx);
+    followAfterUnhideRef.current = null;
+  }, [focusList]);
+
+  useInput((input, key) => {
+    if (filterMode) {
+      if (key.escape) {
+        setFilterMode(false);
+        setFilter("");
+        setFocusIndex(0);
+        return;
+      }
+      if (key.return) {
+        setFilterMode(false);
+        return;
+      }
+      if (key.backspace || key.delete) {
+        setFilter((current) => current.slice(0, -1));
+        setFocusIndex(0);
+        return;
+      }
+      if (input && !key.ctrl && !key.meta && input.length === 1) {
+        setFilter((current) => current + input);
+        setFocusIndex(0);
+      }
+      return;
+    }
+
+    if (input === "/") {
+      setFilterMode(true);
+      return;
+    }
+
+    if (journalActive) {
+      if (input === "s" && onOpenSettings) {
+        onOpenSettings();
+        return;
+      }
+      if (input === "r" && onRescan) {
+        onRescan();
+        return;
+      }
+      if (input === "g" && onSetView) {
+        const order: ReadyView[] = ["garden", "shelf", "journal"];
+        const next = order[(order.indexOf(view) + 1) % order.length];
+        onSetView(next);
+        return;
+      }
+      if (input === "o" && onOpenFolder) {
+        // Only meaningful when a creature is highlighted in the sidebar —
+        // skip when the journal cursor is on the "home" row.
+        if (!homeSelected) {
+          const creature = focusList[focusIndex];
+          if (creature) onOpenFolder(creature);
+        }
+        return;
+      }
+      if (input === "?" && onOpenHelp) {
+        onOpenHelp();
+        return;
+      }
+      if (input === "p" && onEditRoots) {
+        onEditRoots();
+        return;
+      }
+      if (key.escape && filter) {
+        setFilter("");
+        return;
+      }
+      if ((input === "q" || key.escape) && onQuit) {
+        onQuit();
+        return;
+      }
+
+      // Sidebar navigation in journal mode. The sidebar now has a virtual
+      // "home" row above the creatures; ↑↓ walk through both. j/k stay
+      // with JournalView for event scrolling so the panes navigate independently
+      // (Vim-pane style: arrows outside, j/k inside).
+      if (key.upArrow) {
+        if (homeSelected) return; // already at the top
+        if (focusIndex <= 0) {
+          setHomeSelected(true);
+        } else {
+          setFocusIndex((current) => Math.max(0, current - 1));
+        }
+        return;
+      }
+      if (key.downArrow) {
+        if (homeSelected) {
+          if (focusList.length > 0) setHomeSelected(false);
+          return;
+        }
+        setFocusIndex((current) => Math.min(Math.max(0, focusList.length - 1), current + 1));
+        return;
+      }
+
+      // Let JournalView own event scrolling (j/k), detail toggles, kind/time
+      // filters, and the workbench open shortcut.
+      return;
+    }
+
+    // Sidebar navigation in garden/shelf. The "home" row sits above the
+    // creatures; ↑/k from creature[0] steps up to home, ↓/j from home steps
+    // down to creature[0]. When home is selected, no creature is focused —
+    // garden/shelf render without a focus ring or overlay card.
+    if (key.upArrow || input === "k") {
+      if (homeSelected) return;
+      if (focusIndex <= 0) {
+        setHomeSelected(true);
+      } else {
+        setFocusIndex((current) => Math.max(0, current - 1));
+      }
+      return;
+    }
+    if (key.downArrow || input === "j") {
+      if (homeSelected) {
+        if (focusList.length > 0) setHomeSelected(false);
+        return;
+      }
+      setFocusIndex((current) => Math.min(Math.max(0, focusList.length - 1), current + 1));
+      return;
+    }
+    if (key.return && onOpenWorkbench) {
+      if (homeSelected) return; // home isn't a workbench target
+      const creature = focusList[focusIndex];
+      if (creature) onOpenWorkbench(creature);
+      return;
+    }
+    if (input === "s" && onOpenSettings) {
+      onOpenSettings();
+      return;
+    }
+    if (input === "r" && onRescan) {
+      onRescan();
+      return;
+    }
+    if (input === "g" && onSetView) {
+      // Cycle through the three view modes so the keyboard exposes everything
+      // the badge does plus the legacy list view.
+      const order: ReadyView[] = ["garden", "shelf", "journal"];
+      const next = order[(order.indexOf(view) + 1) % order.length];
+      onSetView(next);
+      return;
+    }
+    if (input === "o" && onOpenFolder) {
+      if (homeSelected) return;
+      const creature = focusList[focusIndex];
+      if (creature) onOpenFolder(creature);
+      return;
+    }
+    if (input === "h" && onToggleHidden) {
+      if (homeSelected) return;
+      const creature = focusList[focusIndex];
+      if (creature) {
+        if (creature.memory.hidden) followAfterUnhideRef.current = creature.id;
+        onToggleHidden(creature);
+      }
+      return;
+    }
+    if (input === "?" && onOpenHelp) {
+      onOpenHelp();
+      return;
+    }
+    if (input === "p" && onEditRoots) {
+      onEditRoots();
+      return;
+    }
+    if (input === "c") {
+      setCardVisible((current) => !current);
+      return;
+    }
+    if (key.escape && filter) {
+      setFilter("");
+      return;
+    }
+    if ((input === "q" || key.escape) && onQuit) {
+      onQuit();
+    }
+  });
+
+  // When "home" is selected, no creature is in focus — every focus-dependent
+  // UI element (focus ring, overlay card, detail card, status text, etc.)
+  // sees `focus` as undefined and gracefully renders an empty/calm state.
+  const focus = homeSelected ? undefined : focusList[focusIndex];
+  // JournalView owns scope/search/kind/range filtering locally so the user can
+  // switch between focused and all-repo timelines without disk re-reads. Keep
+  // the poller dormant outside journal mode so its 5s disk reads do not force
+  // unrelated garden rerenders.
+  const shouldPollJournalEvents = view === "journal" || displayView === "journal";
+  const journalEvents = useEvents({ limit: 1_000, enabled: shouldPollJournalEvents });
+  const gardenSidebarWidth = responsive.showSidebar
+    ? Math.max(22, Math.min(32, Math.floor(columns * 0.22)))
+    : 0;
+  const stackedWidth = responsive.contentWidth;
+  const gardenWidth = responsive.showSidebar
+    ? Math.max(40, columns - gardenSidebarWidth - 3)
+    : stackedWidth;
+
+  // Measure the chrome above the garden (everything between the outer
+  // paddingY and the garden block) so we know exactly where the garden
+  // content area starts on screen — even after a resize or when conditional
+  // info rows appear/disappear. The garden's height is derived from this
+  // instead of a fixed estimate, which is what kept ~6–8 rows of slack
+  // unallocated at the bottom of the screen.
+  const chromeRef = useRef<DOMElement | null>(null);
+  const [chromeRowHeight, setChromeRowHeight] = useState(7);
+  useLayoutEffect(() => {
+    if (chromeRef.current) {
+      const { height } = measureElement(chromeRef.current);
+      if (height > 0 && height !== chromeRowHeight) setChromeRowHeight(height);
+    }
+  });
+
+  // Below the garden Panel: outer paddingY bottom (1) + footer body. The
+  // footer sits flush against the garden Panel's bottom border — no spacer
+  // row in between. Footer body is 1 row when the inline usage strip is
+  // hidden, or 2 rows when it's shown (7d row + 5h row, with hint/Credit
+  // bottom-aligned next to the 5h row). The toaster is absolutely positioned
+  // and the latest status lives inside the sidebar Panel, so neither steals
+  // a row of garden height.
+  // `useUsage` starts at `[]` and resolves to 2 entries asynchronously, so
+  // we key the footer height off `columns` alone — otherwise the garden
+  // would shrink by 1 the moment usage data lands.
+  const footerBodyRows = responsive.showUsageFooter ? 2 : 1;
+  const gardenChromeBelow = 1 + footerBodyRows;
+  const compactSummaryRows = responsive.showSidebar ? 0 : 1;
+  const gardenHeight = Math.max(
+    8,
+    responsive.contentHeight - chromeRowHeight - gardenChromeBelow - compactSummaryRows
+  );
+  // Wide habitat card: keep the same bottom-right slot reserved even when the
+  // card is hidden. Toggling `c` should only affect visibility, not creature
+  // placement or drag hit-testing.
+  const overlayCardSlot = useMemo(
+    () =>
+      computeOverlayCardSlot({
+        canReserve: responsive.showOverlayCard,
+        cardVisible,
+        gardenWidth,
+        gardenHeight
+      }),
+    [responsive.showOverlayCard, cardVisible, gardenWidth, gardenHeight]
+  );
+  const showOverlayCard = overlayCardSlot.visible;
+  const habitatPlacementMode = displayView === "shelf" ? "shelf" : "organic";
+  const overlayDeadZone = overlayCardSlot.deadZone;
+  const overlayCardWidth = overlayCardSlot.width;
+  const overlayCardHeight = overlayCardSlot.height;
+  const overlayCardOffsetTop = overlayCardSlot.offsetTop;
+  const overlayCardOffsetLeft = overlayCardSlot.offsetLeft;
+  const handleGardenCreatureSelect = useCallback((index: number) => {
+    setFocusIndex(index);
+  }, []);
+  const handleGardenFocusDelta = useCallback((delta: number) => {
+    setFocusIndex((current) =>
+      Math.max(
+        0,
+        Math.min(Math.max(0, focusList.length - 1), current + delta)
+      )
+    );
+  }, [focusList.length]);
+  const handleGardenCreaturePlacementChange = useCallback(
+    (changes: Array<{ creature: RepoCreature; offset: { offsetX: number; offsetY: number } }>) => {
+      onCreaturePlacementChange?.(changes);
+    },
+    [onCreaturePlacementChange]
+  );
+
+  // Hit zones for the wide-garden sidebar items, computed from the same
+  // windowing math the sidebar render uses. Stored so a single useMouse
+  // handler can map a click row → focus index without the sidebar having to
+  // know its own absolute screen coordinates.
+  const sidebarHitZones = useMemo(() => {
+    // Sidebar is present in all three wide ready views; only narrow layouts
+    // skip it. The home row is rendered in all wide views and is always
+    // clickable, even when there are no creatures.
+    if (!responsive.showSidebar) return [];
+    if (displayView !== "garden" && displayView !== "shelf" && displayView !== "journal") return [];
+    // Mirror the sidebar function: status row + home row each eat 1 row of
+    // content area.
+    const statusRowCost = latestStatus ? 1 : 0;
+    const homeRowCost = 1;
+    const totalContent = Math.max(1, gardenHeight - 4 - statusRowCost - homeRowCost);
+    const creatureFocusActive = !homeSelected;
+    const shownFocus =
+      creatureFocusActive && focusIndex < visibleCreatures.length ? focusIndex : -1;
+    const hiddenFocus =
+      creatureFocusActive && focusIndex >= visibleCreatures.length
+        ? focusIndex - visibleCreatures.length
+        : -1;
+    const hiddenHeader = visibleHiddenCreatures.length > 0 ? 1 : 0;
+    const hiddenWish = hiddenHeader + visibleHiddenCreatures.length;
+    const hiddenCap = Math.max(2, Math.floor(totalContent / 3));
+    const hiddenAllotment =
+      visibleHiddenCreatures.length === 0 ? 0 : Math.min(hiddenWish, hiddenCap);
+    const shownAllotment = Math.max(1, totalContent - hiddenAllotment);
+    const shownAnchor = shownFocus >= 0 ? shownFocus : 0;
+    const shownStart = Math.max(
+      0,
+      Math.min(
+        shownAnchor - Math.floor(shownAllotment / 2),
+        Math.max(0, visibleCreatures.length - shownAllotment)
+      )
+    );
+    const shownSliced = visibleCreatures.slice(shownStart, shownStart + shownAllotment);
+    const shownOverflowAfter = visibleCreatures.length - (shownStart + shownSliced.length);
+    const hiddenItemRows = Math.max(0, hiddenAllotment - hiddenHeader);
+    const hiddenAnchor = hiddenFocus >= 0 ? hiddenFocus : 0;
+    const hiddenStart = Math.max(
+      0,
+      Math.min(
+        hiddenAnchor - Math.floor(hiddenItemRows / 2),
+        Math.max(0, visibleHiddenCreatures.length - hiddenItemRows)
+      )
+    );
+    const hiddenSliced = visibleHiddenCreatures.slice(hiddenStart, hiddenStart + hiddenItemRows);
+
+    // Sidebar Panel: outer paddingY top (1) + chrome (chromeRowHeight)
+    //   + Panel top border (1) + title box (3 rows: borders + text)
+    //   = chromeRowHeight + 5 rows occupied before the first item.
+    // Add 1 to convert to a 1-indexed screen row. (The status row sits at
+    // the bottom of the panel now, so it doesn't shift item positions.)
+    let row = chromeRowHeight + 6;
+    const leftCol = 2; // outer paddingX (1) → col 2 is the panel left border
+    const rightCol = gardenSidebarWidth + 1;
+    const zones: {
+      topRow: number;
+      leftCol: number;
+      rightCol: number;
+      /** focusIdx = -1 is the "home" row; >=0 indexes focusList. */
+      focusIdx: number;
+    }[] = [];
+    // Virtual "home" row sits at the top of every wide ready sidebar.
+    zones.push({ topRow: row, leftCol, rightCol, focusIdx: -1 });
+    row += 1;
+    for (let i = 0; i < shownSliced.length; i += 1) {
+      zones.push({ topRow: row, leftCol, rightCol, focusIdx: shownStart + i });
+      row += 1;
+    }
+    if (shownOverflowAfter > 0) row += 1;
+    if (shownStart > 0) row += 1;
+    if (visibleHiddenCreatures.length > 0) {
+      row += 1; // marginTop=1 spacer
+      row += 1; // "hidden · N" header
+      if (hiddenStart > 0) row += 1;
+      for (let i = 0; i < hiddenSliced.length; i += 1) {
+        zones.push({
+          topRow: row,
+          leftCol,
+          rightCol,
+          focusIdx: visibleCreatures.length + hiddenStart + i
+        });
+        row += 1;
+      }
+    }
+    return zones;
+  }, [
+    displayView,
+    responsive.showSidebar,
+    columns,
+    chromeRowHeight,
+    gardenHeight,
+    gardenSidebarWidth,
+    visibleCreatures,
+    visibleHiddenCreatures,
+    focusIndex,
+    latestStatus,
+    homeSelected
+  ]);
+
+  // Top-right segmented toggle click zone. The header renders three bordered
+  // Badges (GARDEN · SHELF · LIST) in a row; clicking any segment jumps to
+  // that view. Clicks during a scan are ignored — the row is replaced by a
+  // SCANNING indicator and shouldn't act as a toggle.
+  useMouse(
+    useCallback(
+      (event) => {
+        if (event.kind !== "press" || event.button !== "left") return;
+        if (isRescanning) return;
+        if (!onSetView) return;
+        // Render order matches the keyboard cycle (g).
+        const segments: { view: ReadyView; label: string }[] = [
+          { view: "garden", label: "GARDEN" },
+          { view: "shelf", label: "SHELF" },
+          { view: "journal", label: "JOURNAL" },
+        ];
+        // Each bordered Badge: text + 2 padding + 2 borders. Row gap=1.
+        const widths = segments.map((s) => s.label.length + 4);
+        const totalW = widths.reduce((a, b) => a + b, 0) + (segments.length - 1);
+        const rowRight = columns - 1;
+        const rowLeft = rowRight - totalW + 1;
+        const badgeH = 3;
+        // Outer wrapper paddingX=1 puts content at col 1+; paddingY=1 puts the
+        // first chrome row at screen row 2. In narrow mode the badge row drops
+        // below the title block (3 lines + marginTop=1).
+        const rowTop = mode === "narrow" ? 2 + 3 + 1 : 2;
+        const rowBottom = rowTop + badgeH - 1;
+        if (event.row < rowTop || event.row > rowBottom) return;
+        let cursor = rowLeft;
+        for (let i = 0; i < segments.length; i++) {
+          const segLeft = cursor;
+          const segRight = cursor + widths[i] - 1;
+          if (event.col >= segLeft && event.col <= segRight) {
+            onSetView(segments[i].view);
+            return;
+          }
+          cursor = segRight + 2; // 1 gap col between segments
+        }
+      },
+      [columns, mode, isRescanning, onSetView]
+    )
+  );
+
+  // Sidebar + card mouse handler. The garden's own mouse hooks are inside
+  // GardenView; this one covers everything outside the garden Panel. The
+  // sidebar renders in all three wide ready views (garden/shelf/journal), so
+  // the gate is "any wide ready layout" rather than "garden only".
+  useMouse(
+    useCallback(
+      (event) => {
+        if (!responsive.showSidebar) return;
+        if (displayView !== "garden" && displayView !== "shelf" && displayView !== "journal") return;
+        // Wheel over the sidebar column → step focus.
+        if (event.kind === "wheel") {
+          if (event.col >= 2 && event.col <= gardenSidebarWidth + 1) {
+            if (event.button === "wheel-up") {
+              setFocusIndex((current) => Math.max(0, current - 1));
+            } else if (event.button === "wheel-down") {
+              setFocusIndex((current) =>
+                Math.min(Math.max(0, focusList.length - 1), current + 1)
+              );
+            }
+          }
+          return;
+        }
+        if (event.kind !== "press" || event.button !== "left") return;
+        if (
+          (displayView === "garden" || displayView === "shelf") &&
+          showOverlayCard &&
+          focus &&
+          !gardenShelfTransitioning &&
+          onOpenWorkbench
+        ) {
+          const cardTop = chromeRowHeight + 2 + overlayCardOffsetTop;
+          const cardLeft = gardenSidebarWidth + 3 + overlayCardOffsetLeft;
+          if (
+            event.row >= cardTop &&
+            event.row < cardTop + overlayCardHeight &&
+            event.col >= cardLeft &&
+            event.col < cardLeft + overlayCardWidth
+          ) {
+            onOpenWorkbench(focus);
+            return;
+          }
+        }
+        // Click on a sidebar row. Two kinds of row:
+        //   focusIdx === -1: the journal "home" row → scope = all.
+        //   focusIdx >= 0:  a creature row → focus that creature; in journal
+        //                   mode, also flip scope = focused.
+        for (const zone of sidebarHitZones) {
+          if (
+            event.row === zone.topRow &&
+            event.col >= zone.leftCol &&
+            event.col <= zone.rightCol
+          ) {
+            if (zone.focusIdx === -1) {
+              setHomeSelected(true);
+            } else {
+              setFocusIndex(zone.focusIdx);
+              setHomeSelected(false);
+            }
+            return;
+          }
+        }
+      },
+      [
+        displayView,
+        responsive.showSidebar,
+        columns,
+        gardenSidebarWidth,
+        focusList.length,
+        showOverlayCard,
+        focus,
+        gardenShelfTransitioning,
+        onOpenWorkbench,
+        chromeRowHeight,
+        overlayCardOffsetTop,
+        overlayCardOffsetLeft,
+        overlayCardHeight,
+        overlayCardWidth,
+        sidebarHitZones,
+        journalActive
+      ]
+    )
+  );
+
+  // Garden Panel content first row (1-indexed):
+  //   outer paddingY top (1)
+  // + measured chrome height (header + conditional rows + tagline block)
+  // + outer Panel top border (1)
+  // + paddingY top inside Panel (1)
+  // Then add +1 to convert from "rows-occupied" to 1-indexed position.
+  const gardenContentRow = 1 + chromeRowHeight + 2 + 1;
+  // First content col (1-indexed):
+  //   outer paddingX (1)
+  // + sidebar width + sidebar marginRight (1)
+  // + Panel left border (1)
+  // + paddingX inside Panel (1)
+  // + 1 for the 1-indexed conversion.
+  const wideGardenContentCol = 1 + gardenSidebarWidth + 1 + 1 + 1 + 1;
+  const stackedGardenContentCol = 1 + 1 + 1 + 1;
+
+  const sidebar = (width?: number, height?: number) => {
+    // Account for: 1 col panel border + 1 col panel pad + 1 col cursor + 1 col gap + 1 col glyph + 1 col gap + (name) + 1 col pad + 1 col border = 7 cols of chrome.
+    const nameRoom = Math.max(6, (width ?? 32) - 7);
+    // Content rows = panel height minus 4 rows of chrome (top border, title
+    // header, title bottom border, bottom border), (-1) for the inline status
+    // row when present, and (-1) for the "home" row, which is always rendered
+    // at the top of wide ready sidebars.
+    const statusRowCost = latestStatus ? 1 : 0;
+    const homeRowCost = 1;
+    const totalContent =
+      height !== undefined
+        ? Math.max(1, height - 4 - statusRowCost - homeRowCost)
+        : visibleCreatures.length + visibleHiddenCreatures.length + 2 + homeRowCost;
+
+    // When "home" is selected no creature is highlighted — the cursor lives
+    // on the synthetic top row. Windowing falls back to the natural anchor
+    // (top of list) so the list doesn't auto-scroll to a hidden focus.
+    const creatureFocusActive = !homeSelected;
+    const shownFocus =
+      creatureFocusActive && focusIndex < visibleCreatures.length ? focusIndex : -1;
+    const hiddenFocus =
+      creatureFocusActive && focusIndex >= visibleCreatures.length
+        ? focusIndex - visibleCreatures.length
+        : -1;
+
+    // Allocate rows between the shown list and the hidden section. The hidden
+    // section gets its natural size up to ~1/3 of the panel, leaving the rest
+    // for shown so the active list never collapses.
+    const hiddenHeader = visibleHiddenCreatures.length > 0 ? 1 : 0;
+    const hiddenWish = hiddenHeader + visibleHiddenCreatures.length;
+    const hiddenCap = Math.max(2, Math.floor(totalContent / 3));
+    const hiddenAllotment = visibleHiddenCreatures.length === 0 ? 0 : Math.min(hiddenWish, hiddenCap);
+    const shownAllotment = Math.max(1, totalContent - hiddenAllotment);
+
+    // Window the shown list. Centre on focus when focus is in the shown
+    // section; otherwise pin to the top.
+    const shownAnchor = shownFocus >= 0 ? shownFocus : 0;
+    const shownStart = Math.max(
+      0,
+      Math.min(shownAnchor - Math.floor(shownAllotment / 2), Math.max(0, visibleCreatures.length - shownAllotment))
+    );
+    const shownSliced = visibleCreatures.slice(shownStart, shownStart + shownAllotment);
+    const shownOverflowAfter = visibleCreatures.length - (shownStart + shownSliced.length);
+
+    // Window the hidden list. Header takes 1 row, leaving the remainder for
+    // items (and an "above"/"below" indicator if needed).
+    const hiddenItemRows = Math.max(0, hiddenAllotment - hiddenHeader);
+    const hiddenAnchor = hiddenFocus >= 0 ? hiddenFocus : 0;
+    const hiddenStart = Math.max(
+      0,
+      Math.min(hiddenAnchor - Math.floor(hiddenItemRows / 2), Math.max(0, visibleHiddenCreatures.length - hiddenItemRows))
+    );
+    const hiddenSliced = visibleHiddenCreatures.slice(hiddenStart, hiddenStart + hiddenItemRows);
+    const hiddenOverflowAfter = visibleHiddenCreatures.length - (hiddenStart + hiddenSliced.length);
+
+    const title = creatureFilter
+      ? `creatures · ${visibleCreatures.length}/${shownCreatures.length}`
+      : `creatures · ${shownCreatures.length}`;
+    const statusVariantColor = (variant: string): string => {
+      switch (variant) {
+        case "success":
+          return theme.colors.success;
+        case "error":
+          return theme.colors.error;
+        case "warning":
+          return theme.colors.warning;
+        default:
+          return theme.colors.info;
+      }
+    };
+    const statusIcon = (variant: string): string => {
+      switch (variant) {
+        case "success":
+          return "✓";
+        case "error":
+          return "✗";
+        case "warning":
+          return "⚠";
+        default:
+          return "ℹ";
+      }
+    };
+
+    const homeRowFocused = homeSelected;
+    const homeRow = (
+      <Box key="__home__" flexDirection="row">
+        <Text color={homeRowFocused ? theme.colors.primary : theme.colors.mutedForeground}>
+          {homeRowFocused ? "›" : " "}
+        </Text>
+        <Text color={theme.colors.mutedForeground} bold>
+          {" ⌂ "}
+        </Text>
+        <Text
+          color={homeRowFocused ? theme.colors.primary : theme.colors.foreground}
+          bold={homeRowFocused}
+          wrap="truncate-end"
+        >
+          home
+        </Text>
+      </Box>
+    );
+
+    return (
+      <Panel title={title} paddingY={0} width={width} height={height}>
+        {homeRow}
+        {visibleCreatures.length === 0 ? (
+          isRescanning && !creatureFilter ? (
+            <Box flexDirection="column" gap={0}>
+              {Array.from({ length: 4 }).map((_, idx) => (
+                <Skeleton key={idx} width={Math.max(8, (width ?? 32) - 7)} />
+              ))}
+            </Box>
+          ) : (
+            <Text dimColor color={theme.colors.mutedForeground}>
+              {creatureFilter ? `no matches for "${creatureFilter}".` : "nothing scanned yet — press r to scan."}
+            </Text>
+          )
+        ) : (
+          shownSliced.map((creature, slicedIndex) => {
+            const index = shownStart + slicedIndex;
+            const focused = index === shownFocus;
+            const glyph = vibeGlyph(creature.vibe.vibe);
+            const vibeColor =
+              creature.vibe.vibe === "blocked"
+                ? theme.colors.error
+                : creature.vibe.vibe === "noisy"
+                  ? theme.colors.warning
+                  : creature.vibe.vibe === "sleepy"
+                    ? theme.colors.info
+                    : theme.colors.success;
+            const display = creature.scan.name;
+            return (
+              <Box key={creature.id} flexDirection="row">
+                <Text color={focused ? theme.colors.primary : theme.colors.mutedForeground}>
+                  {focused ? "›" : " "}
+                </Text>
+                <Text color={vibeColor} bold>
+                  {" " + glyph + " "}
+                </Text>
+                <Text
+                  color={focused ? theme.colors.primary : theme.colors.foreground}
+                  bold={focused}
+                  wrap="truncate-end"
+                >
+                  {display}
+                </Text>
+              </Box>
+            );
+          })
+        )}
+        {shownOverflowAfter > 0 ? (
+          <Text dimColor color={theme.colors.mutedForeground}>
+            +{shownOverflowAfter} more…
+          </Text>
+        ) : null}
+        {shownStart > 0 ? (
+          <Text dimColor color={theme.colors.mutedForeground}>
+            ↑{shownStart} above
+          </Text>
+        ) : null}
+        {visibleHiddenCreatures.length > 0 ? (
+          <Box flexDirection="column" marginTop={1}>
+            <Text dimColor color={theme.colors.mutedForeground}>
+              hidden · {visibleHiddenCreatures.length}
+            </Text>
+            {hiddenStart > 0 ? (
+              <Text dimColor color={theme.colors.mutedForeground}>
+                {`   ↑${hiddenStart} above`}
+              </Text>
+            ) : null}
+            {hiddenSliced.map((creature, slicedIndex) => {
+              const index = hiddenStart + slicedIndex;
+              const focused = index === hiddenFocus;
+              return (
+                <Box key={creature.id} flexDirection="row">
+                  <Text color={focused ? theme.colors.primary : theme.colors.mutedForeground}>
+                    {focused ? "›" : " "}
+                  </Text>
+                  <Text dimColor={!focused} color={focused ? theme.colors.primary : theme.colors.mutedForeground}>
+                    {"  "}
+                  </Text>
+                  <Text
+                    dimColor={!focused}
+                    color={focused ? theme.colors.primary : theme.colors.mutedForeground}
+                    bold={focused}
+                    wrap="truncate-end"
+                  >
+                    {creature.scan.name}
+                  </Text>
+                </Box>
+              );
+            })}
+            {hiddenOverflowAfter > 0 ? (
+              <Text dimColor color={theme.colors.mutedForeground}>
+                {`   +${hiddenOverflowAfter} more…`}
+              </Text>
+            ) : null}
+          </Box>
+        ) : null}
+        {/* Status pinned to the very bottom of the panel: the spacer
+            consumes any remaining content rows so the status sits flush
+            against the bottom border, regardless of how many creatures
+            the windowing renders. */}
+        {latestStatus ? (
+          <>
+            <Box flexGrow={1} />
+            <Box>
+              <Text
+                color={statusVariantColor(latestStatus.variant)}
+                wrap="truncate-end"
+              >
+                {statusIcon(latestStatus.variant)} {latestStatus.message}
+              </Text>
+            </Box>
+          </>
+        ) : null}
+      </Panel>
+    );
+  };
+
+  // A compact variant of the detail card sized for the bottom-right corner
+  // of the garden view. Keeps the content dense so it can live in a small
+  // overlay without stealing much habitat space.
+  const compactDetail = (width: number, height: number) => {
+    if (!focus) return null;
+
+    const vibeColor =
+      focus.vibe.vibe === "blocked"
+        ? theme.colors.error
+        : focus.vibe.vibe === "noisy"
+          ? theme.colors.warning
+          : focus.vibe.vibe === "sleepy"
+            ? theme.colors.info
+            : theme.colors.success;
+
+    const days = focus.vibe.daysSinceCommit;
+    const ageText =
+      days === undefined ? null : days === 0 ? "today" : days === 1 ? "1d ago" : `${days}d ago`;
+
+    type Chip = { key: string; text: string; color: string; dim?: boolean };
+    const chips: Chip[] = [];
+    if (focus.scan.branch) {
+      // Cap branch so a long branch name can't push later chips off-screen.
+      const branch =
+        focus.scan.branch.length > 14
+          ? `${focus.scan.branch.slice(0, 13)}…`
+          : focus.scan.branch;
+      chips.push({ key: "branch", text: `⎇ ${branch}`, color: theme.colors.mutedForeground, dim: true });
+    }
+    if (ageText) {
+      chips.push({ key: "age", text: ageText, color: theme.colors.mutedForeground, dim: true });
+    }
+    if (focus.scan.isDirty) {
+      chips.push({ key: "dirty", text: "✎ dirty", color: theme.colors.warning });
+    }
+    if (focus.scan.ahead) {
+      chips.push({ key: "ahead", text: `↑${focus.scan.ahead}`, color: theme.colors.info });
+    }
+    if (focus.scan.behind) {
+      chips.push({ key: "behind", text: `↓${focus.scan.behind}`, color: theme.colors.info });
+    }
+
+    const sparkData =
+      focus.scan.recentCommitDays && focus.scan.recentCommitDays.some((n) => n > 0)
+        ? focus.scan.recentCommitDays
+        : null;
+    const commitCount = focus.scan.commitCount;
+
+    const blocker = focus.memory.currentBlocker?.split("\n")[0]?.trim();
+    const note = focus.memory.noteToFutureSelf?.split("\n")[0]?.trim();
+    const memoryLine = blocker
+      ? { icon: "⚑", label: "blocker", text: blocker, color: theme.colors.error }
+      : note
+        ? { icon: "✎", label: "note", text: note, color: theme.colors.mutedForeground }
+        : null;
+
+    // When the vibe is "blocked", vibe.reason is already "blocker: <text>" —
+    // the memoryLine renders the same content with stronger styling, so we
+    // skip the reason line to avoid a back-to-back duplicate.
+    const showVibeReason = !(focus.vibe.vibe === "blocked" && blocker);
+
+    const path = tildify(focus.scan.path);
+
+    return (
+      <Box
+        flexDirection="column"
+        borderStyle={theme.border.style}
+        borderColor={theme.colors.border}
+        width={width}
+        height={height}
+        paddingX={1}
+      >
+        {/* Header — vibe glyph + repo name (left), language (right). */}
+        <Box flexDirection="row" justifyContent="space-between">
+          <Box flexShrink={1}>
+            <Text bold color={vibeColor}>
+              {vibeGlyph(focus.vibe.vibe)}{" "}
+            </Text>
+            <Text bold color={theme.colors.foreground} wrap="truncate-end">
+              {focus.scan.name}
+            </Text>
+          </Box>
+          {focus.scan.primaryLanguage ? (
+            <Box flexShrink={0} marginLeft={1}>
+              <Text dimColor color={theme.colors.mutedForeground}>
+                {focus.scan.primaryLanguage}
+              </Text>
+            </Box>
+          ) : null}
+        </Box>
+
+        {/* Sub-header — branch · age · dirty · ahead/behind chips. */}
+        {chips.length > 0 ? (
+          <Box flexDirection="row">
+            {chips.map((chip, index) => (
+              <React.Fragment key={chip.key}>
+                {index > 0 ? (
+                  <Text dimColor color={theme.colors.mutedForeground}>
+                    {" · "}
+                  </Text>
+                ) : null}
+                <Text color={chip.color} dimColor={chip.dim}>
+                  {chip.text}
+                </Text>
+              </React.Fragment>
+            ))}
+          </Box>
+        ) : null}
+
+        {/* Sparkline of 30-day commit activity, with total commits on the right. */}
+        {sparkData ? (
+          <Box flexDirection="row" justifyContent="space-between">
+            <Sparkline
+              data={sparkData}
+              width={Math.max(10, width - (commitCount !== undefined ? 14 : 4))}
+              color={vibeColor}
+            />
+            {commitCount !== undefined ? (
+              <Text dimColor color={theme.colors.mutedForeground}>
+                {commitCount} total
+              </Text>
+            ) : null}
+          </Box>
+        ) : null}
+
+        {/* Vibe reason — colored to match the vibe. */}
+        {showVibeReason ? (
+          <Box>
+            <Text color={vibeColor} wrap="truncate-end">
+              {focus.vibe.reason}
+            </Text>
+          </Box>
+        ) : null}
+
+        {/* Last commit subject. */}
+        {focus.scan.lastCommitSubject ? (
+          <Box>
+            <Text dimColor color={theme.colors.mutedForeground} wrap="truncate-end">
+              ▸ {focus.scan.lastCommitSubject}
+            </Text>
+          </Box>
+        ) : null}
+
+        {/* Blocker (highest priority) or note — one line, never both. */}
+        {memoryLine ? (
+          <Box>
+            <Text color={memoryLine.color} wrap="truncate-end">
+              {memoryLine.icon} {memoryLine.label}: {memoryLine.text}
+            </Text>
+          </Box>
+        ) : null}
+
+        {/* Spacer pushes the footer to the bottom of the fixed-height card. */}
+        <Box flexGrow={1} />
+
+        {/* Footer — tildified path (left), workbench hint (right). */}
+        <Box flexDirection="row" justifyContent="space-between">
+          <Box flexShrink={1}>
+            <Text dimColor color={theme.colors.mutedForeground} wrap="truncate-end">
+              {path}
+            </Text>
+          </Box>
+          <Box flexShrink={0} marginLeft={1}>
+            <Text color={theme.colors.accent}>↵</Text>
+            <Text dimColor color={theme.colors.mutedForeground}>
+              {" workbench"}
+            </Text>
+          </Box>
+        </Box>
+      </Box>
+    );
+  };
+
+  const compactDetailPlaceholder = (width: number, height: number) => (
+    <Box
+      flexDirection="column"
+      borderStyle={theme.border.style}
+      borderColor={theme.colors.border}
+      width={width}
+      height={height}
+      paddingX={1}
+    >
+      <Box flexGrow={1} />
+    </Box>
+  );
+
+  const detail = (width?: number, height?: number) => {
+    if (!focus) {
+      return (
+        <Panel title="no creature" paddingY={1} width={width} height={height}>
+          <Text dimColor color={theme.colors.mutedForeground}>
+            press r to scan a folder.
+          </Text>
+        </Panel>
+      );
+    }
+
+    const subtitleParts: string[] = [];
+    if (focus.scan.branch) subtitleParts.push(`branch ${focus.scan.branch}`);
+    if (focus.scan.primaryLanguage) subtitleParts.push(focus.scan.primaryLanguage);
+    if (focus.vibe.daysSinceCommit !== undefined) {
+      subtitleParts.push(`${focus.vibe.daysSinceCommit}d ago`);
+    }
+
+    return (
+      <Card
+        title={focus.scan.name}
+        titleColor={theme.colors.primary}
+        subtitle={subtitleParts.join(" · ") || undefined}
+        width={width}
+        height={height}
+        paddingY={1}
+        footer={
+          <Text dimColor color={theme.colors.mutedForeground}>
+            {tildify(focus.scan.path)}
+          </Text>
+        }
+      >
+        <Box flexDirection="row" paddingBottom={1}>
+          <CreatureSprite creature={focus} />
+          <Box flexDirection="column" paddingLeft={2} flexGrow={1}>
+            <Box flexShrink={0}>
+              <Badge variant={vibeBadgeVariant[focus.vibe.vibe]} bold>
+                {focus.vibe.vibe.toUpperCase()}
+              </Badge>
+            </Box>
+            <Box paddingTop={1}>
+              <Text>{focus.vibe.reason}</Text>
+            </Box>
+          </Box>
+        </Box>
+        {focus.scan.recentCommitDays && focus.scan.recentCommitDays.some((n) => n > 0) ? (
+          <Box paddingBottom={1}>
+            <Sparkline
+              data={focus.scan.recentCommitDays}
+              width={Math.max(12, Math.min(30, (width ?? 40) - 16))}
+              label="30d"
+              color={theme.colors.accent}
+            />
+          </Box>
+        ) : null}
+        {focus.scan.lastCommitSubject ? (
+          <Text dimColor color={theme.colors.mutedForeground}>
+            last: {focus.scan.lastCommitSubject}
+          </Text>
+        ) : null}
+        {focus.memory.noteToFutureSelf ? (
+          <Box paddingTop={1} flexDirection="column">
+            <Text bold color={theme.colors.primary}>
+              note to future self
+            </Text>
+            <Markdown width={width ? width - 4 : undefined}>
+              {focus.memory.noteToFutureSelf}
+            </Markdown>
+          </Box>
+        ) : null}
+        {focus.memory.currentBlocker ? (
+          <Box paddingTop={1} flexDirection="column">
+            <Alert variant="error" title="blocker" bordered={false} paddingX={0} />
+            <Markdown width={width ? width - 4 : undefined}>
+              {focus.memory.currentBlocker}
+            </Markdown>
+          </Box>
+        ) : null}
+      </Card>
+    );
+  };
+
+  const compactFocusSummary = () => {
+    const label = focus
+      ? `${vibeGlyph(focus.vibe.vibe)} ${focus.scan.name}`
+      : homeSelected
+        ? "home"
+        : "no repo selected";
+    const detailText = focus
+      ? [
+          focus.scan.branch ? `branch ${focus.scan.branch}` : undefined,
+          focus.scan.primaryLanguage,
+          focus.vibe.daysSinceCommit !== undefined ? `${focus.vibe.daysSinceCommit}d ago` : undefined,
+          focus.scan.isDirty ? "dirty" : undefined,
+        ].filter(Boolean).join(" · ")
+      : view === "journal"
+        ? "all repos"
+        : "press r to scan";
+    return (
+      <Box flexDirection="row" justifyContent="space-between" columnGap={2}>
+        <Text color={focus ? theme.colors.primary : theme.colors.mutedForeground} bold={Boolean(focus)} wrap="truncate-end">
+          {label}
+        </Text>
+        <Box flexShrink={1}>
+          <Text dimColor color={theme.colors.mutedForeground} wrap="truncate-end">
+            {detailText}
+          </Text>
+        </Box>
+      </Box>
+    );
+  };
+
+  if (responsive.tier === "too-small") {
+    return <ResizePrompt columns={columns} rows={rows} />;
+  }
+
+  return (
+    <Box flexDirection="column" paddingX={1} paddingY={1} height={rows} overflow="hidden">
+      <Box flexDirection="column" ref={chromeRef}>
+      <Box
+        flexDirection={mode === "narrow" ? "column" : "row"}
+        justifyContent="space-between"
+        alignItems="flex-start"
+      >
+        <Box flexDirection="column">
+          <Text italic dimColor color={theme.colors.info}>
+            a little local habitat
+          </Text>
+          <Text bold color={theme.colors.foreground}>
+            REPOGARDEN
+          </Text>
+          <Text dimColor color={theme.colors.mutedForeground}>
+            where your repos live
+          </Text>
+        </Box>
+        <Box
+          marginTop={mode === "narrow" ? 1 : 0}
+          flexDirection="row"
+          gap={1}
+          alignItems="center"
+        >
+          {isRescanning ? (
+            <>
+              <Spinner color={theme.colors.info} />
+              {scanProgress && scanProgress.total > 0 ? (
+                <ProgressCircle
+                  size="sm"
+                  color={theme.colors.info}
+                  value={(scanProgress.done / scanProgress.total) * 100}
+                  showPercent
+                />
+              ) : null}
+              <Badge variant="info" bold>
+                SCANNING
+              </Badge>
+            </>
+          ) : (
+            <>
+              {(
+                [
+                  { view: "garden", label: "GARDEN" },
+                  { view: "shelf", label: "SHELF" },
+                  { view: "journal", label: "JOURNAL" },
+                ] as { view: ReadyView; label: string }[]
+              ).map((segment) => {
+                const active = view === segment.view;
+                return (
+                  <Badge
+                    key={segment.view}
+                    color={active ? theme.colors.success : theme.colors.mutedForeground}
+                    bold={active}
+                  >
+                    {segment.label}
+                  </Badge>
+                );
+              })}
+            </>
+          )}
+        </Box>
+      </Box>
+      {/* roots on the left, vibes on the right of the same row.
+          flexDirection="row" + justifyContent="space-between" is exactly
+          what termcn's <Columns> renders for a 2-cell layout — Yoga pushes
+          the two children to opposite edges. If we ever need three or
+          more columns with explicit widths, a thin Columns wrapper would
+          be worth adding to components/ui. */}
+      {rootsLabel || (!isRescanning && shownCreatures.length > 0) ? (
+        <Box paddingTop={1} flexDirection="row" justifyContent="space-between" flexWrap="wrap">
+          {rootsLabel ? (
+            <Text dimColor color={theme.colors.mutedForeground} wrap="truncate-end">
+              roots: {rootsLabel.split(" · ").map(tildify).join(" · ")}
+            </Text>
+          ) : (
+            <Box />
+          )}
+          {!isRescanning && shownCreatures.length > 0 ? (
+            <Box flexDirection="row" gap={2}>
+              {(["happy", "noisy", "blocked", "sleepy"] as Vibe[]).map((vibe) => {
+                const count = shownCreatures.filter((c) => c.vibe.vibe === vibe).length;
+                if (count === 0) return null;
+                const tone =
+                  vibe === "blocked"
+                    ? theme.colors.error
+                    : vibe === "noisy"
+                      ? theme.colors.warning
+                      : vibe === "sleepy"
+                        ? theme.colors.info
+                        : theme.colors.success;
+                return (
+                  <Box key={vibe} flexDirection="row">
+                    <Text color={tone} bold>
+                      {vibeGlyph(vibe)} {count}{" "}
+                    </Text>
+                    <Text dimColor color={theme.colors.mutedForeground}>
+                      {vibe}
+                    </Text>
+                  </Box>
+                );
+              })}
+            </Box>
+          ) : null}
+        </Box>
+      ) : null}
+      {filterMode || filter ? (
+        <Box paddingTop={1} flexDirection="row">
+          <Text bold color={theme.colors.accent}>
+            /{filter}
+          </Text>
+          {filterMode ? (
+            <Text color={theme.colors.focusRing}>█</Text>
+          ) : (
+            <Text dimColor color={theme.colors.mutedForeground}>
+              {journalActive
+                ? " (journal search)"
+                : ` (${visibleCreatures.length} match${visibleCreatures.length === 1 ? "" : "es"})`}
+            </Text>
+          )}
+        </Box>
+      ) : null}
+      {scanProgress && scanProgress.total > 0 ? (
+        <Box paddingTop={1} flexDirection="column">
+          {scanProgressByRoot && scanProgressByRoot.length > 1 ? (
+            <MultiProgress
+              compact
+              barWidth={Math.max(8, Math.min(24, columns - 44))}
+              labelWidth={Math.max(12, Math.min(28, Math.floor(columns / 3)))}
+              items={scanProgressByRoot.map<MultiProgressItem>((entry) => ({
+                id: entry.root,
+                label: tildify(entry.root),
+                value: entry.done,
+                total: entry.total,
+                status:
+                  entry.total === 0
+                    ? "pending"
+                    : entry.done >= entry.total
+                      ? "done"
+                      : "running",
+              }))}
+            />
+          ) : (
+            <ProgressBar
+              value={scanProgress.done}
+              total={scanProgress.total}
+              width={Math.max(12, Math.min(40, columns - 24))}
+              color={theme.colors.info}
+              label="scanning…"
+            />
+          )}
+        </Box>
+      ) : null}
+      {rescanError ? (
+        <Box paddingTop={1}>
+          <Banner variant="error" title="scan failed">
+            {rescanError}
+          </Banner>
+        </Box>
+      ) : null}
+      </Box>
+
+      {((displayView === "garden" || displayView === "shelf") && responsive.showSidebar) ? (
+        <Box flexDirection="row">
+          <Box width={gardenSidebarWidth} flexDirection="column" marginRight={1}>
+            {sidebar(gardenSidebarWidth, gardenHeight)}
+            <Box flexGrow={1} />
+          </Box>
+          <Box flexGrow={1} flexDirection="column">
+            <GardenView
+              creatures={visibleCreatures}
+              focusIndex={gardenFocusIndex}
+              width={gardenWidth}
+              height={gardenHeight}
+              originRow={gardenContentRow}
+              originCol={wideGardenContentCol}
+              onCreatureSelect={handleGardenCreatureSelect}
+              onFocusDelta={handleGardenFocusDelta}
+              onCreaturePlacementChange={handleGardenCreaturePlacementChange}
+              deadZone={overlayDeadZone}
+              placementMode={habitatPlacementMode}
+            />
+            {overlayCardSlot.reserved ? (
+              <Box
+                position="absolute"
+                marginTop={overlayCardOffsetTop}
+                marginLeft={overlayCardOffsetLeft}
+                width={overlayCardWidth}
+                height={overlayCardHeight}
+              >
+                {showOverlayCard ? (
+                  focus && !gardenShelfTransitioning
+                    ? compactDetail(overlayCardWidth, overlayCardHeight)
+                    : compactDetailPlaceholder(overlayCardWidth, overlayCardHeight)
+                ) : (
+                  <Box flexDirection="column">
+                    {Array.from({ length: overlayCardHeight }, (_, index) => (
+                      <Text key={index}>{" ".repeat(overlayCardWidth)}</Text>
+                    ))}
+                  </Box>
+                )}
+              </Box>
+            ) : null}
+          </Box>
+        </Box>
+      ) : (displayView === "garden" || displayView === "shelf") ? (
+        <Box flexDirection="column">
+          {compactFocusSummary()}
+          <GardenView
+            creatures={visibleCreatures}
+            focusIndex={gardenFocusIndex}
+            width={stackedWidth}
+            height={gardenHeight}
+            originRow={gardenContentRow + 1}
+            originCol={stackedGardenContentCol}
+            onCreatureSelect={handleGardenCreatureSelect}
+            onFocusDelta={handleGardenFocusDelta}
+            onCreaturePlacementChange={handleGardenCreaturePlacementChange}
+            placementMode={habitatPlacementMode}
+          />
+        </Box>
+      ) : responsive.showSidebar ? (
+        // Wide journal: sidebar (creature selection scopes timeline to one
+        // repo) + JournalView in the garden's content rect.
+        <Box flexDirection="row">
+          <Box width={gardenSidebarWidth} flexDirection="column" marginRight={1}>
+            {sidebar(gardenSidebarWidth, gardenHeight)}
+            <Box flexGrow={1} />
+          </Box>
+          <Box flexGrow={1} flexDirection="column">
+            <JournalView
+              creatures={focusList}
+              events={journalEvents}
+              width={gardenWidth}
+              height={gardenHeight}
+              selectedRepoId={homeSelected ? undefined : focus?.scan.id}
+              filter={filter}
+              isActive={journalActive && !filterMode}
+              onOpenWorkbench={onOpenWorkbench}
+              onSelectRepo={(id) => {
+                if (!id) {
+                  setHomeSelected(true);
+                  return;
+                }
+                const index = focusList.findIndex((creature) => creature.id === id);
+                if (index >= 0) {
+                  setFocusIndex(index);
+                  setHomeSelected(false);
+                }
+              }}
+            />
+          </Box>
+        </Box>
+      ) : (
+        <Box flexDirection="column">
+          {compactFocusSummary()}
+          <JournalView
+            creatures={focusList}
+            events={journalEvents}
+            width={stackedWidth}
+            height={gardenHeight}
+            selectedRepoId={homeSelected ? undefined : focus?.scan.id}
+            filter={filter}
+            isActive={journalActive && !filterMode}
+            onOpenWorkbench={onOpenWorkbench}
+            onSelectRepo={(id) => {
+              if (!id) {
+                setHomeSelected(true);
+                return;
+              }
+              const index = focusList.findIndex((creature) => creature.id === id);
+              if (index >= 0) {
+                setFocusIndex(index);
+                setHomeSelected(false);
+              }
+            }}
+          />
+        </Box>
+      )}
+
+      {/*
+        Toaster floats absolutely at the bottom-right so its appearance and
+        dismissal can't shove the rest of the column around. When it lived
+        in flow, a 3-row toast pushed the garden up by 3 rows; the
+        starfield + sprite painters write to absolute screen coords, so they
+        ended up painting at stale positions until the next layout settled —
+        the visible "flicker" on startup the user reported.
+      */}
+      <Box
+        position="absolute"
+        marginTop={Math.max(0, rows - 7)}
+        width={Math.max(0, columns - 2)}
+      >
+        <Toaster />
+      </Box>
+      {ditherStartedAt !== null ? (
+        // Inset by one cell on every side so the Panel border stays clean —
+        // gardenContentRow/wideGardenContentCol already sit inside the
+        // border + the Panel's 1-cell pad, so backing each up by 1 puts the
+        // origin on the paddingX/paddingY row, and the dimensions exclude
+        // just the borders (gardenWidth − 2, gardenHeight − 2).
+        <DitherOverlay
+          originRow={(responsive.showSidebar ? gardenContentRow : gardenContentRow + 1) - 1}
+          originCol={(responsive.showSidebar ? wideGardenContentCol : stackedGardenContentCol) - 1}
+          width={(responsive.showSidebar ? gardenWidth : stackedWidth) - 2}
+          height={gardenHeight - 2}
+          startedAt={ditherStartedAt}
+          durationMs={TRANSITION_MS}
+        />
+      ) : null}
+      {/* Spacer absorbs the gap between the natural-height list content and
+          the footer so Ink emits blank lines for the remainder of the
+          terminal. Without it, switching from garden/shelf (which fills the
+          column via an explicit-height GardenView) to list (sidebar+detail
+          size to content) leaves rows below the list painted with the
+          previous frame's pixels — the visible "freeze in the prior view"
+          on view switch. */}
+      <Box flexGrow={1} />
+      <Box
+        flexDirection="row"
+        justifyContent="space-between"
+        columnGap={2}
+        alignItems="flex-end"
+      >
+        <Box flexShrink={1}>
+          <Text dimColor color={theme.colors.mutedForeground} wrap="truncate-end">
+            {journalActive
+              ? "↑↓ repo · jk events · ↵ bench · o folder · / search · f/F type · t/T time · d details · g garden · r rescan · p roots · s settings · ? help · q quit"
+              : `↑↓/jk pick · ↵ bench · o folder · h hide · c card · / filter · g ${view === "garden" ? "shelf" : view === "shelf" ? "journal" : "garden"} · r rescan · p roots · s settings · ? help · q quit`}
+          </Text>
+        </Box>
+        <Box flexDirection="row" columnGap={2} flexShrink={0} alignItems="flex-end">
+          {responsive.showUsageFooter ? (
+            usage.length > 0 ? (
+              <UsageBar items={usage} inline />
+            ) : (
+              <UsageBarPlaceholder />
+            )
+          ) : null}
+          <Credit />
+        </Box>
+      </Box>
+    </Box>
+  );
+};
