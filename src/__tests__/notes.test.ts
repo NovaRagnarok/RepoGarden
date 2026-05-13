@@ -411,6 +411,7 @@ test("saveNoteBody keeps the new body but skips metadata when the index write fa
 
     rmSync(notesIndexPath, { recursive: true, force: true });
     mkdirSync(notesIndexPath, { recursive: true });
+    writeFileSync(join(notesIndexPath, ".keep"), "");
 
     const failed = saveNoteBody(
       "persist-fail-index",

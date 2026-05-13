@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 
 import { writeFileSync } from "node:fs";
@@ -20,7 +20,7 @@ const initRepo = (path: string) => {
 
 test("expandPath turns ~ into the home directory", () => {
   const expanded = expandPath("~/foo");
-  assert.ok(expanded.endsWith("/foo"));
+  assert.ok(expanded.endsWith(`${sep}foo`));
   assert.ok(!expanded.startsWith("~"));
 });
 
@@ -33,8 +33,8 @@ test("findRepos discovers nested git repos under a root", () => {
 
     const found = findRepos(root, 4);
     assert.equal(found.length, 2);
-    assert.ok(found.some((p) => p.endsWith("/alpha")));
-    assert.ok(found.some((p) => p.endsWith("/gamma")));
+    assert.ok(found.some((p) => p.endsWith(`${sep}alpha`)));
+    assert.ok(found.some((p) => p.endsWith(`${sep}gamma`)));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -48,7 +48,7 @@ test("findRepos skips node_modules and other heavy dirs", () => {
 
     const found = findRepos(root, 4);
     assert.equal(found.length, 1);
-    assert.ok(found[0].endsWith("/real"));
+    assert.ok(found[0].endsWith(`${sep}real`));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
