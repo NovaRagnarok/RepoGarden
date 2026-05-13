@@ -10,7 +10,6 @@ import { MultiProgress, type MultiProgressItem } from "@/components/ui/multi-pro
 import { Pagination } from "@/components/ui/pagination";
 import { Panel } from "@/components/ui/panel";
 import { usePrivacy, useMaskedCreatures } from "@/components/privacy-context";
-import { ProgressBar } from "@/components/ui/progress-bar";
 import { ProgressCircle } from "@/components/ui/progress-circle";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Sparkline } from "@/components/ui/sparkline";
@@ -1507,35 +1506,34 @@ export const ReadyShell = ({
           )}
         </Box>
       ) : null}
-      {scanProgress && scanProgress.total > 0 ? (
+      {/* Per-root scan progress. Gated on isRescanning + scanProgressByRoot
+          rather than scanProgress.total > 0 so the bars appear the moment
+          onRootsResolved fires — before any repo has been discovered. With
+          slow disks and many roots that initial walking phase used to read
+          as a dead spinner; the bars now make it obvious which root is
+          taking the time. Single-root scans get one MultiProgress entry
+          rather than the old ProgressBar fallback so the visual shape stays
+          consistent across scan sizes. */}
+      {isRescanning && scanProgressByRoot && scanProgressByRoot.length > 0 ? (
         <Box paddingTop={1} flexDirection="column">
-          {scanProgressByRoot && scanProgressByRoot.length > 1 ? (
-            <MultiProgress
-              compact
-              barWidth={Math.max(8, Math.min(24, columns - 44))}
-              labelWidth={Math.max(12, Math.min(28, Math.floor(columns / 3)))}
-              items={scanProgressByRoot.map<MultiProgressItem>((entry) => ({
-                id: entry.root,
-                label: tildify(entry.root),
-                value: entry.done,
-                total: entry.total,
-                status:
-                  entry.total === 0
-                    ? "pending"
-                    : entry.done >= entry.total
-                      ? "done"
-                      : "running",
-              }))}
-            />
-          ) : (
-            <ProgressBar
-              value={scanProgress.done}
-              total={scanProgress.total}
-              width={Math.max(12, Math.min(40, columns - 24))}
-              color={theme.colors.info}
-              label="scanning…"
-            />
-          )}
+          <MultiProgress
+            compact
+            barWidth={Math.max(8, Math.min(24, columns - 44))}
+            labelWidth={Math.max(12, Math.min(28, Math.floor(columns / 3)))}
+            items={scanProgressByRoot.map<MultiProgressItem>((entry) => ({
+              id: entry.root,
+              label: tildify(entry.root),
+              value: entry.done,
+              total: entry.total,
+              status:
+                entry.total === 0
+                  ? "pending"
+                  : entry.done >= entry.total
+                    ? "done"
+                    : "running",
+              statusText: entry.total > 0 ? `${entry.done}/${entry.total}` : undefined,
+            }))}
+          />
         </Box>
       ) : null}
       {rescanError ? (
