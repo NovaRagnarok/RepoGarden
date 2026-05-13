@@ -9,6 +9,12 @@ import {
   type Theme
 } from "@/components/ui/theme-provider";
 import { DISABLE_MOUSE, ENABLE_MOUSE, parseStdinChunk } from "@/lib/mouse";
+import {
+  DISABLE_FOCUS,
+  ENABLE_FOCUS,
+  parseFocusChunk,
+  subscribeFocus
+} from "@/lib/focus";
 import { PrivacyProvider } from "@/components/privacy-context";
 import { ToastProvider, useToasts } from "@/components/ui/toast-host";
 import { BootScreen } from "@/screens/BootScreen";
@@ -468,10 +474,24 @@ if (process.stdout.isTTY) {
     return (originalWrite as any)(BSU + body + ESU, ...args);
   }) as typeof process.stdout.write;
 
-  process.stdout.write(ENTER_ALT + ENABLE_MOUSE);
+  process.stdout.write(ENTER_ALT + ENABLE_MOUSE + ENABLE_FOCUS);
   const restore = () => {
-    process.stdout.write(DISABLE_MOUSE + LEAVE_ALT);
+    process.stdout.write(DISABLE_FOCUS + DISABLE_MOUSE + LEAVE_ALT);
   };
+
+  // macOS-specific recovery: when the terminal goes to another Space (or
+  // otherwise loses focus) the kernel can suspend our process mid-write.
+  // If suspension lands between a BSU and its ESU (the DEC 2026 brackets
+  // around every stdout write above), the terminal stays in
+  // "buffering, not painting" mode forever. On focus-in we re-emit ESU
+  // unconditionally to release any stuck SUM state. The originalWrite
+  // bypasses our own BSU/ESU wrapper so this can't itself get stuck.
+  // See: github.com/NovaRagnarok/RepoGarden/issues/8
+  subscribeFocus((kind) => {
+    if (kind === "focus-in") {
+      originalWrite(ESU);
+    }
+  });
   process.on("exit", restore);
   process.on("SIGINT", () => {
     restore();
@@ -521,7 +541,10 @@ const buildWrappedStdin = (): NodeJS.ReadStream => {
   };
   process.stdin.on("data", (chunk: Buffer) => {
     const text = typeof chunk === "string" ? chunk : chunk.toString("utf8");
-    const passthrough = parseStdinChunk(text);
+    // Strip mouse and focus sequences before Ink sees the stream — both
+    // would otherwise look like Esc + printable garbage to the keyboard
+    // parser. Order is independent: each only consumes its own pattern.
+    const passthrough = parseFocusChunk(parseStdinChunk(text));
     if (passthrough.length > 0) wrapped.write(passthrough);
   });
   process.stdin.resume();
