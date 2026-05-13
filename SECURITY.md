@@ -28,7 +28,7 @@ For each configured repository, RepoGarden reads:
 
 ### Claude / Codex usage bar
 
-The Claude/Codex usage bar is enabled by default in this alpha build.
+The Claude/Codex usage bar is enabled by default in this early beta build.
 
 When the ready UI renders (garden, shelf, or journal) or the workbench screen renders, RepoGarden attempts to read local Claude Code and Codex CLI OAuth credentials, refreshes tokens if needed, and calls the providers' usage endpoints directly. Refreshed tokens may be written back to the same local file or macOS Keychain entry used by those CLIs.
 
@@ -44,14 +44,18 @@ The endpoints used here are not documented public APIs and may change.
 To disable the usage bar entirely for a run:
 
 ```bash
+# installed package
+REPOGARDEN_DISABLE_USAGE=1 repogarden
+
+# from source
 REPOGARDEN_DISABLE_USAGE=1 npm run dev
 ```
 
 ## Supported versions
 
-RepoGarden is alpha software. Only the latest 0.1.x release receives security fixes.
+RepoGarden is early beta software. Only the latest 0.2.x release receives security fixes.
 
 | Version | Supported |
 | ------- | --------- |
-| 0.1.x (latest) | yes |
+| 0.2.x (latest) | yes |
 | older | no |

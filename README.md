@@ -140,6 +140,10 @@ The endpoints used here are not documented public APIs and may change.
 To disable the usage bar entirely for a run:
 
 ```bash
+# installed package
+REPOGARDEN_DISABLE_USAGE=1 repogarden
+
+# from source
 REPOGARDEN_DISABLE_USAGE=1 npm run dev
 ```
 

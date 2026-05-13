@@ -29,6 +29,14 @@ npm run typecheck
 - `ARCHITECTURE.md` — how the TUI is put together
 - `BACKLOG.md` — current direction and live TODO list
 
+## Good first issues
+
+If you're new to the repo, the friendliest entry points are open
+issues labeled [`good first issue`](https://github.com/NovaRagnarok/RepoGarden/issues?q=is%3Aopen+label%3A%22good+first+issue%22). Each has acceptance criteria and pointers to
+the right files. For terminal bugs, the [`bug_report` template](.github/ISSUE_TEMPLATE/bug_report.md) asks for OS,
+terminal app, shell, Node version, install method, and terminal size —
+filling that in up front saves a round trip.
+
 ## Choosing a safe slice
 
 Start with [`BACKLOG.md`](BACKLOG.md) instead of inventing a slice from
