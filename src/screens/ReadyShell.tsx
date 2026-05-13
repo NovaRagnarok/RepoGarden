@@ -22,6 +22,7 @@ import { layoutMode, useTerminalSize } from "@/hooks/use-terminal-size";
 import type { RepoCreature } from "@/lib/creature";
 import { tildify } from "@/lib/scanner";
 import { vibeGlyph, type Vibe } from "@/lib/vibe";
+import { gardenPageCapacity, paginateCreatures } from "@/lib/garden-layout";
 import { GardenView } from "@/screens/GardenView";
 import { CreatureSprite } from "@/components/CreatureSprite";
 import { Credit } from "@/components/Credit";
@@ -98,6 +99,9 @@ export const ReadyShell = ({
   // repos. When false, the cursor is on focusList[focusIndex] and that
   // creature drives every focus-dependent UI element.
   const [homeSelected, setHomeSelected] = useState(false);
+  // Garden-mode pagination. Only meaningful when displayView === "garden";
+  // shelf and journal render the full creature list. [ / ] flip pages.
+  const [gardenPageIndex, setGardenPageIndex] = useState(0);
 
   // ---- view transition machinery --------------------------------------
   // `view` is the user's intent (set the instant they click a segment).
@@ -191,35 +195,10 @@ export const ReadyShell = ({
     const needle = creatureFilter.toLowerCase();
     return hiddenCreatures.filter((c) => c.scan.name.toLowerCase().includes(needle));
   }, [hiddenCreatures, creatureFilter]);
-  // Combined list the cursor can traverse — shown first, then hidden. The
-  // garden only renders shown creatures, so a focus that falls inside the
-  // hidden tail simply has no garden highlight.
-  const focusList = useMemo(
-    () => [...visibleCreatures, ...visibleHiddenCreatures],
-    [visibleCreatures, visibleHiddenCreatures]
-  );
-  const gardenFocusIndex = homeSelected
-    ? -1
-    : focusIndex < visibleCreatures.length
-      ? focusIndex
-      : -1;
-
-  useEffect(() => {
-    if (focusIndex >= focusList.length && focusList.length > 0) {
-      setFocusIndex(focusList.length - 1);
-    }
-  }, [focusList.length, focusIndex]);
-
-  // When a repo is unhidden via 'h', follow it to its new spot in the shown
-  // list rather than leaving the cursor parked in the hidden section.
+  // focusList, gardenFocusIndex, and related effects are derived further
+  // down — after gardenWidth/gardenHeight/overlayDeadZone are known — so
+  // pagination can slice visibleCreatures before the cursor walks it.
   const followAfterUnhideRef = useRef<string | null>(null);
-  useEffect(() => {
-    const id = followAfterUnhideRef.current;
-    if (!id) return;
-    const idx = focusList.findIndex((c) => c.id === id);
-    if (idx >= 0) setFocusIndex(idx);
-    followAfterUnhideRef.current = null;
-  }, [focusList]);
 
   useInput((input, key) => {
     if (filterMode) {
@@ -388,6 +367,22 @@ export const ReadyShell = ({
       setCardVisible((current) => !current);
       return;
     }
+    // Page nav — only meaningful in garden view (shelf/journal don't paginate).
+    // Clamps at edges so a stray ] at the last page doesn't move the cursor.
+    // Focus resets to the first creature on the new page so the highlight
+    // never lands on something the user can't see.
+    if (input === "[" && isGardenView && gardenPageCount > 1) {
+      setGardenPageIndex((p) => Math.max(0, p - 1));
+      setFocusIndex(0);
+      setHomeSelected(false);
+      return;
+    }
+    if (input === "]" && isGardenView && gardenPageCount > 1) {
+      setGardenPageIndex((p) => Math.min(gardenPageCount - 1, p + 1));
+      setFocusIndex(0);
+      setHomeSelected(false);
+      return;
+    }
     if (key.escape && filter) {
       setFilter("");
       return;
@@ -397,10 +392,8 @@ export const ReadyShell = ({
     }
   });
 
-  // When "home" is selected, no creature is in focus — every focus-dependent
-  // UI element (focus ring, overlay card, detail card, status text, etc.)
-  // sees `focus` as undefined and gracefully renders an empty/calm state.
-  const focus = homeSelected ? undefined : focusList[focusIndex];
+  // `focus` is derived after focusList exists — see further down. We still
+  // need a few things up here that DON'T depend on focusList:
   // JournalView owns scope/search/kind/range filtering locally so the user can
   // switch between focused and all-repo timelines without disk re-reads. Keep
   // the poller dormant outside journal mode so its 5s disk reads do not force
@@ -467,6 +460,89 @@ export const ReadyShell = ({
   const overlayCardHeight = overlayCardSlot.height;
   const overlayCardOffsetTop = overlayCardSlot.offsetTop;
   const overlayCardOffsetLeft = overlayCardSlot.offsetLeft;
+
+  // Pagination — only active in garden mode. The capacity formula mirrors the
+  // placer's own slot math (PAGE_SLOT_W/H in garden-layout.ts) so a page's
+  // creatures fit cleanly without the placer falling back to overlap-packing.
+  // Shelf/journal keep the full visibleCreatures list.
+  const isGardenView = displayView === "garden";
+  const gardenInnerWidth = Math.max(
+    20,
+    (responsive.showSidebar ? gardenWidth : stackedWidth) - 4
+  );
+  const gardenInnerHeight = Math.max(10, gardenHeight - 4);
+  const gardenCapacity = useMemo(
+    () => gardenPageCapacity(gardenInnerWidth, gardenInnerHeight, overlayDeadZone),
+    [gardenInnerWidth, gardenInnerHeight, overlayDeadZone?.width, overlayDeadZone?.height]
+  );
+  const gardenPages = useMemo(
+    () => (isGardenView ? paginateCreatures(visibleCreatures, gardenCapacity) : [visibleCreatures]),
+    [isGardenView, visibleCreatures, gardenCapacity]
+  );
+  const gardenPageCount = Math.max(1, gardenPages.length);
+  const safeGardenPageIndex = Math.min(gardenPageIndex, gardenPageCount - 1);
+  const pagedVisibleCreatures = isGardenView
+    ? (gardenPages[safeGardenPageIndex] ?? [])
+    : visibleCreatures;
+
+  // Reset page on filter change so an empty page can't strand the user.
+  useEffect(() => {
+    setGardenPageIndex(0);
+  }, [filter]);
+  // Clamp pageIndex when page count shrinks (rescan, unhide).
+  useEffect(() => {
+    if (gardenPageIndex >= gardenPageCount) setGardenPageIndex(0);
+  }, [gardenPageCount, gardenPageIndex]);
+  // Focus reset on explicit page flip lives inline in the [ / ] handlers —
+  // doing it via useEffect would fire spuriously when isGardenView flips
+  // (e.g. transitioning back into garden after a shelf detour).
+
+  // Combined list the cursor can traverse — paginated shown creatures first,
+  // then hidden. In garden mode the shown half is just the current page's
+  // creatures; in shelf/journal it's the full visibleCreatures list.
+  const focusList = useMemo(
+    () => [...pagedVisibleCreatures, ...visibleHiddenCreatures],
+    [pagedVisibleCreatures, visibleHiddenCreatures]
+  );
+  const gardenFocusIndex = homeSelected
+    ? -1
+    : focusIndex < pagedVisibleCreatures.length
+      ? focusIndex
+      : -1;
+
+  useEffect(() => {
+    if (focusIndex >= focusList.length && focusList.length > 0) {
+      setFocusIndex(focusList.length - 1);
+    }
+  }, [focusList.length, focusIndex]);
+
+  // When a repo is unhidden via 'h', follow it to its new spot — including
+  // jumping to whichever page contains it now.
+  useEffect(() => {
+    const id = followAfterUnhideRef.current;
+    if (!id) return;
+    const globalIdx = visibleCreatures.findIndex((c) => c.id === id);
+    if (globalIdx >= 0 && gardenCapacity > 0 && isGardenView) {
+      const targetPage = Math.floor(globalIdx / gardenCapacity);
+      setGardenPageIndex(targetPage);
+      setFocusIndex(globalIdx % gardenCapacity);
+      setHomeSelected(false);
+      followAfterUnhideRef.current = null;
+      return;
+    }
+    const idx = focusList.findIndex((c) => c.id === id);
+    if (idx >= 0) {
+      setFocusIndex(idx);
+      setHomeSelected(false);
+    }
+    followAfterUnhideRef.current = null;
+  }, [focusList, gardenCapacity, isGardenView, visibleCreatures]);
+
+  // When "home" is selected, no creature is in focus — every focus-dependent
+  // UI element (focus ring, overlay card, detail card, status text, etc.)
+  // sees `focus` as undefined and gracefully renders an empty/calm state.
+  const focus = homeSelected ? undefined : focusList[focusIndex];
+
   const handleGardenCreatureSelect = useCallback((index: number) => {
     setFocusIndex(index);
   }, []);
@@ -502,10 +578,10 @@ export const ReadyShell = ({
     const totalContent = Math.max(1, gardenHeight - 4 - statusRowCost - homeRowCost);
     const creatureFocusActive = !homeSelected;
     const shownFocus =
-      creatureFocusActive && focusIndex < visibleCreatures.length ? focusIndex : -1;
+      creatureFocusActive && focusIndex < pagedVisibleCreatures.length ? focusIndex : -1;
     const hiddenFocus =
-      creatureFocusActive && focusIndex >= visibleCreatures.length
-        ? focusIndex - visibleCreatures.length
+      creatureFocusActive && focusIndex >= pagedVisibleCreatures.length
+        ? focusIndex - pagedVisibleCreatures.length
         : -1;
     const hiddenHeader = visibleHiddenCreatures.length > 0 ? 1 : 0;
     const hiddenWish = hiddenHeader + visibleHiddenCreatures.length;
@@ -518,11 +594,11 @@ export const ReadyShell = ({
       0,
       Math.min(
         shownAnchor - Math.floor(shownAllotment / 2),
-        Math.max(0, visibleCreatures.length - shownAllotment)
+        Math.max(0, pagedVisibleCreatures.length - shownAllotment)
       )
     );
-    const shownSliced = visibleCreatures.slice(shownStart, shownStart + shownAllotment);
-    const shownOverflowAfter = visibleCreatures.length - (shownStart + shownSliced.length);
+    const shownSliced = pagedVisibleCreatures.slice(shownStart, shownStart + shownAllotment);
+    const shownOverflowAfter = pagedVisibleCreatures.length - (shownStart + shownSliced.length);
     const hiddenItemRows = Math.max(0, hiddenAllotment - hiddenHeader);
     const hiddenAnchor = hiddenFocus >= 0 ? hiddenFocus : 0;
     const hiddenStart = Math.max(
@@ -567,7 +643,7 @@ export const ReadyShell = ({
           topRow: row,
           leftCol,
           rightCol,
-          focusIdx: visibleCreatures.length + hiddenStart + i
+          focusIdx: pagedVisibleCreatures.length + hiddenStart + i
         });
         row += 1;
       }
@@ -580,7 +656,7 @@ export const ReadyShell = ({
     chromeRowHeight,
     gardenHeight,
     gardenSidebarWidth,
-    visibleCreatures,
+    pagedVisibleCreatures,
     visibleHiddenCreatures,
     focusIndex,
     latestStatus,
@@ -597,9 +673,15 @@ export const ReadyShell = ({
         if (event.kind !== "press" || event.button !== "left") return;
         if (isRescanning) return;
         if (!onSetView) return;
-        // Render order matches the keyboard cycle (g).
+        // Render order matches the keyboard cycle (g). The GARDEN segment
+        // widens when pagination is in play, so the click zones derive from
+        // the same dynamic label the render uses.
+        const gardenLabel =
+          isGardenView && gardenPageCount > 1
+            ? `GARDEN ${safeGardenPageIndex + 1}/${gardenPageCount}`
+            : "GARDEN";
         const segments: { view: ReadyView; label: string }[] = [
-          { view: "garden", label: "GARDEN" },
+          { view: "garden", label: gardenLabel },
           { view: "shelf", label: "SHELF" },
           { view: "journal", label: "JOURNAL" },
         ];
@@ -626,7 +708,7 @@ export const ReadyShell = ({
           cursor = segRight + 2; // 1 gap col between segments
         }
       },
-      [columns, mode, isRescanning, onSetView]
+      [columns, mode, isRescanning, onSetView, isGardenView, gardenPageCount, safeGardenPageIndex]
     )
   );
 
@@ -741,17 +823,17 @@ export const ReadyShell = ({
     const totalContent =
       height !== undefined
         ? Math.max(1, height - 4 - statusRowCost - homeRowCost)
-        : visibleCreatures.length + visibleHiddenCreatures.length + 2 + homeRowCost;
+        : pagedVisibleCreatures.length + visibleHiddenCreatures.length + 2 + homeRowCost;
 
     // When "home" is selected no creature is highlighted — the cursor lives
     // on the synthetic top row. Windowing falls back to the natural anchor
     // (top of list) so the list doesn't auto-scroll to a hidden focus.
     const creatureFocusActive = !homeSelected;
     const shownFocus =
-      creatureFocusActive && focusIndex < visibleCreatures.length ? focusIndex : -1;
+      creatureFocusActive && focusIndex < pagedVisibleCreatures.length ? focusIndex : -1;
     const hiddenFocus =
-      creatureFocusActive && focusIndex >= visibleCreatures.length
-        ? focusIndex - visibleCreatures.length
+      creatureFocusActive && focusIndex >= pagedVisibleCreatures.length
+        ? focusIndex - pagedVisibleCreatures.length
         : -1;
 
     // Allocate rows between the shown list and the hidden section. The hidden
@@ -768,10 +850,10 @@ export const ReadyShell = ({
     const shownAnchor = shownFocus >= 0 ? shownFocus : 0;
     const shownStart = Math.max(
       0,
-      Math.min(shownAnchor - Math.floor(shownAllotment / 2), Math.max(0, visibleCreatures.length - shownAllotment))
+      Math.min(shownAnchor - Math.floor(shownAllotment / 2), Math.max(0, pagedVisibleCreatures.length - shownAllotment))
     );
-    const shownSliced = visibleCreatures.slice(shownStart, shownStart + shownAllotment);
-    const shownOverflowAfter = visibleCreatures.length - (shownStart + shownSliced.length);
+    const shownSliced = pagedVisibleCreatures.slice(shownStart, shownStart + shownAllotment);
+    const shownOverflowAfter = pagedVisibleCreatures.length - (shownStart + shownSliced.length);
 
     // Window the hidden list. Header takes 1 row, leaving the remainder for
     // items (and an "above"/"below" indicator if needed).
@@ -1223,16 +1305,23 @@ export const ReadyShell = ({
       : homeSelected
         ? "home"
         : "no repo selected";
-    const detailText = focus
+    // In narrow layouts the top GARDEN badge is dropped to a separate row and
+    // the page chip there is easy to miss. Repeat the page indicator inline
+    // on the focus-summary row so users always know which page they're on.
+    const pageBit =
+      isGardenView && gardenPageCount > 1
+        ? `page ${safeGardenPageIndex + 1}/${gardenPageCount}`
+        : undefined;
+    const detailParts = focus
       ? [
           focus.scan.branch ? `branch ${focus.scan.branch}` : undefined,
           focus.scan.primaryLanguage,
           focus.vibe.daysSinceCommit !== undefined ? `${focus.vibe.daysSinceCommit}d ago` : undefined,
           focus.scan.isDirty ? "dirty" : undefined,
-        ].filter(Boolean).join(" · ")
-      : view === "journal"
-        ? "all repos"
-        : "press r to scan";
+          pageBit,
+        ]
+      : [view === "journal" ? "all repos" : "press r to scan", pageBit];
+    const detailText = detailParts.filter(Boolean).join(" · ");
     return (
       <Box flexDirection="row" justifyContent="space-between" columnGap={2}>
         <Text color={focus ? theme.colors.primary : theme.colors.mutedForeground} bold={Boolean(focus)} wrap="truncate-end">
@@ -1301,13 +1390,20 @@ export const ReadyShell = ({
                 ] as { view: ReadyView; label: string }[]
               ).map((segment) => {
                 const active = view === segment.view;
+                // Append the current page indicator to the GARDEN badge when
+                // pagination is in play. Hidden when there's only one page so
+                // typical gardens keep their original look.
+                const label =
+                  segment.view === "garden" && isGardenView && gardenPageCount > 1
+                    ? `${segment.label} ${safeGardenPageIndex + 1}/${gardenPageCount}`
+                    : segment.label;
                 return (
                   <Badge
                     key={segment.view}
                     color={active ? theme.colors.success : theme.colors.mutedForeground}
                     bold={active}
                   >
-                    {segment.label}
+                    {label}
                   </Badge>
                 );
               })}
@@ -1422,7 +1518,7 @@ export const ReadyShell = ({
           </Box>
           <Box flexGrow={1} flexDirection="column">
             <GardenView
-              creatures={visibleCreatures}
+              creatures={pagedVisibleCreatures}
               focusIndex={gardenFocusIndex}
               width={gardenWidth}
               height={gardenHeight}
@@ -1461,7 +1557,7 @@ export const ReadyShell = ({
         <Box flexDirection="column">
           {compactFocusSummary()}
           <GardenView
-            creatures={visibleCreatures}
+            creatures={pagedVisibleCreatures}
             focusIndex={gardenFocusIndex}
             width={stackedWidth}
             height={gardenHeight}
@@ -1580,7 +1676,9 @@ export const ReadyShell = ({
           <Text dimColor color={theme.colors.mutedForeground} wrap="truncate-end">
             {journalActive
               ? "↑↓ repo · jk events · ↵ open · / search · g view · s settings · ? help"
-              : "↑↓ move · ↵ open · / filter · g view · s settings · ? help · q quit"}
+              : isGardenView && gardenPageCount > 1
+                ? "↑↓ move · ↵ open · / filter · g view · [] page · s settings · ? help · q quit"
+                : "↑↓ move · ↵ open · / filter · g view · s settings · ? help · q quit"}
           </Text>
         </Box>
         <Box flexDirection="row" columnGap={2} flexShrink={0} alignItems="flex-end">

@@ -273,6 +273,71 @@ export const lineUpCreatures = (
   return { placements, dividers };
 };
 
+// Per-page slot dimensions used by paginateCreatures. These intentionally
+// sit a bit above the placer's hard minimums (sprite 2..5w, 2..3h) so a page
+// reads as roomy rather than barely-fits — pagination's whole job is to
+// uncrowd the scene, not to repack at the densest legal level.
+const PAGE_SLOT_W = 10;
+const PAGE_SLOT_H = 7;
+
+const slotsBlockedByZone = (
+  zoneWidth: number,
+  zoneHeight: number,
+  slotW: number,
+  slotH: number,
+  totalCols: number,
+  totalRows: number
+): number => {
+  const dCols = Math.min(totalCols, Math.ceil(zoneWidth / slotW));
+  const dRows = Math.min(totalRows, Math.ceil(zoneHeight / slotH));
+  return dCols * dRows;
+};
+
+/** Mirror of the placer's "fit creatures into the canvas without overlap"
+ *  capacity formula, using PAGE_SLOT_* in place of the placer's hard minimums
+ *  so a page leaves room to breathe. Dead-zone discounts are conservative —
+ *  any slot the zone clips gets dropped, even if a sliver remains usable. */
+export const gardenPageCapacity = (
+  canvasW: number,
+  canvasH: number,
+  deadZone?: { width: number; height: number },
+  topRightDeadZone?: { width: number; height: number }
+): number => {
+  const usableW = Math.max(PAGE_SLOT_W, canvasW - 1);
+  const usableH = Math.max(PAGE_SLOT_H, canvasH - SKY_ROWS - GROUND_ROWS);
+  const cols = Math.max(1, Math.floor(usableW / PAGE_SLOT_W));
+  const rows = Math.max(1, Math.floor(usableH / PAGE_SLOT_H));
+  const grid = cols * rows;
+  let blocked = 0;
+  if (deadZone) {
+    blocked += slotsBlockedByZone(deadZone.width, deadZone.height, PAGE_SLOT_W, PAGE_SLOT_H, cols, rows);
+  }
+  if (topRightDeadZone) {
+    blocked += slotsBlockedByZone(
+      topRightDeadZone.width,
+      topRightDeadZone.height,
+      PAGE_SLOT_W,
+      PAGE_SLOT_H,
+      cols,
+      rows
+    );
+  }
+  return Math.max(1, grid - blocked);
+};
+
+/** Split creatures into pages of at most `capacity` each. Empty input still
+ *  yields one empty page so callers can always read `pages[0]` and
+ *  `pageCount >= 1`. */
+export const paginateCreatures = <T>(items: T[], capacity: number): T[][] => {
+  if (items.length === 0) return [[]];
+  const size = Math.max(1, capacity);
+  const pages: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    pages.push(items.slice(i, i + size));
+  }
+  return pages;
+};
+
 export const placeCreatures = (
   tiles: SizedTile[],
   canvasW: number,

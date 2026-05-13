@@ -19,6 +19,7 @@ const shortcuts: Shortcut[] = [
   { key: "↵", description: "open workbench", category: "garden" },
   { key: "/", description: "filter (or search summaries in journal)", category: "garden" },
   { key: "g", description: "cycle garden / shelf / journal", category: "garden" },
+  { key: "[ / ]", description: "previous / next garden page (when crowded)", category: "garden" },
   { key: "o", description: "open folder", category: "garden" },
   { key: "h", description: "hide / unhide", category: "garden" },
   { key: "c", description: "toggle focus card", category: "garden" },
@@ -66,7 +67,7 @@ export const HelpOverlay = ({ onClose }: HelpOverlayProps) => {
   }
 
   const compactRows = [
-    "garden  ↑↓ pick · ↵ open · / filter · g view · h hide",
+    "garden  ↑↓ pick · ↵ open · / filter · g view · h hide · [/] page",
     "journal  jk events · f/F type · t/T time · d details",
     "workbench  1-6 section · n notes · ctrl+1/2 mode",
     "notes  ctrl+n new · ctrl+p palette · ctrl+s save",

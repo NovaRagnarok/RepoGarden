@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 
 import {
   computeFocusFrameCells,
+  gardenPageCapacity,
   lineUpCreatures,
+  paginateCreatures,
   placeCreatures,
   spriteBodyFootprint,
   spriteBodyFootprintsOverlap,
@@ -254,4 +256,52 @@ test("stableCreatureIdsKey ignores creature order", () => {
   const ids = [{ id: "gamma" }, { id: "alpha" }, { id: "beta" }];
   assert.equal(stableCreatureIdsKey(ids), "alpha|beta|gamma");
   assert.equal(stableCreatureIdsKey([...ids].reverse()), "alpha|beta|gamma");
+});
+
+test("gardenPageCapacity grows with canvas area", () => {
+  const small = gardenPageCapacity(40, 12);
+  const large = gardenPageCapacity(120, 30);
+  assert.ok(large > small, `expected larger canvas (${large}) to hold more than small (${small})`);
+  assert.ok(small >= 1);
+});
+
+test("gardenPageCapacity discounts dead-zone slots", () => {
+  const open = gardenPageCapacity(120, 30);
+  const obstructed = gardenPageCapacity(120, 30, { width: 40, height: 14 });
+  assert.ok(obstructed < open, `expected dead zone to reduce capacity (open=${open}, obstructed=${obstructed})`);
+  assert.ok(obstructed >= 1);
+});
+
+test("gardenPageCapacity never returns zero even on a tiny canvas", () => {
+  assert.equal(gardenPageCapacity(10, 5), 1);
+});
+
+test("paginateCreatures returns a single empty page for an empty list", () => {
+  const pages = paginateCreatures<string>([], 5);
+  assert.equal(pages.length, 1);
+  assert.deepEqual(pages[0], []);
+});
+
+test("paginateCreatures keeps a single page when capacity covers everything", () => {
+  const items = ["a", "b", "c"];
+  const pages = paginateCreatures(items, 10);
+  assert.equal(pages.length, 1);
+  assert.deepEqual(pages[0], items);
+});
+
+test("paginateCreatures splits into multiple pages and preserves every item exactly once", () => {
+  const items = Array.from({ length: 11 }, (_, i) => `item-${i}`);
+  const pages = paginateCreatures(items, 4);
+  assert.equal(pages.length, 3);
+  assert.deepEqual(pages[0].length, 4);
+  assert.deepEqual(pages[1].length, 4);
+  assert.deepEqual(pages[2].length, 3);
+  const flat = pages.flat();
+  assert.deepEqual(flat, items);
+});
+
+test("paginateCreatures treats non-positive capacity as 1 to avoid infinite loops", () => {
+  const pages = paginateCreatures(["a", "b", "c"], 0);
+  assert.equal(pages.length, 3);
+  assert.deepEqual(pages.flat(), ["a", "b", "c"]);
 });
