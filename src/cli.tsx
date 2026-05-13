@@ -9,6 +9,7 @@ import {
   type Theme
 } from "@/components/ui/theme-provider";
 import { DISABLE_MOUSE, ENABLE_MOUSE, parseStdinChunk } from "@/lib/mouse";
+import { PrivacyProvider } from "@/components/privacy-context";
 import { ToastProvider, useToasts } from "@/components/ui/toast-host";
 import { BootScreen } from "@/screens/BootScreen";
 import { OnboardingScreen } from "@/screens/OnboardingScreen";
@@ -411,16 +412,18 @@ const Root = () => {
 
   return (
     <ThemeProvider theme={activeTheme} reducedMotion={reducedMotion}>
-      <ToastProvider>
-        <App
-          initialThemeId={initialChoice.id}
-          initialRoots={config.scanRoots}
-          initialView={config.view}
-          initialReducedMotion={reducedMotion}
-          onThemeChange={setActiveTheme}
-          onReducedMotionChange={setReducedMotion}
-        />
-      </ToastProvider>
+      <PrivacyProvider>
+        <ToastProvider>
+          <App
+            initialThemeId={initialChoice.id}
+            initialRoots={config.scanRoots}
+            initialView={config.view}
+            initialReducedMotion={reducedMotion}
+            onThemeChange={setActiveTheme}
+            onReducedMotionChange={setReducedMotion}
+          />
+        </ToastProvider>
+      </PrivacyProvider>
     </ThemeProvider>
   );
 };

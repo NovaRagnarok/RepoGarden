@@ -9,6 +9,7 @@ import { Markdown } from "@/components/ui/markdown";
 import { MultiProgress, type MultiProgressItem } from "@/components/ui/multi-progress";
 import { Pagination } from "@/components/ui/pagination";
 import { Panel } from "@/components/ui/panel";
+import { usePrivacy, useMaskedCreatures } from "@/components/privacy-context";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { ProgressCircle } from "@/components/ui/progress-circle";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -68,7 +69,7 @@ const vibeBadgeVariant: Record<Vibe, "default" | "warning" | "error" | "info" | 
 };
 
 export const ReadyShell = ({
-  creatures,
+  creatures: rawCreatures,
   rootsLabel,
   view = "garden",
   onSetView,
@@ -93,6 +94,18 @@ export const ReadyShell = ({
   const responsive = getTerminalLayout(columns, rows);
   const usage = useUsage();
   const mode = layoutMode(columns);
+  const privacy = usePrivacy();
+  // Mask creature names + sensitive fields when privacy mode is on. Every
+  // creature consumer downstream sees the same masked version, so the engine
+  // and sidebar render fake names without needing privacy awareness.
+  const creatures = useMaskedCreatures(rawCreatures);
+  // Action handlers (workbench, open folder, toggle hidden) need the real
+  // underlying creature even while privacy is on — opening "~/▓▓▓" would just
+  // fail. Resolve by id from the unmasked prop.
+  const unmaskById = useCallback(
+    (id: string) => rawCreatures.find((c) => c.id === id),
+    [rawCreatures]
+  );
   const [focusIndex, setFocusIndex] = useState(0);
   // Sidebar selection: a literal "home" row sits above the creatures in every
   // wide ready view. When true, the cursor lives on that row — garden/shelf
@@ -250,7 +263,8 @@ export const ReadyShell = ({
         // skip when the journal cursor is on the "home" row.
         if (!homeSelected) {
           const creature = focusList[focusIndex];
-          if (creature) onOpenFolder(creature);
+          const target = creature ? (unmaskById(creature.id) ?? creature) : undefined;
+          if (target) onOpenFolder(target);
         }
         return;
       }
@@ -260,6 +274,10 @@ export const ReadyShell = ({
       }
       if (input === "p" && onEditRoots) {
         onEditRoots();
+        return;
+      }
+      if (input === "P") {
+        privacy.toggle();
         return;
       }
       if (key.escape && filter) {
@@ -322,7 +340,8 @@ export const ReadyShell = ({
     if (key.return && onOpenWorkbench) {
       if (homeSelected) return; // home isn't a workbench target
       const creature = focusList[focusIndex];
-      if (creature) onOpenWorkbench(creature);
+      const target = creature ? (unmaskById(creature.id) ?? creature) : undefined;
+      if (target) onOpenWorkbench(target);
       return;
     }
     if (input === "s" && onOpenSettings) {
@@ -344,15 +363,17 @@ export const ReadyShell = ({
     if (input === "o" && onOpenFolder) {
       if (homeSelected) return;
       const creature = focusList[focusIndex];
-      if (creature) onOpenFolder(creature);
+      const target = creature ? (unmaskById(creature.id) ?? creature) : undefined;
+      if (target) onOpenFolder(target);
       return;
     }
     if (input === "h" && onToggleHidden) {
       if (homeSelected) return;
       const creature = focusList[focusIndex];
-      if (creature) {
-        if (creature.memory.hidden) followAfterUnhideRef.current = creature.id;
-        onToggleHidden(creature);
+      const target = creature ? (unmaskById(creature.id) ?? creature) : undefined;
+      if (target) {
+        if (target.memory.hidden) followAfterUnhideRef.current = target.id;
+        onToggleHidden(target);
       }
       return;
     }
@@ -362,6 +383,13 @@ export const ReadyShell = ({
     }
     if (input === "p" && onEditRoots) {
       onEditRoots();
+      return;
+    }
+    // Capital P — privacy toggle. Distinct from lowercase p (edit roots) since
+    // Ink passes the literal character. Journal mode has its own copy of this
+    // handler higher up since it owns its own key-routing branch.
+    if (input === "P") {
+      privacy.toggle();
       return;
     }
     if (input === "c") {
@@ -745,7 +773,7 @@ export const ReadyShell = ({
             event.col >= cardLeft &&
             event.col < cardLeft + overlayCardWidth
           ) {
-            onOpenWorkbench(focus);
+            onOpenWorkbench(unmaskById(focus.id) ?? focus);
             return;
           }
         }
@@ -1409,6 +1437,15 @@ export const ReadyShell = ({
               <Pagination total={gardenPageCount} current={safeGardenPageIndex + 1} />
             </Box>
           ) : null}
+          {/* Privacy mode indicator — strong signal that the names you're
+              looking at aren't the real ones. Hidden when off. */}
+          {!isRescanning && privacy.enabled ? (
+            <Box marginTop={0}>
+              <Text bold color={theme.colors.warning}>
+                ◐ private
+              </Text>
+            </Box>
+          ) : null}
         </Box>
       </Box>
       {/* roots on the left, vibes on the right of the same row.
@@ -1586,7 +1623,7 @@ export const ReadyShell = ({
               selectedRepoId={homeSelected ? undefined : focus?.scan.id}
               filter={filter}
               isActive={journalActive && !filterMode}
-              onOpenWorkbench={onOpenWorkbench}
+              onOpenWorkbench={onOpenWorkbench ? (c) => onOpenWorkbench(unmaskById(c.id) ?? c) : undefined}
               onSelectRepo={(id) => {
                 if (!id) {
                   setHomeSelected(true);
@@ -1612,7 +1649,7 @@ export const ReadyShell = ({
             selectedRepoId={homeSelected ? undefined : focus?.scan.id}
             filter={filter}
             isActive={journalActive && !filterMode}
-            onOpenWorkbench={onOpenWorkbench}
+            onOpenWorkbench={onOpenWorkbench ? (c) => onOpenWorkbench(unmaskById(c.id) ?? c) : undefined}
             onSelectRepo={(id) => {
               if (!id) {
                 setHomeSelected(true);

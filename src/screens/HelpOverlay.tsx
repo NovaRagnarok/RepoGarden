@@ -39,6 +39,7 @@ const shortcuts: Shortcut[] = [
   { key: "ctrl+s / ctrl+↵", description: "notes: save", category: "workbench" },
   { key: "ctrl+p", description: "notes: command palette", category: "workbench" },
   { key: "s", description: "settings", category: "anywhere" },
+  { key: "P", description: "privacy mode — mask names + sensitive content", category: "anywhere" },
   { key: "?", description: "this help", category: "anywhere" },
   { key: "esc", description: "back / close", category: "anywhere" },
   { key: "q", description: "quit", category: "anywhere" },
@@ -71,7 +72,7 @@ export const HelpOverlay = ({ onClose }: HelpOverlayProps) => {
     "journal  jk events · f/F type · t/T time · d details",
     "workbench  1-6 section · n notes · ctrl+1/2 mode",
     "notes  ctrl+n new · ctrl+p palette · ctrl+s save",
-    "anywhere  r rescan · p roots · s settings · ? help · q quit",
+    "anywhere  r rescan · p roots · s settings · P privacy · ? help · q quit",
   ];
 
   return (
