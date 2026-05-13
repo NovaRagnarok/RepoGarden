@@ -4,6 +4,13 @@ RepoGarden is a local-first pixel habitat where your repositories become tiny de
 
 The product is intentionally not dashboard-first. The default experience is a living scene that helps you notice projects, recover context, and resume with a small next move.
 
+## Install
+
+```bash
+npm install -g @outsideheaven/repogarden
+repogarden
+```
+
 ## Preview
 
 ![RepoGarden TUI — four pixel-art repo creatures in a starry habitat](docs/images/preview.png)
@@ -60,9 +67,7 @@ npm install
 npm run dev
 ```
 
-That runs the Ink-based terminal UI: scan, garden/shelf/journal views, per-repo workbench, mouse + keyboard. `npm install` runs `npm run build` automatically via the `prepare` script, so `node dist/cli.js` and the `repogarden-tui` bin work right after install.
-
-RepoGarden is in friend-alpha — distributed by `git clone`, not yet published to npm.
+That runs the Ink-based terminal UI: scan, garden/shelf/journal views, per-repo workbench, mouse + keyboard. `npm install` runs `npm run build` automatically via the `prepare` script, so `node dist/cli.js` and the `repogarden` bin work right after install.
 
 ## Product guardrails
 

@@ -11,7 +11,7 @@ test("hasHelpFlag detects both long and short help flags", () => {
 
 test("CLI_HELP_TEXT includes the expected commands", () => {
   assert.match(CLI_HELP_TEXT, /^RepoGarden$/m);
-  assert.match(CLI_HELP_TEXT, /repogarden-tui --help/);
+  assert.match(CLI_HELP_TEXT, /repogarden --help/);
   assert.match(CLI_HELP_TEXT, /npm run dev/);
   assert.match(CLI_HELP_TEXT, /npm start/);
 });

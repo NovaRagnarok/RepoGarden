@@ -1,5 +1,5 @@
 {
-  "name": "@repogarden/tui",
+  "name": "@outsideheaven/repogarden",
   "version": "0.1.0",
   "private": false,
   "license": "MIT",
@@ -21,6 +21,9 @@
   "bugs": {
     "url": "https://github.com/NovaRagnarok/RepoGarden/issues"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "funding": [
     {
       "type": "github",
@@ -36,7 +39,7 @@
   },
   "type": "module",
   "bin": {
-    "repogarden-tui": "./dist/cli.js"
+    "repogarden": "dist/cli.js"
   },
   "files": [
     "dist",
