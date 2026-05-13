@@ -1,7 +1,7 @@
 {
   "name": "@repogarden/tui",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "license": "MIT",
   "author": "RepoGarden contributors",
   "description": "RepoGarden terminal UI built on Ink + termcn primitives.",
