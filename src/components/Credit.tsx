@@ -8,11 +8,7 @@ export const Credit = () => {
   const theme = useTheme();
   return (
     <Box flexDirection="row">
-      <Link
-        href="https://github.com/NovaRagnarok/RepoGarden"
-        color={theme.colors.mutedForeground}
-        fallback={false}
-      >
+      <Link href="https://github.com/NovaRagnarok/RepoGarden" color={theme.colors.mutedForeground}>
         RepoGarden
       </Link>
     </Box>
