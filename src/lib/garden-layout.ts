@@ -274,11 +274,14 @@ export const lineUpCreatures = (
 };
 
 // Per-page slot dimensions used by paginateCreatures. These intentionally
-// sit a bit above the placer's hard minimums (sprite 2..5w, 2..3h) so a page
+// sit well above the placer's hard minimums (sprite 2..5w, 2..3h) so a page
 // reads as roomy rather than barely-fits — pagination's whole job is to
-// uncrowd the scene, not to repack at the densest legal level.
-const PAGE_SLOT_W = 10;
-const PAGE_SLOT_H = 7;
+// uncrowd the scene, not to repack at the densest legal level. Tuned by
+// eye on wide terminals where the lower 10×7 slot was still landing 15-20
+// creatures on a page; 14×9 brings that down to ~8-10 with comfortable
+// margins between sprites.
+const PAGE_SLOT_W = 14;
+const PAGE_SLOT_H = 9;
 
 const slotsBlockedByZone = (
   zoneWidth: number,
