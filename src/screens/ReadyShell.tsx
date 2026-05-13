@@ -316,10 +316,10 @@ export const ReadyShell = ({
     }
 
     // Sidebar navigation in garden/shelf. The "home" row sits above the
-    // creatures; ↑/k from creature[0] steps up to home, ↓/j from home steps
-    // down to creature[0]. When home is selected, no creature is focused —
+    // creatures; ↑ from creature[0] steps up to home, ↓ from home steps down
+    // to creature[0]. When home is selected, no creature is focused —
     // garden/shelf render without a focus ring or overlay card.
-    if (key.upArrow || input === "k") {
+    if (key.upArrow) {
       if (homeSelected) return;
       if (focusIndex <= 0) {
         setHomeSelected(true);
@@ -328,7 +328,7 @@ export const ReadyShell = ({
       }
       return;
     }
-    if (key.downArrow || input === "j") {
+    if (key.downArrow) {
       if (homeSelected) {
         if (focusList.length > 0) setHomeSelected(false);
         return;

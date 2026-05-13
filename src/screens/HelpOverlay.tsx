@@ -15,7 +15,7 @@ export interface HelpOverlayProps {
 }
 
 const shortcuts: Shortcut[] = [
-  { key: "↑↓ / jk", description: "move focus", category: "garden" },
+  { key: "↑↓", description: "move focus", category: "garden" },
   { key: "↵", description: "open workbench", category: "garden" },
   { key: "/", description: "filter (or search summaries in journal)", category: "garden" },
   { key: "g", description: "cycle garden / shelf / journal", category: "garden" },

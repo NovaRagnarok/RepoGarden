@@ -61,7 +61,6 @@
   "dependencies": {
     "cli-spinners": "^3.4.0",
     "ink": "^6.8.0",
-    "ink-text-input": "^6.0.0",
     "react": "^19.2.6"
   },
   "devDependencies": {

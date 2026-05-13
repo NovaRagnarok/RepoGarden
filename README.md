@@ -144,6 +144,8 @@ node dist/cli.js --help
 
 ## Support
 
+If RepoGarden makes exploring your repos a little more delightful, a star helps other people find it.
+
 If RepoGarden is useful to you, you can support it via [GitHub Sponsors](https://github.com/sponsors/NovaRagnarok) or Ko-fi:
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/outsideheaven)
