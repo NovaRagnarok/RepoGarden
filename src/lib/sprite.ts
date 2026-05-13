@@ -806,17 +806,32 @@ export const creatureCharSize = (
 
 // Each vibe picks one of these theme tokens as a "hue anchor"; the per-creature
 // hash then rotates around that anchor in HSL space so repos within the same
-// Every theme token contributes a base hue for the creature palette. Vibe no
-// longer steers body color — that signal lives on the name strip's vibe dot
-// instead — so we anchor on the full set and let identity pick freely.
-const BODY_ANCHOR_TOKENS: ReadonlyArray<keyof SpriteThemeColors> = [
-  "primary",
-  "accent",
-  "success",
-  "warning",
-  "error",
-  "info"
+// Arcade palette — 12 hand-picked hues at fixed saturation + lightness so
+// every creature reads as punchy and clean rather than dusty/muted. The
+// previous theme-anchored ± rotation approach drifted into mauve/dusty
+// zones any time a random hue jitter landed mid-band; this list skips
+// those zones entirely (270-340° excluded — the muddy purple/mauve range
+// the user flagged) and keeps neighbors well-spaced.
+const ARCADE_HUES: readonly number[] = [
+  355, // crimson
+  10,  // tomato red
+  25,  // orange
+  45,  // amber
+  60,  // yellow
+  90,  // lime
+  120, // grass green
+  155, // mint
+  180, // cyan
+  205, // sky blue
+  235, // royal blue
+  265  // electric violet
 ];
+// Fixed saturation + lightness keeps the palette feeling cohesive. High sat
+// for arcade punch; lightness around 60% so colors pop on both dark and
+// light terminals without washing out.
+const ARCADE_SATURATION = 0.78;
+const ARCADE_LIGHTNESS = 0.6;
+const ARCADE_LIGHTNESS_JITTER = 0.06;
 
 export interface SpriteColors {
   body: string;
@@ -890,30 +905,21 @@ const rgbToHex = (r: number, g: number, b: number): string => {
   return `#${clamp(r)}${clamp(g)}${clamp(b)}`;
 };
 
+/* themeColors is accepted but intentionally unused — the arcade palette is
+ * fixed in HSL space so colors stay consistent across themes. Kept on the
+ * signature so callers don't need updating if we later let a theme inject a
+ * custom palette. */
 export const pickSpriteColors = (
   identity: string,
-  themeColors: SpriteThemeColors
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _themeColors: SpriteThemeColors
 ): SpriteColors => {
-  // Color is now purely identity-derived — vibe shifts no longer churn a
-  // creature's body color. The palette spans every theme token plus a wide
-  // ±90° hue rotation so we get effectively the full color wheel from the
-  // 6 anchors, rather than the narrow per-vibe spread the old logic produced.
   const rng = mulberry32(hashString(`body:${identity}`));
-  const anchorToken =
-    BODY_ANCHOR_TOKENS[Math.floor(rng() * BODY_ANCHOR_TOKENS.length)] ?? BODY_ANCHOR_TOKENS[0];
-  const anchorHex = themeColors[anchorToken];
-  const [ar, ag, ab] = hexToRgb(anchorHex);
-  const [h, s, l] = rgbToHsl(ar, ag, ab);
-  // Wider rotation than before (±90° vs ±20°) — each identity gets a hue
-  // far enough from its anchor that the resulting palette covers the wheel.
-  // Saturation has a floor so muted-anchor themes (e.g., GitHub) still
-  // render legible bodies; lightness has a floor for the same reason
-  // (don't drop near-black on a dark terminal).
-  const hueDelta = (rng() - 0.5) * 180;
-  const lightnessDelta = (rng() - 0.5) * 0.18;
-  const finalH = h + hueDelta;
-  const finalS = Math.max(0.45, Math.min(0.95, s));
-  const finalL = Math.max(0.5, Math.min(0.72, l + lightnessDelta));
-  const [r, g, b] = hslToRgb(finalH, finalS, finalL);
+  const hue = ARCADE_HUES[Math.floor(rng() * ARCADE_HUES.length)] ?? ARCADE_HUES[0];
+  // Tiny lightness jitter so two creatures landing on the same hue still
+  // read as slightly distinct without breaking the cohesive arcade feel.
+  const lightnessDelta = (rng() - 0.5) * 2 * ARCADE_LIGHTNESS_JITTER;
+  const lightness = Math.max(0.5, Math.min(0.72, ARCADE_LIGHTNESS + lightnessDelta));
+  const [r, g, b] = hslToRgb(hue, ARCADE_SATURATION, lightness);
   return { body: rgbToHex(r, g, b) };
 };
