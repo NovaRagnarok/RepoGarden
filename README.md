@@ -46,7 +46,7 @@ Each repo becomes a tiny pixel creature whose look reflects branch state, recenc
  ┃   ╰───────╯               ·                                             ·           *      ┃
  ┃                                                                                            ┃
  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
- ↑↓/jk pick · ↵ bench · o folder · h hide · c card · / filter · g shelf · r rescan…  RepoGarden
+ ↑↓ move · ↵ open · / filter · g view · s settings · ? help · q quit                 RepoGarden
 ```
 
 </details>

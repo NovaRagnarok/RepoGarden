@@ -4,7 +4,7 @@
   "private": false,
   "license": "MIT",
   "author": "RepoGarden contributors",
-  "description": "RepoGarden terminal UI built on Ink + termcn primitives.",
+  "description": "A little local habitat where your repos live.",
   "keywords": [
     "tui",
     "ink",
