@@ -33,16 +33,17 @@ a few commits between them.
    events. Each row reads `<glyph>  <HH:mm>  <repo-name>  <summary>`.
 2. The summary text should be lowercase and affectionate (`shipped "fix tide
    chart"`, not `commit abc1234`). No numeric aggregates or charts anywhere.
-3. Press `↑/↓` — the cursor (`▸`) advances row by row.
-4. Press `PgDn` / `PgUp` — the viewport pages, but the cursor stays on its
+3. Press `j/k` — the journal cursor (`▸`) advances row by row.
+4. Press `↑/↓` — the left repo picker changes scope without scrolling the journal rows.
+5. Press `PgDn` / `PgUp` — the viewport pages, but the cursor stays on its
    original row (selection and scroll are intentionally decoupled; see BACKLOG).
-5. Press `/`, type a fragment of a repo name or commit subject, press enter.
+6. Press `/`, type a fragment of a repo name or commit subject, press enter.
    The timeline filters to matches. Press `esc` or clear to remove the filter.
-6. Click a creature in the left sidebar. The timeline scopes to just that
-   repo. Click the same creature again or arrow off to broaden scope.
-7. Select a row and press `↵` — the workbench opens for that repo in
+7. Click a creature in the left sidebar. The timeline scopes to just that
+   repo. Click the same creature again or move to the home row to broaden scope.
+8. Select a row and press `↵` — the workbench opens for that repo in
    PORTRAIT mode (assuming PORTRAIT is the last-used mode or first launch).
-8. If the journal is empty on first launch, the empty-state copy reads:
+9. If the journal is empty on first launch, the empty-state copy reads:
    *"the journal fills in as your repos change. come back after a commit,
    a note, or a tide shift."*
 
