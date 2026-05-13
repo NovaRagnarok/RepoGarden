@@ -7,6 +7,7 @@ import { Banner } from "@/components/ui/banner";
 import { Card } from "@/components/ui/card";
 import { Markdown } from "@/components/ui/markdown";
 import { MultiProgress, type MultiProgressItem } from "@/components/ui/multi-progress";
+import { Pagination } from "@/components/ui/pagination";
 import { Panel } from "@/components/ui/panel";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { ProgressCircle } from "@/components/ui/progress-circle";
@@ -673,15 +674,9 @@ export const ReadyShell = ({
         if (event.kind !== "press" || event.button !== "left") return;
         if (isRescanning) return;
         if (!onSetView) return;
-        // Render order matches the keyboard cycle (g). The GARDEN segment
-        // widens when pagination is in play, so the click zones derive from
-        // the same dynamic label the render uses.
-        const gardenLabel =
-          isGardenView && gardenPageCount > 1
-            ? `GARDEN ${safeGardenPageIndex + 1}/${gardenPageCount}`
-            : "GARDEN";
+        // Render order matches the keyboard cycle (g).
         const segments: { view: ReadyView; label: string }[] = [
-          { view: "garden", label: gardenLabel },
+          { view: "garden", label: "GARDEN" },
           { view: "shelf", label: "SHELF" },
           { view: "journal", label: "JOURNAL" },
         ];
@@ -708,7 +703,7 @@ export const ReadyShell = ({
           cursor = segRight + 2; // 1 gap col between segments
         }
       },
-      [columns, mode, isRescanning, onSetView, isGardenView, gardenPageCount, safeGardenPageIndex]
+      [columns, mode, isRescanning, onSetView]
     )
   );
 
@@ -1361,54 +1356,59 @@ export const ReadyShell = ({
         </Box>
         <Box
           marginTop={mode === "narrow" ? 1 : 0}
-          flexDirection="row"
-          gap={1}
-          alignItems="center"
+          flexDirection="column"
+          alignItems={mode === "narrow" ? "flex-start" : "flex-end"}
+          gap={0}
         >
-          {isRescanning ? (
-            <>
-              <Spinner color={theme.colors.info} />
-              {scanProgress && scanProgress.total > 0 ? (
-                <ProgressCircle
-                  size="sm"
-                  color={theme.colors.info}
-                  value={(scanProgress.done / scanProgress.total) * 100}
-                  showPercent
-                />
-              ) : null}
-              <Badge variant="info" bold>
-                SCANNING
-              </Badge>
-            </>
-          ) : (
-            <>
-              {(
-                [
-                  { view: "garden", label: "GARDEN" },
-                  { view: "shelf", label: "SHELF" },
-                  { view: "journal", label: "JOURNAL" },
-                ] as { view: ReadyView; label: string }[]
-              ).map((segment) => {
-                const active = view === segment.view;
-                // Append the current page indicator to the GARDEN badge when
-                // pagination is in play. Hidden when there's only one page so
-                // typical gardens keep their original look.
-                const label =
-                  segment.view === "garden" && isGardenView && gardenPageCount > 1
-                    ? `${segment.label} ${safeGardenPageIndex + 1}/${gardenPageCount}`
-                    : segment.label;
-                return (
-                  <Badge
-                    key={segment.view}
-                    color={active ? theme.colors.success : theme.colors.mutedForeground}
-                    bold={active}
-                  >
-                    {label}
-                  </Badge>
-                );
-              })}
-            </>
-          )}
+          <Box flexDirection="row" gap={1} alignItems="center">
+            {isRescanning ? (
+              <>
+                <Spinner color={theme.colors.info} />
+                {scanProgress && scanProgress.total > 0 ? (
+                  <ProgressCircle
+                    size="sm"
+                    color={theme.colors.info}
+                    value={(scanProgress.done / scanProgress.total) * 100}
+                    showPercent
+                  />
+                ) : null}
+                <Badge variant="info" bold>
+                  SCANNING
+                </Badge>
+              </>
+            ) : (
+              <>
+                {(
+                  [
+                    { view: "garden", label: "GARDEN" },
+                    { view: "shelf", label: "SHELF" },
+                    { view: "journal", label: "JOURNAL" },
+                  ] as { view: ReadyView; label: string }[]
+                ).map((segment) => {
+                  const active = view === segment.view;
+                  return (
+                    <Badge
+                      key={segment.view}
+                      color={active ? theme.colors.success : theme.colors.mutedForeground}
+                      bold={active}
+                    >
+                      {segment.label}
+                    </Badge>
+                  );
+                })}
+              </>
+            )}
+          </Box>
+          {/* Pagination strip: visual indicator that mirrors the gardenPageIndex
+              state ReadyShell already owns. Renders only when there's actually
+              more than one page so single-page gardens look untouched, and
+              only in wide layouts — narrow mode shows the "page N/M" hint
+              inline in the compact focus summary instead. */}
+          {!isRescanning && isGardenView && gardenPageCount > 1 && mode !== "narrow" ? (
+            <Box marginTop={0}>
+              <Pagination total={gardenPageCount} current={safeGardenPageIndex + 1} />
+            </Box>
+          ) : null}
         </Box>
       </Box>
       {/* roots on the left, vibes on the right of the same row.
