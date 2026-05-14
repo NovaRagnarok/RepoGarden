@@ -44,7 +44,7 @@ const sampleCreatures: RepoCreature[] = [
       ]
     },
     memory: {},
-    vibe: { vibe: "noisy", reason: "uncommitted changes · 2 unpushed commits", daysSinceCommit: 2, activity: computeActivity(2) }
+    vibe: { vibe: "awake", reason: "uncommitted changes · 2 unpushed commits", daysSinceCommit: 2, activity: computeActivity(2) }
   },
   {
     id: "cc",
@@ -73,7 +73,7 @@ const sampleCreatures: RepoCreature[] = [
       primaryLanguage: "Python"
     },
     memory: { currentBlocker: "worker queue red on staging" },
-    vibe: { vibe: "blocked", reason: "blocker: worker queue red on staging", daysSinceCommit: 5, activity: computeActivity(5) }
+    vibe: { vibe: "stuck", reason: "blocker: worker queue red on staging", daysSinceCommit: 5, activity: computeActivity(5) }
   },
   {
     id: "gn",

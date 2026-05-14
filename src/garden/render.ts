@@ -62,9 +62,9 @@ const blockStarsForOverlays = (
 
 const dividerLabelColor = (model: GardenModel, vibe: string): string => {
   switch (vibe) {
-    case "blocked":
+    case "stuck":
       return model.props.theme.error;
-    case "noisy":
+    case "awake":
       return model.props.theme.warning;
     case "sleepy":
       return model.props.theme.info;
@@ -81,7 +81,7 @@ const drawDivider = (
   count: number
 ): void => {
   if (row < 0 || row >= frame.height) return;
-  const tail = count === 0 && vibe === "blocked" ? "all clear" : String(count);
+  const tail = count === 0 && vibe === "stuck" ? "all clear" : String(count);
   const labelText = ` ${vibe} · ${tail} `;
   const labelLen = Math.min(labelText.length, frame.width - 2);
   const labelStart = Math.max(1, Math.floor((frame.width - labelLen) / 2));
@@ -131,6 +131,20 @@ export const renderGardenFrame = (
 
   for (const divider of model.scene.dividers) {
     drawDivider(frame, model, divider.canvasRow, divider.vibe, divider.count);
+  }
+
+  for (const overflow of model.scene.overflows ?? []) {
+    const label = `+${overflow.hidden} more`;
+    const fg = dividerLabelColor(model, overflow.vibe);
+    const labelLen = Math.min(label.length, overflow.slotW);
+    const startCol = overflow.canvasCol + Math.floor((overflow.slotW - labelLen) / 2);
+    for (let i = 0; i < labelLen; i += 1) {
+      setCell(frame, startCol + i, overflow.canvasRow, {
+        char: label[i],
+        fg,
+        bold: true
+      });
+    }
   }
 
   for (const placement of model.scene.placements) {

@@ -34,7 +34,16 @@ const ADJECTIVES = [
   "rainy", "sunny", "snowy", "cloudy", "breezy",
   "garden", "meadow", "thicket", "hedgerow", "brook",
   "pillowy", "puffy", "cottony", "feathery", "lacy",
-  "shadowed", "lit", "warmlit", "hushed", "still"
+  "shadowed", "lit", "warmlit", "hushed", "still",
+  "muted", "muffled", "whispery", "purring", "murmury", "hummy", "cooing",
+  "rustly", "soughing", "piney", "cedary", "woodsy", "loamy", "earthen",
+  "fresh", "herbal", "clover", "minted", "nutty", "bready", "airy",
+  "light", "floaty", "wispy", "gauzy", "papery", "fleecy", "felty",
+  "quilty", "satiny", "threaded", "knitted", "darned", "apricot",
+  "peachy", "ivory", "ochre", "mauve", "sage", "olive", "timid",
+  "bashful", "mild", "mousy", "coy", "wobbly", "nubby", "waddly",
+  "tottery", "tippy", "tilty", "nodding", "dozing", "snoozy", "dawny",
+  "gloamy", "dimlit", "lowlit", "waxy", "pouchy", "seeded"
 ];
 
 const NOUNS = [
@@ -65,25 +74,61 @@ const NOUNS = [
   "echo", "drift", "swirl", "eddy", "ripple",
   "honey", "syrup", "jam", "preserve", "marmalade",
   "marbleling", "pebbleling", "wisplet", "fernling", "mossling",
-  "kindling", "tinder", "ash", "ember", "smoke",
-  "cinder", "fleck", "mote", "speck", "dot"
+  "kindling", "tinder", "ash", "smoke",
+  "cinder", "fleck", "mote", "speck", "dot",
+  "dawn", "dusk", "morn", "eve", "gloaming", "twilight", "sundown",
+  "dawnling", "duskling", "mornling", "evelet", "noonlet", "gloamlet",
+  "eft", "pollywog", "mudpuppy", "axolotl", "skink", "otter", "turtle",
+  "eel", "loach", "gudgeon", "perch", "spindle", "bobbin", "skein",
+  "stitch", "patch", "needle", "darning", "loom", "yarn", "thread",
+  "felt", "wool", "catkin", "rush", "sedge", "alder", "sorrel",
+  "nettle", "mallow", "reed", "posy", "rosehip", "cup", "mug",
+  "saucer", "tin", "jar", "jug", "ladle", "drizzle", "mizzle",
+  "sprinkle", "snowdrop", "foglet", "rainlet", "sunlet", "moonlet", "glint",
+  "seedling", "leaflet", "rootlet", "budlet", "twiglet", "thistlet"
 ];
 
 const PLACEHOLDER_BLOCK = "▓";
 
-/** 1-3 hyphenated words, deterministic by id. Weight: ~20% 1-word,
- *  ~60% 2-word, ~20% 3-word. */
+type NameStyle = "kebab" | "pascal" | "camel" | "kebabCap";
+
+const capitalise = (word: string): string =>
+  word.length === 0 ? word : word[0].toUpperCase() + word.slice(1);
+
+const joinByStyle = (words: string[], style: NameStyle): string => {
+  switch (style) {
+    case "kebab":
+      return words.join("-");
+    case "pascal":
+      return words.map(capitalise).join("");
+    case "camel":
+      return words.map((w, i) => (i === 0 ? w : capitalise(w))).join("");
+    case "kebabCap":
+      return words.map((w, i) => (i === 0 ? capitalise(w) : w)).join("-");
+  }
+};
+
+/** 1-3 words, deterministic by id. Word count: ~20% 1-word, ~60% 2-word,
+ *  ~20% 3-word. Casing mix: ~50% kebab (`plum-thistle`), ~20% PascalCase
+ *  (`PlumThistle`), ~20% camelCase (`plumThistle`), ~10% capitalised-kebab
+ *  (`Plum-thistle`). The mix mirrors the spectrum of real repo names so
+ *  masked aliases read as a varied set rather than visibly templated.
+ *  Composition stays grammatical: noun alone, adj+noun, or adj+adj+noun. */
 export const fakeName = (id: string): string => {
   const rng = mulberry32(hashString(`privacy:${id}`));
   const pick = <T,>(list: readonly T[]): T => list[Math.floor(rng() * list.length)];
   const lengthRoll = rng();
   const wordCount = lengthRoll < 0.2 ? 1 : lengthRoll < 0.8 ? 2 : 3;
-  // Compose: noun alone (1 word), adj-noun (2), adj-adj-noun (3). Keeps the
-  // pattern grammatical-ish so aliases read like quiet little names rather
-  // than random word salads.
-  if (wordCount === 1) return pick(NOUNS);
-  if (wordCount === 2) return `${pick(ADJECTIVES)}-${pick(NOUNS)}`;
-  return `${pick(ADJECTIVES)}-${pick(ADJECTIVES)}-${pick(NOUNS)}`;
+  const styleRoll = rng();
+  const style: NameStyle =
+    styleRoll < 0.5 ? "kebab" : styleRoll < 0.7 ? "pascal" : styleRoll < 0.9 ? "camel" : "kebabCap";
+  const words: string[] =
+    wordCount === 1
+      ? [pick(NOUNS)]
+      : wordCount === 2
+        ? [pick(ADJECTIVES), pick(NOUNS)]
+        : [pick(ADJECTIVES), pick(ADJECTIVES), pick(NOUNS)];
+  return joinByStyle(words, style);
 };
 
 /** Characters the scramble effect cycles through. Lowercase a-z matches the
@@ -123,8 +168,12 @@ const NOTE_PLACEHOLDER = "▓▓ private content ▓▓";
 // leaking specifics (dirty file counts, commit counts, etc.).
 const VIBE_GENERIC: Record<string, string> = {
   happy: "humming along quietly",
-  noisy: "lots of recent activity",
+  awake: "lots of recent activity",
   sleepy: "resting for a while",
+  stuck: "something is in the way",
+  // Legacy aliases — pre-rename journal/snapshot data may still surface
+  // these in redacted reason strings before the read-time migration kicks in.
+  noisy: "lots of recent activity",
   blocked: "something is in the way"
 };
 

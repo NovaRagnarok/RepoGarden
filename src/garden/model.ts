@@ -44,15 +44,15 @@ const VIBE_WANDER: Record<
   { idleMin: number; idleMax: number; wanderMin: number; wanderMax: number; radiusX: number; radiusY: number }
 > = {
   happy: { idleMin: 10000, idleMax: 20000, wanderMin: 4400, wanderMax: 8400, radiusX: 2, radiusY: 1 },
-  noisy: { idleMin: 5600, idleMax: 11200, wanderMin: 3200, wanderMax: 6000, radiusX: 2, radiusY: 1 },
+  awake: { idleMin: 5600, idleMax: 11200, wanderMin: 3200, wanderMax: 6000, radiusX: 2, radiusY: 1 },
   sleepy: { idleMin: 32000, idleMax: 64000, wanderMin: 5600, wanderMax: 9200, radiusX: 1, radiusY: 1 },
-  blocked: { idleMin: 56000, idleMax: 104000, wanderMin: 4400, wanderMax: 7200, radiusX: 1, radiusY: 1 }
+  stuck: { idleMin: 56000, idleMax: 104000, wanderMin: 4400, wanderMax: 7200, radiusX: 1, radiusY: 1 }
 };
 
 const VIBE_WIGGLE: Record<Vibe, { min: number; max: number }> = {
   happy: { min: 1800, max: 2500 },
-  noisy: { min: 2100, max: 2900 },
-  blocked: { min: 3100, max: 4500 },
+  awake: { min: 2100, max: 2900 },
+  stuck: { min: 3100, max: 4500 },
   sleepy: { min: 3800, max: 5700 }
 };
 
@@ -63,7 +63,7 @@ const pickInRange = (min: number, max: number): number =>
   min + Math.random() * (max - min);
 
 const pickWanderKind = (vibe: Vibe): "round-trip" | "relocate" => {
-  const relocateChance = vibe === "sleepy" || vibe === "blocked" ? 0.08 : 0.22;
+  const relocateChance = vibe === "sleepy" || vibe === "stuck" ? 0.08 : 0.22;
   return Math.random() < relocateChance ? "relocate" : "round-trip";
 };
 
@@ -184,6 +184,53 @@ const pushCandidate = (candidates: Placement[], candidate: Placement): void => {
   candidates.push(candidate);
 };
 
+// Spiral outward from `base` looking for the closest cell whose footprint
+// clears every accepted/anchor obstacle. Used as a safety net when none of
+// the normal candidates fit — without it, the resolver silently lands the
+// creature on top of an obstacle by falling back to its bare anchor.
+const findNearestClearPlacement = (
+  base: Placement,
+  creatureId: string,
+  acceptedFootprints: PlacementFootprint[],
+  anchorFootprints: Map<string, PlacementFootprint>,
+  deadZone: GardenDeadZone | undefined,
+  canvasW: number,
+  canvasH: number
+): Placement | null => {
+  const maxRadius = Math.max(canvasW, canvasH);
+  for (let radius = 1; radius <= maxRadius; radius += 1) {
+    for (let dy = -radius; dy <= radius; dy += 1) {
+      for (let dx = -radius; dx <= radius; dx += 1) {
+        // Only walk the ring at this Chebyshev distance — inner rings were
+        // already scanned, so revisiting them just wastes work.
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) continue;
+        const candidate: Placement = {
+          tile: base.tile,
+          x: base.x + dx,
+          charY: base.charY + dy
+        };
+        if (candidate.x < 0 || candidate.charY < 0) continue;
+        if (candidate.x + base.tile.spriteCols > canvasW) continue;
+        if (candidate.charY + base.tile.charRows > canvasH) continue;
+        if (
+          canUsePlacement(
+            creatureId,
+            candidate,
+            acceptedFootprints,
+            anchorFootprints,
+            deadZone,
+            canvasW,
+            canvasH
+          )
+        ) {
+          return candidate;
+        }
+      }
+    }
+  }
+  return null;
+};
+
 const buildTiles = (props: GardenSceneProps): SizedTile[] => {
   const { creatures, innerWidth, canvasH } = props;
   if (creatures.length === 0) return [];
@@ -231,7 +278,8 @@ const buildScene = (props: GardenSceneProps): GardenScene => {
             props.deadZone,
             placerZone
           ),
-          dividers: []
+          dividers: [],
+          overflows: []
         };
   const sprites = new Map<string, GardenSpriteInfo>();
   for (const placement of layout.placements) {
@@ -253,9 +301,9 @@ const buildScene = (props: GardenSceneProps): GardenScene => {
       props.theme.creaturePalette
     );
     const vibeColor =
-      creature.vibe.vibe === "blocked"
+      creature.vibe.vibe === "stuck"
         ? props.theme.error
-        : creature.vibe.vibe === "noisy"
+        : creature.vibe.vibe === "awake"
           ? props.theme.warning
           : creature.vibe.vibe === "sleepy"
             ? props.theme.info
@@ -286,6 +334,7 @@ const buildScene = (props: GardenSceneProps): GardenScene => {
   return {
     placements: layout.placements,
     dividers: layout.dividers,
+    overflows: layout.overflows,
     sprites,
     sceneSeed: sceneSeedForCreatures(stableCreatureIdsKey(props.creatures))
   };
@@ -503,7 +552,17 @@ const syncVisualPlacements = (
           model.props.innerWidth,
           model.props.canvasH
         )
-      ) ?? placement;
+      ) ??
+      findNearestClearPlacement(
+        placement,
+        creature.id,
+        acceptedFootprints,
+        anchorFootprints,
+        model.props.deadZone,
+        model.props.innerWidth,
+        model.props.canvasH
+      ) ??
+      placement;
     visualPlacements.set(creature.id, resolved);
     acceptedFootprints.push(spriteBodyFootprint(resolved));
   }
@@ -687,6 +746,28 @@ const dragPushDirection = (
   return { axis: "x", sign: 1 };
 };
 
+const restPlacementFor = (
+  model: GardenModel,
+  anchor: Placement
+): Placement => {
+  // Steady-state position for a creature: anchor + manualOffset (if dragged)
+  // or anchor + persistentOffset (if a relocate-wander completed). The
+  // transient `currentOffset` wander bob is deliberately excluded so the
+  // push solver reasons about where neighbours actually live, not where
+  // they happen to be bobbing this frame. Without this, a drag near a
+  // wanderer mid-cycle gets certified as clear and then collides once the
+  // wander envelope returns to zero.
+  const state = model.wander.get(anchor.tile.creature.id);
+  const offset = effectivePersistentOffset(state, model.props.placementMode);
+  return visualPlacementAtOffset(
+    anchor,
+    Math.round(offset.x),
+    Math.round(offset.y),
+    model.props.innerWidth,
+    model.props.canvasH
+  );
+};
+
 const resolvePushPlacements = (
   model: GardenModel,
   creatureId: string,
@@ -696,10 +777,7 @@ const resolvePushPlacements = (
 ): Map<string, Placement> | null => {
   const placements = new Map<string, Placement>();
   for (const anchor of model.scene.placements) {
-    placements.set(
-      anchor.tile.creature.id,
-      model.visualPlacements.get(anchor.tile.creature.id) ?? anchor
-    );
+    placements.set(anchor.tile.creature.id, restPlacementFor(model, anchor));
   }
   placements.set(creatureId, candidate);
 

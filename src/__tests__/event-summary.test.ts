@@ -74,8 +74,8 @@ const makeVibe = (from: string, to: string, reason?: string): JournalEvent => ({
   payload: { from, to, ...(reason !== undefined ? { reason } : {}) },
 });
 
-test("vibe blocked → happy reads as back in flow, not happy: clean", () => {
-  const summary = eventSummary(makeVibe("blocked", "happy", "clean."));
+test("vibe stuck → happy reads as back in flow, not happy: clean", () => {
+  const summary = eventSummary(makeVibe("stuck", "happy", "clean."));
   assert.equal(summary, "back in flow — clean");
 });
 
@@ -84,25 +84,25 @@ test("vibe sleepy → happy still reads as woke up", () => {
   assert.equal(summary, "woke up — last commit 0d ago, clean");
 });
 
-test("vibe happy → blocked strips the redundant 'blocker:' prefix from the reason", () => {
-  const summary = eventSummary(makeVibe("happy", "blocked", "blocker: refactor auth"));
+test("vibe happy → stuck strips the redundant 'blocker:' prefix from the reason", () => {
+  const summary = eventSummary(makeVibe("happy", "stuck", "blocker: refactor auth"));
   assert.equal(summary, "hit a blocker — refactor auth");
 });
 
-test("vibe happy → noisy reads as got busy with the dirty/ahead reason", () => {
+test("vibe happy → awake reads as got busy with the dirty/ahead reason", () => {
   const summary = eventSummary(
-    makeVibe("happy", "noisy", "uncommitted changes · 2 unpushed commits")
+    makeVibe("happy", "awake", "uncommitted changes · 2 unpushed commits")
   );
   assert.equal(summary, "got busy — uncommitted changes · 2 unpushed commits");
 });
 
-test("vibe noisy → happy reads as settled", () => {
-  const summary = eventSummary(makeVibe("noisy", "happy", "clean."));
+test("vibe awake → happy reads as settled", () => {
+  const summary = eventSummary(makeVibe("awake", "happy", "clean."));
   assert.equal(summary, "settled — clean");
 });
 
-test("vibe blocked → noisy reads as back at it", () => {
-  const summary = eventSummary(makeVibe("blocked", "noisy", "uncommitted changes"));
+test("vibe stuck → awake reads as back at it", () => {
+  const summary = eventSummary(makeVibe("stuck", "awake", "uncommitted changes"));
   assert.equal(summary, "back at it — uncommitted changes");
 });
 
@@ -112,8 +112,22 @@ test("vibe happy → sleepy reads as wound down", () => {
 });
 
 test("vibe-changed without a reason omits the dash-separated tail", () => {
-  const summary = eventSummary(makeVibe("blocked", "happy"));
+  const summary = eventSummary(makeVibe("stuck", "happy"));
   assert.equal(summary, "back in flow");
+});
+
+// Pre-rename journal entries used the old vocabulary ("noisy"/"blocked").
+// The event-summary normaliser maps them onto the new transition verbs so
+// historical entries keep rendering correctly after the rename.
+test("vibe-changed with legacy noisy/blocked payloads still renders a transition verb", () => {
+  assert.equal(
+    eventSummary(makeVibe("blocked", "happy", "clean.")),
+    "back in flow — clean"
+  );
+  assert.equal(
+    eventSummary(makeVibe("happy", "noisy", "uncommitted changes")),
+    "got busy — uncommitted changes"
+  );
 });
 
 test("vibe-changed for an unknown transition falls back to a generic verb", () => {

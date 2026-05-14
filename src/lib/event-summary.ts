@@ -16,24 +16,35 @@ const cap = (value: string, max: number): string => {
 const quote = (value: unknown, fallback = "untitled", max = 40): string =>
   `"${cap(clean(value) || fallback, max)}"`;
 
+// Pre-rename journal events still carry "noisy"/"blocked" in their payload.
+// Normalising at the call site lets the verb table speak only the current
+// vocabulary while old summaries still render with the right transition verb.
+const normaliseLegacyVibe = (raw: string): string => {
+  if (raw === "noisy") return "awake";
+  if (raw === "blocked") return "stuck";
+  return raw;
+};
+
 // Reads the transition direction, not the destination state, so entries
 // don't read like "happy: clean" (which sounds like a status snapshot,
 // not a change). Falls back to a generic "became <to>" if the pair is
 // unknown — defensive for future vibe additions.
-const vibeTransitionVerb = (from: string, to: string): string => {
+const vibeTransitionVerb = (fromRaw: string, toRaw: string): string => {
+  const from = normaliseLegacyVibe(fromRaw);
+  const to = normaliseLegacyVibe(toRaw);
   switch (`${from}->${to}`) {
-    case "happy->noisy": return "got busy";
-    case "happy->blocked": return "hit a blocker";
+    case "happy->awake": return "got busy";
+    case "happy->stuck": return "hit a blocker";
     case "happy->sleepy": return "wound down";
-    case "noisy->happy": return "settled";
-    case "noisy->blocked": return "hit a blocker";
-    case "noisy->sleepy": return "trailed off";
-    case "blocked->happy": return "back in flow";
-    case "blocked->noisy": return "back at it";
-    case "blocked->sleepy": return "stalled out";
+    case "awake->happy": return "settled";
+    case "awake->stuck": return "hit a blocker";
+    case "awake->sleepy": return "trailed off";
+    case "stuck->happy": return "back in flow";
+    case "stuck->awake": return "back at it";
+    case "stuck->sleepy": return "stalled out";
     case "sleepy->happy": return "woke up";
-    case "sleepy->noisy": return "stirred";
-    case "sleepy->blocked": return "woke into a blocker";
+    case "sleepy->awake": return "stirred";
+    case "sleepy->stuck": return "woke into a blocker";
     default: return to ? `became ${to}` : "vibe shifted";
   }
 };

@@ -309,13 +309,13 @@ export const enrichScans = (
   const creatures = scans
     .map((scan) => buildCreature(scan, now))
     .sort((left, right) => {
-      // Canonical display order across the UI: happy first, sleepy last,
-      // anything in between in the middle. Mirrored in the chrome vibe
-      // summary (left → right) and in cli.tsx's post-save resort.
+      // Canonical display order across the UI: awake first, sleepy last —
+      // mirrors VIBE_ORDER in garden-layout.ts so the shelf and the chrome
+      // vibe summary read the same direction.
       const order: Record<VibeResult["vibe"], number> = {
-        happy: 0,
-        noisy: 1,
-        blocked: 2,
+        awake: 0,
+        happy: 1,
+        stuck: 2,
         sleepy: 3
       };
       const diff = order[left.vibe.vibe] - order[right.vibe.vibe];

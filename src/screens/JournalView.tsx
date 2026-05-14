@@ -322,8 +322,8 @@ export const JournalView = ({
         return theme.colors.warning;
       case "vibe": {
         const v = def.vibeTarget;
-        if (v === "blocked") return theme.colors.error;
-        if (v === "noisy") return theme.colors.warning;
+        if (v === "stuck") return theme.colors.error;
+        if (v === "awake") return theme.colors.warning;
         if (v === "sleepy") return theme.colors.info;
         return theme.colors.success;
       }

@@ -241,9 +241,9 @@ const SettingsPreview = ({
   }
   const vibeColor = (v: Vibe): string => {
     switch (v) {
-      case "blocked":
+      case "stuck":
         return theme.colors.error;
-      case "noisy":
+      case "awake":
         return theme.colors.warning;
       case "sleepy":
         return theme.colors.info;

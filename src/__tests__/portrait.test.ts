@@ -93,7 +93,7 @@ const creature = (overrides: Partial<RepoCreature> = {}): RepoCreature => ({
     currentBlocker: "build is failing on auth tests",
   },
   vibe: {
-    vibe: "blocked",
+    vibe: "stuck",
     reason: "blocker: build is failing on auth tests",
     daysSinceCommit: 1,
     activity: 1,

@@ -368,8 +368,8 @@ const App = ({
       current
         .map((entry) => (entry.id === creature.id ? buildCreature(entry.scan) : entry))
         .sort((left, right) => {
-          // Match enrichScans' canonical order: happy first, sleepy last.
-          const order = { happy: 0, noisy: 1, blocked: 2, sleepy: 3 } as const;
+          // Match enrichScans' canonical order: awake first, sleepy last.
+          const order = { awake: 0, happy: 1, stuck: 2, sleepy: 3 } as const;
           const diff = order[left.vibe.vibe] - order[right.vibe.vibe];
           return diff !== 0 ? diff : left.scan.name.localeCompare(right.scan.name);
         })

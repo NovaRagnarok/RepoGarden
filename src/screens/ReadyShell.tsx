@@ -66,8 +66,8 @@ export interface ReadyShellProps {
 
 const vibeBadgeVariant: Record<Vibe, "default" | "warning" | "error" | "info" | "success"> = {
   sleepy: "info",
-  blocked: "error",
-  noisy: "warning",
+  stuck: "error",
+  awake: "warning",
   happy: "success"
 };
 
@@ -993,9 +993,9 @@ export const ReadyShell = ({
             const focused = index === shownFocus;
             const glyph = vibeGlyph(creature.vibe.vibe);
             const vibeColor =
-              creature.vibe.vibe === "blocked"
+              creature.vibe.vibe === "stuck"
                 ? theme.colors.error
-                : creature.vibe.vibe === "noisy"
+                : creature.vibe.vibe === "awake"
                   ? theme.colors.warning
                   : creature.vibe.vibe === "sleepy"
                     ? theme.colors.info
@@ -1097,9 +1097,9 @@ export const ReadyShell = ({
     if (!focus) return null;
 
     const vibeColor =
-      focus.vibe.vibe === "blocked"
+      focus.vibe.vibe === "stuck"
         ? theme.colors.error
-        : focus.vibe.vibe === "noisy"
+        : focus.vibe.vibe === "awake"
           ? theme.colors.warning
           : focus.vibe.vibe === "sleepy"
             ? theme.colors.info
@@ -1146,10 +1146,10 @@ export const ReadyShell = ({
         ? { icon: "✎", label: "note", text: note, color: theme.colors.mutedForeground }
         : null;
 
-    // When the vibe is "blocked", vibe.reason is already "blocker: <text>" —
+    // When the vibe is "stuck", vibe.reason is already "blocker: <text>" —
     // the memoryLine renders the same content with stronger styling, so we
     // skip the reason line to avoid a back-to-back duplicate.
-    const showVibeReason = !(focus.vibe.vibe === "blocked" && blocker);
+    const showVibeReason = !(focus.vibe.vibe === "stuck" && blocker);
 
     // scan.path on the focus is intentionally unmasked so the garden engine
     // keeps stable sprite identity; redact (mask) or remap (demo) for display
@@ -1511,13 +1511,13 @@ export const ReadyShell = ({
           )}
           {!isRescanning && shownCreatures.length > 0 ? (
             <Box flexDirection="row" gap={2}>
-              {(["happy", "noisy", "blocked", "sleepy"] as Vibe[]).map((vibe) => {
+              {(["awake", "happy", "stuck", "sleepy"] as Vibe[]).map((vibe) => {
                 const count = shownCreatures.filter((c) => c.vibe.vibe === vibe).length;
                 if (count === 0) return null;
                 const tone =
-                  vibe === "blocked"
+                  vibe === "stuck"
                     ? theme.colors.error
-                    : vibe === "noisy"
+                    : vibe === "awake"
                       ? theme.colors.warning
                       : vibe === "sleepy"
                         ? theme.colors.info

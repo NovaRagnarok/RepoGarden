@@ -1,7 +1,14 @@
 import type { ScannedRepo } from "@/lib/scanner";
 import type { ProjectMemory } from "@/lib/memory";
 
-export type Vibe = "sleepy" | "blocked" | "noisy" | "happy";
+// Vibe vocabulary (in display order, liveliest → quietest):
+//   awake  — recent local changes (uncommitted edits or ahead of remote)
+//   happy  — clean working tree, in sync with remote
+//   stuck  — user has written a `currentBlocker` note
+//   sleepy — no commits for SLEEPY_DAYS or more
+// Earlier versions used "noisy"/"blocked" — see `events.ts` snapshot reader
+// and `event-summary.ts` for the read-time migration of pre-rename data.
+export type Vibe = "awake" | "happy" | "stuck" | "sleepy";
 
 const SLEEPY_DAYS = 14;
 const STALE_DAYS = 60;
@@ -52,7 +59,7 @@ export const inferVibe = ({ repo, memory, now = new Date() }: VibeContext): Vibe
 
   const blocker = memory?.currentBlocker?.trim();
   if (blocker) {
-    return { vibe: "blocked", reason: `blocker: ${blocker}`, daysSinceCommit, activity };
+    return { vibe: "stuck", reason: `blocker: ${blocker}`, daysSinceCommit, activity };
   }
 
   if (daysSinceCommit !== undefined && daysSinceCommit >= SLEEPY_DAYS) {
@@ -71,7 +78,7 @@ export const inferVibe = ({ repo, memory, now = new Date() }: VibeContext): Vibe
     const parts: string[] = [];
     if (repo.isDirty) parts.push("uncommitted changes");
     if ((repo.ahead ?? 0) > 0) parts.push(`${repo.ahead} unpushed commit${repo.ahead === 1 ? "" : "s"}`);
-    return { vibe: "noisy", reason: parts.join(" · "), daysSinceCommit, activity };
+    return { vibe: "awake", reason: parts.join(" · "), daysSinceCommit, activity };
   }
 
   return {
@@ -84,11 +91,11 @@ export const inferVibe = ({ repo, memory, now = new Date() }: VibeContext): Vibe
 
 export const vibeGlyph = (vibe: Vibe): string => {
   switch (vibe) {
-    case "blocked":
+    case "stuck":
       return "✕";
     case "sleepy":
       return "z";
-    case "noisy":
+    case "awake":
       return "!";
     case "happy":
       return "•";

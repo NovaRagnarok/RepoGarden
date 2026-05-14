@@ -268,7 +268,7 @@ test("blocker note still drives the 'blocked' vibe via memory mirror", () => {
       },
       memory,
     });
-    assert.equal(vibe.vibe, "blocked");
+    assert.equal(vibe.vibe, "stuck");
     assert.match(vibe.reason, /stuck on migration/);
   });
 });

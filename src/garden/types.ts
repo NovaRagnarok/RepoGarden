@@ -1,5 +1,5 @@
 import type { RepoCreature } from "@/lib/creature";
-import type { DividerPlacement, Placement } from "@/lib/garden-layout";
+import type { DividerPlacement, Placement, ShelfOverflow } from "@/lib/garden-layout";
 
 export interface GardenDeadZone {
   width: number;
@@ -100,6 +100,7 @@ export interface GardenSpriteInfo {
 export interface GardenScene {
   placements: Placement[];
   dividers: DividerPlacement[];
+  overflows: ShelfOverflow[];
   sprites: Map<string, GardenSpriteInfo>;
   sceneSeed: number;
 }

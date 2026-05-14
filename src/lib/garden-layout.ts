@@ -51,13 +51,30 @@ export interface DividerPlacement {
   count: number;
 }
 
+export interface ShelfOverflow {
+  /** Vibe whose shelf got truncated — drives the indicator's accent colour. */
+  vibe: Vibe;
+  /** Canvas row where the "+N more" label sits (same baseline as the
+   *  truncated shelf's name row, so it reads as part of that shelf). */
+  canvasRow: number;
+  /** Left-most canvas column of the slot the indicator occupies. */
+  canvasCol: number;
+  /** Width of that slot in cells — renderers should clip the label to fit. */
+  slotW: number;
+  /** Count of hidden creatures (what `+N` shows). */
+  hidden: number;
+}
+
 export interface ShelfLayout {
   placements: Placement[];
   dividers: DividerPlacement[];
+  overflows: ShelfOverflow[];
 }
 
-/** Display order for shelf groups: liveliest at the top, sleepy at the bottom. */
-export const VIBE_ORDER: readonly Vibe[] = ["happy", "noisy", "blocked", "sleepy"];
+/** Display order for shelf groups: liveliest at the top, sleepy at the bottom.
+ *  `awake` (recent local changes) sits above `happy` (settled, in sync) so the
+ *  shelf reads top-down as "most engaged → least." */
+export const VIBE_ORDER: readonly Vibe[] = ["awake", "happy", "stuck", "sleepy"];
 
 // Scene/layout seeds should depend on the creature set, not the current sort
 // order. The UI re-sorts creatures as vibes change, and any order-sensitive
@@ -138,6 +155,12 @@ const SHELF_EXTRA_PAD_Y = 1;
 // "Soldier" layout: creatures keep their organic shape and natural size but
 // march into a uniform grid. Same row → same baseline (feet aligned), uniform
 // horizontal spacing, vibes broken into labelled shelves in canonical order.
+//
+// Vertical budgets are allocated *per vibe* proportional to how many tiles
+// the bucket holds. A vibe with no room for everyone keeps as many tiles as
+// fit in its allotted rows and emits a `+N more` overflow indicator in its
+// last slot. This stops one large bucket from blowing past the canvas and
+// colliding with the next shelf's divider.
 export const lineUpCreatures = (
   tiles: SizedTile[],
   canvasW: number,
@@ -145,7 +168,7 @@ export const lineUpCreatures = (
   deadZone?: { width: number; height: number },
   topRightDeadZone?: { width: number; height: number }
 ): ShelfLayout => {
-  if (tiles.length === 0) return { placements: [], dividers: [] };
+  if (tiles.length === 0) return { placements: [], dividers: [], overflows: [] };
 
   const maxSpriteW = Math.max(...tiles.map((t) => t.spriteCols));
   const maxNameW = Math.max(...tiles.map((t) => t.creature.scan.name.length));
@@ -156,152 +179,166 @@ export const lineUpCreatures = (
   const rowH = maxCharH + NAME_GAP_ROWS + NAME_H + SLOT_PAD_Y + SHELF_EXTRA_PAD_Y;
 
   const usableW = Math.max(slotW, canvasW - 1);
-  const usableH = Math.max(rowH, canvasH - SKY_ROWS - GROUND_ROWS);
   const cols = Math.max(1, Math.floor(usableW / slotW));
 
-  // Bucket tiles by vibe in canonical order, preserving input order inside
-  // each bucket (keeps the per-vibe alphabetical sort enrichScans gave us).
   const groups = new Map<Vibe, SizedTile[]>();
   for (const v of VIBE_ORDER) groups.set(v, []);
   for (const tile of tiles) groups.get(tile.creature.vibe.vibe)?.push(tile);
 
-  // Pass 1: walk the canonical vibe order and assign each tile a (row, col)
-  // inside the grid plus the vertical offset accumulated by dividers above
-  // it. The divider at the top of each group gets recorded so the renderer
-  // can paint the labelled line on the correct canvas row.
-  type Coord = { tile: SizedTile; row: number; col: number; extraY: number };
-  type DividerPlan = { vibe: Vibe; gridRow: number; extraYBefore: number; count: number };
-  const coords: Coord[] = [];
-  const dividerPlans: DividerPlan[] = [];
-  let r = 0;
-  let c = 0;
-  let extraY = 0;
-
+  // Decide which vibes get a shelf this frame: any non-empty bucket, plus the
+  // blocked shelf even when empty (its "all clear" label is a glanceable
+  // status signal users rely on).
+  type ShelfPlan = { vibe: Vibe; tiles: SizedTile[]; naturalRows: number; budget: number };
+  const shelves: ShelfPlan[] = [];
   for (const vibe of VIBE_ORDER) {
     const groupTiles = groups.get(vibe) ?? [];
-    // The "blocked" shelf is special: we always show its label so users can
-    // glance at the screen and confirm nothing is blocking them. Other empty
-    // vibes stay hidden so the formation doesn't waste rows on dead air.
-    const renderEmpty = vibe === "blocked";
-    if (groupTiles.length === 0 && !renderEmpty) continue;
-    if (c !== 0) {
-      r += 1;
-      c = 0;
-    }
-    dividerPlans.push({
-      vibe,
-      gridRow: r,
-      extraYBefore: extraY,
-      count: groupTiles.length
-    });
-    extraY += DIVIDER_HEIGHT;
-    for (const tile of groupTiles) {
-      coords.push({ tile, row: r, col: c, extraY });
-      c += 1;
-      if (c >= cols) {
-        c = 0;
-        r += 1;
+    if (groupTiles.length === 0 && vibe !== "stuck") continue;
+    const naturalRows = Math.max(1, Math.ceil(groupTiles.length / cols));
+    shelves.push({ vibe, tiles: groupTiles, naturalRows, budget: naturalRows });
+  }
+
+  // Vertical budget: total canvas rows minus sky/ground/divider chrome,
+  // divided by rowH. Each shelf needs at least 1 row, so under extreme
+  // squeeze we accept overflowing the canvas by clamping to a 1-row min.
+  const dividerSpace = shelves.length * DIVIDER_HEIGHT;
+  const availableRows = Math.max(
+    shelves.length,
+    Math.floor((canvasH - SKY_ROWS - GROUND_ROWS - dividerSpace) / Math.max(1, rowH))
+  );
+
+  // Trim from the largest budget until totals fit. Iterative greedy trim is
+  // fine here (at most 4 shelves), and it preserves the "minimum 1 row per
+  // shelf" invariant.
+  let totalBudget = shelves.reduce((sum, shelf) => sum + shelf.budget, 0);
+  while (totalBudget > availableRows) {
+    let victim = -1;
+    let maxBudget = 1;
+    for (let i = 0; i < shelves.length; i += 1) {
+      if (shelves[i].budget > maxBudget) {
+        maxBudget = shelves[i].budget;
+        victim = i;
       }
     }
-    // Reserve one creature row's worth of vertical space below the empty
-    // blocked divider so the rest of the formation sits where it would if a
-    // creature were standing here. Without this the next group's divider
-    // would visually clamp onto the blocked label.
-    if (groupTiles.length === 0 && renderEmpty) {
-      r += 1;
-    }
+    if (victim === -1) break;
+    shelves[victim].budget -= 1;
+    totalBudget -= 1;
   }
 
   const totalGridW = cols * slotW;
   const gridLeft = Math.max(0, Math.floor((canvasW - totalGridW) / 2));
-  // Pin the shelf to the top of the canvas instead of centring vertically:
-  // the happy divider should sit just under the panel's top border so the
-  // formation reads as "stacked downward from the top" rather than floating.
   const gridTop = SKY_ROWS;
 
-  // Per-row creature count, used in pass 2 to centre partial rows inside
-  // the grid width instead of leaving them left-aligned. Filled here while
-  // we still have the grid coords handy.
-  const rowCounts = new Map<number, number>();
-  for (const coord of coords) {
-    rowCounts.set(coord.row, (rowCounts.get(coord.row) ?? 0) + 1);
-  }
-
-  // Pass 2: resolve absolute positions, hopping over any slot whose bounding
-  // box intersects the dead-zone (so the focus card overlay never lands on a
-  // sprite). The hop is sparse — only the bottom-right corner is affected.
   const deadLeft = deadZone ? canvasW - deadZone.width : Number.POSITIVE_INFINITY;
   const deadTop = deadZone ? canvasH - deadZone.height : Number.POSITIVE_INFINITY;
   const trLeft = topRightDeadZone
     ? canvasW - topRightDeadZone.width
     : Number.POSITIVE_INFINITY;
   const trBottom = topRightDeadZone ? topRightDeadZone.height : 0;
-  const effectiveRowCount = (
-    origin: Coord,
-    row: number,
-    col: number,
-    centeredRowCount: number
-  ): number => (row === origin.row && col === origin.col ? centeredRowCount : cols);
-  const slotClear = (row: number, col: number, extra: number, rowCount: number): boolean => {
-    const rowOffset = Math.floor(((cols - rowCount) * slotW) / 2);
-    const slotRight = gridLeft + rowOffset + (col + 1) * slotW;
-    const slotTop = gridTop + row * rowH + extra;
-    const slotBottom = gridTop + (row + 1) * rowH + extra;
-    if (deadZone && slotRight > deadLeft && slotBottom > deadTop) return false;
-    if (topRightDeadZone && slotRight > trLeft && slotTop < trBottom) return false;
-    return true;
+  const slotIntersectsDeadZone = (slotX: number, slotY: number): boolean => {
+    const slotRight = slotX + slotW;
+    const slotBottom = slotY + rowH;
+    if (deadZone && slotRight > deadLeft && slotBottom > deadTop) return true;
+    if (topRightDeadZone && slotRight > trLeft && slotY < trBottom) return true;
+    return false;
   };
 
   const placements: Placement[] = [];
-  let nudgeRow = 0;
-  let nudgeCol = 0;
-  for (const coord of coords) {
-    let row = coord.row + nudgeRow;
-    let col = coord.col + nudgeCol;
-    const centeredRowCount = rowCounts.get(coord.row) ?? 1;
-    let hopCount = 0;
-    const maxHops = Math.max(cols * (Math.max(1, Math.ceil(canvasH / Math.max(1, rowH))) + 2), cols);
-    while (
-      !slotClear(
-        row,
-        col,
-        coord.extraY,
-        effectiveRowCount(coord, row, col, centeredRowCount)
-      ) &&
-      hopCount < maxHops
-    ) {
-      // Push past the dead zone. Bumping the column first keeps creatures on
-      // the same row when possible; if we hit the row's end, wrap to a fresh
-      // row of soldiers below.
-      col += 1;
-      nudgeCol += 1;
-      hopCount += 1;
-      if (col >= cols) {
-        col = 0;
-        row += 1;
-        nudgeRow += 1;
-        nudgeCol = -coord.col; // restart this tile at column 0 on the new row
-      }
+  const dividers: DividerPlacement[] = [];
+  const overflows: ShelfOverflow[] = [];
+
+  let cursorY = gridTop;
+  for (const shelf of shelves) {
+    dividers.push({
+      vibe: shelf.vibe,
+      count: shelf.tiles.length,
+      canvasRow: cursorY
+    });
+    const shelfTop = cursorY + DIVIDER_HEIGHT;
+    const shelfRowSpan = shelf.budget;
+    const slotCapacity = shelfRowSpan * cols;
+    const willOverflow = shelf.tiles.length > slotCapacity;
+    // Reserve the last slot for the "+N more" indicator when truncating —
+    // otherwise the indicator would push another tile out of view.
+    const tilesShown = willOverflow ? Math.max(0, slotCapacity - 1) : shelf.tiles.length;
+    const overflowRow = willOverflow ? Math.floor(tilesShown / cols) : -1;
+    const overflowCol = willOverflow ? tilesShown % cols : -1;
+
+    // Per-row occupant count (including the overflow indicator if it lives
+    // in this shelf) so we know how to centre partial rows.
+    const rowCounts: number[] = [];
+    for (let row = 0; row < shelfRowSpan; row += 1) {
+      const start = row * cols;
+      const end = Math.min(tilesShown, start + cols);
+      let count = Math.max(0, end - start);
+      if (willOverflow && row === overflowRow) count += 1;
+      rowCounts.push(count);
     }
-    // Centre the row's tiles inside the grid width: a half-empty row of two
-    // creatures hangs in the middle instead of clinging to the left edge.
-    const rowOffset = Math.floor(
-      ((cols - effectiveRowCount(coord, row, col, centeredRowCount)) * slotW) / 2
-    );
-    const slotX = gridLeft + rowOffset + col * slotW;
-    const slotY = gridTop + row * rowH + coord.extraY;
-    const charY = slotY + (maxCharH - coord.tile.charH);
-    const x = slotX + Math.floor((slotW - coord.tile.spriteCols) / 2);
-    placements.push({ tile: coord.tile, x, charY });
+
+    // Pre-compute each row's left offset. We centre by default; if centring
+    // would push the row's right edge into the focus-card dead zone, we
+    // drop to left-aligned for that row. Centring back into the dead zone
+    // is the only way an empty bucket lands on the overlay, so this kills
+    // the regression where a one-tile happy shelf clipped the focus card.
+    const rowOffsets: number[] = [];
+    for (let row = 0; row < shelfRowSpan; row += 1) {
+      const occupants = Math.max(1, rowCounts[row]);
+      let rowOffset = Math.floor(((cols - occupants) * slotW) / 2);
+      if (rowOffset > 0) {
+        const slotY = shelfTop + row * rowH;
+        const slotBottom = slotY + rowH;
+        const centeredRight = gridLeft + rowOffset + occupants * slotW;
+        const hitsBottomRight =
+          deadZone !== undefined && slotBottom > deadTop && centeredRight > deadLeft;
+        const hitsTopRight =
+          topRightDeadZone !== undefined && slotY < trBottom && centeredRight > trLeft;
+        if (hitsBottomRight || hitsTopRight) rowOffset = 0;
+      }
+      rowOffsets.push(rowOffset);
+    }
+
+    const placeSlot = (row: number, col: number): { slotX: number; slotY: number } => {
+      const slotX = gridLeft + rowOffsets[row] + col * slotW;
+      const slotY = shelfTop + row * rowH;
+      return { slotX, slotY };
+    };
+
+    let deadZoneDropped = 0;
+    let lastPlacedRow = 0;
+    let lastPlacedCol = 0;
+    for (let i = 0; i < tilesShown; i += 1) {
+      const row = Math.floor(i / cols);
+      const col = i % cols;
+      const tile = shelf.tiles[i];
+      const { slotX, slotY } = placeSlot(row, col);
+      if (slotIntersectsDeadZone(slotX, slotY)) {
+        deadZoneDropped += 1;
+        continue;
+      }
+      const charY = slotY + (maxCharH - tile.charH);
+      const x = slotX + Math.floor((slotW - tile.spriteCols) / 2);
+      placements.push({ tile, x, charY });
+      lastPlacedRow = row;
+      lastPlacedCol = col;
+    }
+
+    const totalHidden = (willOverflow ? shelf.tiles.length - tilesShown : 0) + deadZoneDropped;
+    if (totalHidden > 0) {
+      const row = willOverflow && overflowRow < shelfRowSpan ? overflowRow : lastPlacedRow;
+      const col = willOverflow && overflowRow < shelfRowSpan ? overflowCol : lastPlacedCol;
+      const { slotX, slotY } = placeSlot(row, col);
+      overflows.push({
+        vibe: shelf.vibe,
+        canvasRow: slotY + maxCharH + NAME_GAP_ROWS,
+        canvasCol: slotX,
+        slotW,
+        hidden: totalHidden
+      });
+    }
+
+    cursorY = shelfTop + shelfRowSpan * rowH;
   }
 
-  const dividers: DividerPlacement[] = dividerPlans.map((plan) => ({
-    vibe: plan.vibe,
-    count: plan.count,
-    canvasRow: gridTop + plan.gridRow * rowH + plan.extraYBefore
-  }));
-
-  return { placements, dividers };
+  return { placements, dividers, overflows };
 };
 
 // Per-page slot dimensions used by paginateCreatures. These intentionally

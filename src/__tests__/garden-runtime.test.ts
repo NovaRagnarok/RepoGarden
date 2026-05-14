@@ -242,7 +242,7 @@ test("organic garden starts with non-overlapping visual placements for mixed-siz
       isDirty: false
     } as any,
     memory: {} as any,
-    vibe: { vibe: (["happy", "noisy", "blocked", "sleepy"] as const)[i % 4], reason: "" } as any
+    vibe: { vibe: (["happy", "awake", "stuck", "sleepy"] as const)[i % 4], reason: "" } as any
   }));
   const props: GardenSceneProps = {
     ...makeProps(),
@@ -319,7 +319,7 @@ test("garden-to-shelf layout changes tween creature placements instead of hard-s
         id: "beta",
         scan: { id: "beta", path: "/tmp/beta", name: "beta", isDirty: false } as any,
         memory: {} as any,
-        vibe: { vibe: "noisy", reason: "dirty" } as any
+        vibe: { vibe: "awake", reason: "dirty" } as any
       },
       {
         id: "gamma",

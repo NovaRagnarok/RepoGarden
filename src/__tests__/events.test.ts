@@ -287,14 +287,14 @@ test("vibe-changed emits when vibe differs from snapshot", () => {
 
 test("vibe-changed does NOT emit when vibe is the same as snapshot", () => {
   withFakeHome(() => {
-    saveScanSnapshot({ "repo2-xyz": { vibe: "noisy" } });
+    saveScanSnapshot({ "repo2-xyz": { vibe: "awake" } });
     saveEventsMeta({ seeded: true, seededAt: new Date().toISOString() });
 
     const snap = loadScanSnapshot();
     const prev = snap["repo2-xyz"];
     assert.ok(prev);
 
-    const newVibe = "noisy"; // same
+    const newVibe = "awake"; // same
     if (prev.vibe !== newVibe) {
       appendEvent({
         ts: new Date().toISOString(),
@@ -560,7 +560,7 @@ test("enrichScans with preserveMissing preserves snapshot entries for absent rep
     saveEventsMeta({ seeded: true, seededAt: new Date().toISOString() });
     saveScanSnapshot({
       alpha: { vibe: "happy" },
-      beta: { vibe: "noisy", branch: "main" },
+      beta: { vibe: "awake", branch: "main" },
     });
 
     // Simulate a scan that only sees alpha (beta's root failed).
@@ -568,7 +568,7 @@ test("enrichScans with preserveMissing preserves snapshot entries for absent rep
 
     const snap = loadScanSnapshot();
     assert.deepEqual(Object.keys(snap).sort(), ["alpha", "beta"]);
-    assert.equal(snap.beta.vibe, "noisy");
+    assert.equal(snap.beta.vibe, "awake");
 
     // No phantom repo-added when beta comes back next scan.
     enrichScans([fakeRepo("alpha"), fakeRepo("beta")]);
@@ -577,12 +577,34 @@ test("enrichScans with preserveMissing preserves snapshot entries for absent rep
   });
 });
 
+test("loadScanSnapshot migrates legacy noisy/blocked vibe strings on read", () => {
+  withFakeHome((home) => {
+    // Write a snapshot file directly with the pre-rename vocabulary so the
+    // typed saveScanSnapshot helper doesn't normalise it for us.
+    const dir = join(home, ".repogarden");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "scan-snapshot.json"),
+      JSON.stringify({
+        legacyNoisy: { vibe: "noisy", branch: "main" },
+        legacyBlocked: { vibe: "blocked" },
+        currentHappy: { vibe: "happy" }
+      })
+    );
+
+    const snap = loadScanSnapshot();
+    assert.equal(snap.legacyNoisy.vibe, "awake");
+    assert.equal(snap.legacyBlocked.vibe, "stuck");
+    assert.equal(snap.currentHappy.vibe, "happy");
+  });
+});
+
 test("enrichScans without preserveMissing prunes snapshot of absent repos", () => {
   withFakeHome(() => {
     saveEventsMeta({ seeded: true, seededAt: new Date().toISOString() });
     saveScanSnapshot({
       alpha: { vibe: "happy" },
-      beta: { vibe: "noisy" },
+      beta: { vibe: "awake" },
     });
 
     enrichScans([fakeRepo("alpha")]);

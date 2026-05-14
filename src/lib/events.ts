@@ -357,13 +357,20 @@ export interface SnapEntry {
   latestCommitSha?: string;
 }
 
-const VIBES = new Set<Vibe>(["happy", "sleepy", "noisy", "blocked"]);
+const VIBES = new Set<Vibe>(["happy", "sleepy", "awake", "stuck"]);
+
+// Read-time migration for snapshots written before the vibe rename
+// (`noisy → awake`, `blocked → stuck`). Without this, journals from older
+// installs fail to parse and the user silently loses their vibe history.
+const migrateLegacyVibe = (raw: string): Vibe | null => {
+  if (raw === "noisy") return "awake";
+  if (raw === "blocked") return "stuck";
+  return VIBES.has(raw as Vibe) ? (raw as Vibe) : null;
+};
 
 const normalizeSnapEntry = (raw: unknown): SnapEntry | null => {
   if (!isPlainObject(raw)) return null;
-  const vibe = typeof raw.vibe === "string" && VIBES.has(raw.vibe as Vibe)
-    ? (raw.vibe as Vibe)
-    : null;
+  const vibe = typeof raw.vibe === "string" ? migrateLegacyVibe(raw.vibe) : null;
   if (!vibe) return null;
   return {
     vibe,

@@ -19,7 +19,7 @@ test("blocker memory beats every other signal", () => {
     memory: { currentBlocker: "build is red" },
     now: NOW
   });
-  assert.equal(result.vibe, "blocked");
+  assert.equal(result.vibe, "stuck");
   assert.match(result.reason, /build is red/);
 });
 
@@ -30,23 +30,23 @@ test("repo idle for >14 days reads as sleepy", () => {
   assert.equal(result.daysSinceCommit, 30);
 });
 
-test("dirty working tree reads as noisy when recent", () => {
+test("dirty working tree reads as awake when recent", () => {
   const recent = new Date(NOW.getTime() - 2 * 86_400_000).toISOString();
   const result = inferVibe({
     repo: baseRepo({ isDirty: true, lastCommitAt: recent }),
     now: NOW
   });
-  assert.equal(result.vibe, "noisy");
+  assert.equal(result.vibe, "awake");
   assert.match(result.reason, /uncommitted/);
 });
 
-test("unpushed commits also count as noisy", () => {
+test("unpushed commits also count as awake", () => {
   const recent = new Date(NOW.getTime() - 1 * 86_400_000).toISOString();
   const result = inferVibe({
     repo: baseRepo({ ahead: 3, lastCommitAt: recent }),
     now: NOW
   });
-  assert.equal(result.vibe, "noisy");
+  assert.equal(result.vibe, "awake");
   assert.match(result.reason, /3 unpushed/);
 });
 
@@ -57,20 +57,20 @@ test("clean recent repo reads as happy", () => {
 });
 
 test("vibeGlyph returns a 1-char hint per vibe", () => {
-  for (const vibe of ["sleepy", "blocked", "noisy", "happy"] as const) {
+  for (const vibe of ["sleepy", "stuck", "awake", "happy"] as const) {
     const glyph = vibeGlyph(vibe);
     assert.ok(glyph.length >= 1, `glyph for ${vibe} is empty`);
   }
 });
 
-test("empty whitespace blocker does not trigger blocked", () => {
+test("empty whitespace blocker does not trigger stuck", () => {
   const recent = new Date(NOW.getTime() - 1 * 86_400_000).toISOString();
   const result = inferVibe({
     repo: baseRepo({ lastCommitAt: recent }),
     memory: { currentBlocker: "   " },
     now: NOW
   });
-  assert.notEqual(result.vibe, "blocked");
+  assert.notEqual(result.vibe, "stuck");
 });
 
 // ---------------------------------------------------------------------------
@@ -110,8 +110,8 @@ test("inferVibe surfaces activity alongside the vibe", () => {
   assert.ok(old.activity < 0.1, `expected low activity, got ${old.activity}`);
 });
 
-test("inferVibe gives a blocked repo activity from its commit recency, not zero", () => {
-  // A repo can be both blocked and freshly committed — the activity scalar
+test("inferVibe gives a stuck repo activity from its commit recency, not zero", () => {
+  // A repo can be both stuck and freshly committed — the activity scalar
   // should reflect the latter so its sprite still bustles a bit.
   const recent = new Date(NOW.getTime() - 1 * 86_400_000).toISOString();
   const result = inferVibe({
@@ -119,6 +119,6 @@ test("inferVibe gives a blocked repo activity from its commit recency, not zero"
     memory: { currentBlocker: "build red" },
     now: NOW
   });
-  assert.equal(result.vibe, "blocked");
+  assert.equal(result.vibe, "stuck");
   assert.ok(result.activity > 0.85, `expected high activity, got ${result.activity}`);
 });

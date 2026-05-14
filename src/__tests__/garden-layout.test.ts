@@ -171,6 +171,92 @@ test("placeCreatures keeps creature anchors stable when tile order changes", () 
   }
 });
 
+const makeTileWithVibe = (
+  index: number,
+  name: string,
+  vibe: "happy" | "awake" | "stuck" | "sleepy",
+  spriteCols = 6,
+  charRows = 4
+): SizedTile => ({
+  creature: {
+    id: `id-${index}`,
+    scan: { id: `id-${index}`, path: `/tmp/${name}`, name, isDirty: false } as any,
+    memory: {} as any,
+    vibe: { vibe, reason: "" } as any
+  },
+  index,
+  charW: spriteCols,
+  charH: charRows,
+  spriteCols,
+  charRows
+});
+
+test("lineUpCreatures emits a +N more overflow indicator when a shelf can't fit its bucket", () => {
+  // Tall enough to render dividers but tight enough that the happy shelf
+  // gets one row out of its proportional share. 40 happy creatures into
+  // ~5 cols × 1 row → 4 shown, 36 hidden.
+  const tiles = Array.from({ length: 40 }, (_, i) =>
+    makeTileWithVibe(i, `h${i}`, "happy", 4, 3)
+  );
+  const layout = lineUpCreatures(tiles, 60, 20);
+  const happyOverflow = layout.overflows.find((o) => o.vibe === "happy");
+  assert.ok(happyOverflow, "expected a happy overflow indicator");
+  // Shown + hidden + indicator slot reservation = original count.
+  const happyShown = layout.placements.filter(
+    (p) => p.tile.creature.vibe.vibe === "happy"
+  ).length;
+  assert.equal(happyShown + happyOverflow.hidden, 40);
+});
+
+test("lineUpCreatures gives each non-empty vibe at least one row when budgets are tight", () => {
+  const tiles = [
+    ...Array.from({ length: 12 }, (_, i) => makeTileWithVibe(i, `h${i}`, "happy", 4, 3)),
+    makeTileWithVibe(100, "n1", "awake", 4, 3),
+    makeTileWithVibe(101, "b1", "stuck", 4, 3),
+    makeTileWithVibe(102, "s1", "sleepy", 4, 3)
+  ];
+  const layout = lineUpCreatures(tiles, 40, 18);
+  // Every vibe with creatures (and stuck even without) must have a divider.
+  for (const vibe of ["happy", "awake", "stuck", "sleepy"] as const) {
+    assert.ok(
+      layout.dividers.some((d) => d.vibe === vibe),
+      `missing divider for ${vibe}`
+    );
+  }
+  // At least one creature from each non-happy bucket landed — the happy
+  // overflow gets trimmed first, the singletons stay.
+  for (const vibe of ["awake", "stuck", "sleepy"] as const) {
+    const placed = layout.placements.some((p) => p.tile.creature.vibe.vibe === vibe);
+    assert.equal(placed, true, `expected at least one ${vibe} creature placed`);
+  }
+});
+
+test("lineUpCreatures keeps shelves from overlapping each other vertically", () => {
+  const tiles = [
+    ...Array.from({ length: 30 }, (_, i) => makeTileWithVibe(i, `h${i}`, "happy", 4, 3)),
+    ...Array.from({ length: 8 }, (_, i) => makeTileWithVibe(100 + i, `n${i}`, "awake", 4, 3))
+  ];
+  const layout = lineUpCreatures(tiles, 60, 24);
+  // The two non-empty shelves can't overlap each other vertically — this is
+  // the bug the proportional-allocation rewrite fixed: a large bucket used
+  // to bleed past its budget and crash into the next shelf's divider.
+  // `awake` is at the top of VIBE_ORDER, so its bottom must sit above `happy`.
+  const awakeBottoms = layout.placements
+    .filter((p) => p.tile.creature.vibe.vibe === "awake")
+    .map((p) => p.charY + p.tile.charRows);
+  const happyTops = layout.placements
+    .filter((p) => p.tile.creature.vibe.vibe === "happy")
+    .map((p) => p.charY);
+  if (awakeBottoms.length > 0 && happyTops.length > 0) {
+    const maxAwakeBottom = Math.max(...awakeBottoms);
+    const minHappyTop = Math.min(...happyTops);
+    assert.ok(
+      maxAwakeBottom <= minHappyTop,
+      `awake bottom ${maxAwakeBottom} should sit at or above happy top ${minHappyTop}`
+    );
+  }
+});
+
 test("lineUpCreatures keeps a centered partial row out of the overlay dead zone", () => {
   const tile = makeTile(0, "repos", 8, 8);
   const layout = lineUpCreatures([tile], 71, 20, { width: 38, height: 15 });

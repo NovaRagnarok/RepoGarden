@@ -28,20 +28,42 @@ export const DEMO_NAMES: readonly string[] = [
   "minnow",
   "fernway",
   "thornbush",
-  "snug-deploy"
+  "snug-deploy",
+  "acorn-rs",
+  "sprout-db",
+  "mothbot",
+  "reed-cli",
+  "driftlog",
+  "pebble-ci",
+  "clover-api",
+  "ripple-cms",
+  "nestwatch",
+  "twig-deploy",
+  "garden-lint",
+  "puddle-map",
+  "wrenpress",
+  "loamkit",
+  "lichen-sync",
+  "dawnqueue"
 ];
 
 export const DEMO_BRANCHES: readonly string[] = [
   "main",
   "main",
   "main",
+  "main",
   "feat/portraits",
+  "feat/demo-roster",
+  "feat/theme-lab",
   "fix/auth-edge",
+  "fix/name-cycle",
+  "fix/scroll-jank",
   "release-1.3",
   "wip/refactor",
-  "main",
-  "next",
-  "fix/scroll-jank"
+  "refactor/shelf",
+  "chore/seed-data",
+  "docs/screenshots",
+  "next"
 ];
 
 export const DEMO_SUBJECTS: readonly string[] = [
@@ -60,7 +82,23 @@ export const DEMO_SUBJECTS: readonly string[] = [
   "rework the settings preview grid",
   "stabilize the dither-overlay timing",
   "fix flicker on garden→shelf swap",
-  "guard against missing repo paths"
+  "guard against missing repo paths",
+  "add seeded names for larger demo gardens",
+  "teach preview creatures to fill the shelf",
+  "soften empty-state copy",
+  "cache repo colors between scans",
+  "dedupe demo roster assignments",
+  "trim long aliases in narrow shelves",
+  "add keyboard shortcut hints",
+  "make branch badges wrap cleanly",
+  "fix stale garden counts after refresh",
+  "move sprite helpers behind a tiny API",
+  "document the demo capture workflow",
+  "keep active creatures stable on reload",
+  "show quieter defaults in privacy mode",
+  "tune idle animation pacing",
+  "replace brittle path parsing",
+  "add fixtures for masked names"
 ];
 
 export const DEMO_AUTHORS: readonly string[] = [
@@ -69,7 +107,11 @@ export const DEMO_AUTHORS: readonly string[] = [
   "kim.h",
   "noor.s",
   "rae",
-  "sam.r"
+  "sam.r",
+  "mika",
+  "tali.dev",
+  "ivy.n",
+  "leo-p"
 ];
 
 const DEMO_VIBES: readonly Vibe[] = [
@@ -78,10 +120,10 @@ const DEMO_VIBES: readonly Vibe[] = [
   "happy",
   "happy",
   "happy",
-  "noisy",
-  "noisy",
-  "noisy",
-  "blocked",
+  "awake",
+  "awake",
+  "awake",
+  "stuck",
   "sleepy",
   "sleepy"
 ];
@@ -163,7 +205,7 @@ export const buildDemoCreatures = (): RepoCreature[] =>
     // Distribute ages so the vibe summary looks varied: 0-2d for happy/noisy,
     // 14+ for sleepy, ~5d for blocked. Deterministic per index.
     const daysSinceCommit =
-      vibe === "sleepy" ? 14 + (idx % 8) : vibe === "blocked" ? 5 + (idx % 3) : idx % 3;
+      vibe === "sleepy" ? 14 + (idx % 8) : vibe === "stuck" ? 5 + (idx % 3) : idx % 3;
     const now = Date.now();
     const lastCommitAt = new Date(now - daysSinceCommit * 24 * 60 * 60 * 1000).toISOString();
     return {
@@ -173,8 +215,8 @@ export const buildDemoCreatures = (): RepoCreature[] =>
         path: `~/work/${name}`,
         name,
         branch,
-        isDirty: vibe === "noisy",
-        ahead: vibe === "noisy" ? 2 : 0,
+        isDirty: vibe === "awake",
+        ahead: vibe === "awake" ? 2 : 0,
         behind: 0,
         lastCommitSubject: subject,
         lastCommitSha: hashString(id).toString(16).slice(0, 7),
@@ -192,9 +234,9 @@ export const buildDemoCreatures = (): RepoCreature[] =>
         reason:
           vibe === "happy"
             ? "humming along quietly"
-            : vibe === "noisy"
+            : vibe === "awake"
               ? "lots of recent activity"
-              : vibe === "blocked"
+              : vibe === "stuck"
                 ? "something is in the way"
                 : "resting for a while",
         daysSinceCommit,
