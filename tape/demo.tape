@@ -11,11 +11,11 @@ Set Height 720
 Set Padding 16
 Set TypingSpeed 55ms
 
-# Isolated state + demo mode so the recording is reproducible and never
-# touches the real ~/.repogarden. tape/setup.sh seeds eight empty git
-# repos under $DEMO_HOME/garden and stages a launcher script.
+# Isolated state so the recording is reproducible and never touches the
+# real ~/.repogarden. tape/setup.sh stages a launcher script plus a
+# tui.json that turns pagination off and density to dense, so the demo
+# roster's 32 creatures land on a single screen instead of paging.
 Env HOME "/tmp/repogarden-demo-home"
-Env REPOGARDEN_DEMO "1"
 
 Hide
 Type "tape/setup.sh > /dev/null"
@@ -30,47 +30,32 @@ Type "./launch"
 Enter
 Sleep 3500ms
 
-# Onboarding pre-fills the input with "~/repos" — setup.sh seeded eight
-# git repos there, so a single Enter starts the scan.
-Enter
-Sleep 3500ms
+# First-launch onboarding shows the empty-state affordances. `d` seeds
+# the synthetic demo roster (32 creatures, four vibes, varied sprite
+# sizes via DEMO_SIZE_ARCHETYPES) and flips privacy to demo mode in one
+# keystroke — far more populated than scanning the 8 stub repos.
+Type "d"
+Sleep 4s
 
-# Initial garden — quick beat so the swarm is established before we
-# switch to the view that actually explains them.
 Down
 Sleep 600ms
 Down
-Sleep 800ms
+Sleep 600ms
+Down
+Sleep 1s
 
-# Shelf is where the four vibe groups (awake / happy / stuck / sleepy)
-# read as distinct labelled rows. Dwell long enough for a viewer to
-# clock all four group headers.
+# View cycle is garden → shelf → journal → garden. The cross-fade /
+# placement tween (TRANSITION_MS in ReadyShell.tsx) is 1400ms, so any
+# sleep after `g` needs to comfortably exceed that to leave a settled
+# view on screen long enough to read.
 Type "g"
-Sleep 5s
-
-# Walk down a few creatures so the focus card cycles through different
-# vibes — colour + glyph in the card change with each step.
-Down
-Sleep 700ms
-Down
-Sleep 700ms
-Down
-Sleep 1200ms
-
-# Workbench peek — one creature opened so the GIF shows the per-repo
-# detail mode (portrait, notes, recent commits) before we return.
-Enter
 Sleep 3500ms
-Escape
-Sleep 1000ms
 
-# Journal pass so the third view is visible.
 Type "g"
-Sleep 2500ms
+Sleep 3500ms
 
-# Back to garden to finish on the swarm.
 Type "g"
-Sleep 2s
+Sleep 3500ms
 
-# End on the garden so the loop restarts cleanly from boot. No explicit
-# quit — the recording ends here and vhs closes the process.
+# End on the garden so the loop restarts cleanly from boot. A 3.5s
+# tail keeps the loop boundary from feeling like a hard cut.
