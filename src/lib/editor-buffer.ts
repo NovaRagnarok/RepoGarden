@@ -1,4 +1,10 @@
-import { orderRange, type Position, type SelectionRange } from "@/lib/text-selection";
+import {
+  isEmptyRange,
+  orderRange,
+  replaceRange,
+  type Position,
+  type SelectionRange,
+} from "@/lib/text-selection";
 
 export const getEditorLines = (value: string): string[] => value.split("\n");
 
@@ -138,6 +144,138 @@ export const outdentLines = (
     cursorLine: nextCursor.line,
     cursorCol: nextCursor.col,
     anchor: nextAnchor,
+  };
+};
+
+/**
+ * Result of a single backspace/delete keystep. Returns the new buffer value
+ * and the post-mutation cursor; anchor is always cleared by these edits.
+ * `changed` is false when the keystep is a no-op (e.g. backspace at the very
+ * start of the buffer with no selection) so callers can skip history /
+ * scroll work.
+ */
+export interface KeyStepResult {
+  value: string;
+  cursorLine: number;
+  cursorCol: number;
+  changed: boolean;
+}
+
+/**
+ * Apply one Backspace keystep. Handles three cases in priority order:
+ *   1) An active, non-empty selection → delete the selection.
+ *   2) Cursor mid-line → delete the char before the cursor.
+ *   3) Cursor at line start, line > 0 → join with the previous line.
+ *
+ * Inputs are clamped defensively — callers may pass stale (cursorLine,
+ * cursorCol) or anchor positions after a paste / selection-delete shrinks
+ * the buffer. The early-return-on-stale-state guard in TextArea used to
+ * eat the keystroke entirely; routing through this helper lets the edit
+ * apply at the clamped position instead, so a single Backspace never
+ * silently no-ops just because state hadn't yet rendered (#16).
+ */
+export const applyBackspace = (
+  value: string,
+  cursor: Position,
+  anchor: Position | null
+): KeyStepResult => {
+  const lines = getEditorLines(value);
+  const safeCursor = clampPosition(lines, cursor);
+
+  if (anchor) {
+    const safeAnchor = clampPosition(lines, anchor);
+    const range = orderRange(safeAnchor, safeCursor);
+    if (!isEmptyRange(range)) {
+      const result = replaceRange(lines, range, "");
+      return { ...result, changed: true };
+    }
+  }
+
+  if (safeCursor.col > 0) {
+    const result = replaceRange(
+      lines,
+      {
+        start: { line: safeCursor.line, col: safeCursor.col - 1 },
+        end: safeCursor,
+      },
+      ""
+    );
+    return { ...result, changed: true };
+  }
+
+  if (safeCursor.line > 0) {
+    const prevLine = lines[safeCursor.line - 1] ?? "";
+    const result = replaceRange(
+      lines,
+      {
+        start: { line: safeCursor.line - 1, col: prevLine.length },
+        end: safeCursor,
+      },
+      ""
+    );
+    return { ...result, changed: true };
+  }
+
+  return {
+    value,
+    cursorLine: safeCursor.line,
+    cursorCol: safeCursor.col,
+    changed: false,
+  };
+};
+
+/**
+ * Apply one forward-Delete keystep — mirror of `applyBackspace`. Selection
+ * wins; otherwise removes the char AFTER the cursor or joins the next line
+ * up when at end-of-line.
+ */
+export const applyForwardDelete = (
+  value: string,
+  cursor: Position,
+  anchor: Position | null
+): KeyStepResult => {
+  const lines = getEditorLines(value);
+  const safeCursor = clampPosition(lines, cursor);
+
+  if (anchor) {
+    const safeAnchor = clampPosition(lines, anchor);
+    const range = orderRange(safeAnchor, safeCursor);
+    if (!isEmptyRange(range)) {
+      const result = replaceRange(lines, range, "");
+      return { ...result, changed: true };
+    }
+  }
+
+  const currentLine = lines[safeCursor.line] ?? "";
+  if (safeCursor.col < currentLine.length) {
+    const result = replaceRange(
+      lines,
+      {
+        start: safeCursor,
+        end: { line: safeCursor.line, col: safeCursor.col + 1 },
+      },
+      ""
+    );
+    return { ...result, changed: true };
+  }
+
+  if (safeCursor.line < lines.length - 1) {
+    const result = replaceRange(
+      lines,
+      {
+        start: safeCursor,
+        end: { line: safeCursor.line + 1, col: 0 },
+      },
+      ""
+    );
+    return { ...result, changed: true };
+  }
+
+  return {
+    value,
+    cursorLine: safeCursor.line,
+    cursorCol: safeCursor.col,
+    changed: false,
   };
 };
 

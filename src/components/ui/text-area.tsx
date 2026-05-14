@@ -8,6 +8,8 @@ import { useMouse } from "@/hooks/use-mouse";
 import { readFromSystemClipboard, writeToSystemClipboard } from "@/lib/clipboard";
 import {
   allTextSelection,
+  applyBackspace,
+  applyForwardDelete,
   clampPosition,
   getEditorLines,
   indentLines,
@@ -489,11 +491,20 @@ export const TextArea = ({
         return;
       }
 
+      // `safeCursor` is the clamped logical cursor. If our React state hasn't
+      // caught up to a buffer shrink yet (e.g. parent just replaced `editor`
+      // via setEditor, or a selection-delete reduced line count and we're
+      // mid-batched-update), `cursorLine` / `cursorCol` can still point past
+      // the new EOL. The previous implementation `return`ed here, which ate
+      // the keystroke entirely — that's the #16 "Backspace stops responding"
+      // freeze: the user presses Backspace, we re-sync the cursor, and never
+      // process the deletion. Sync state for the next render and FALL THROUGH
+      // so this keystroke still applies — every handler below already uses
+      // `safeCursor` rather than the raw state.
       const safeCursor = clampPosition(logicalLines, { line: cursorLine, col: cursorCol });
       if (!positionsEqual(safeCursor, { line: cursorLine, col: cursorCol })) {
         setCursor(safeCursor);
         snapScrollToShow(visualLines, safeCursor.line, safeCursor.col);
-        return;
       }
 
       const lines = logicalLines;
@@ -760,74 +771,45 @@ export const TextArea = ({
       }
 
       if (key.backspace) {
-        // With a selection, backspace deletes the selection.
+        // Route through the pure `applyBackspace` helper so the keystep is
+        // (a) testable in isolation and (b) defensive against a stale anchor
+        // or stale cursor — the helper clamps both before deciding what to
+        // do. `currentSelection()` already filters empty-after-clamp ranges,
+        // so the helper sees a real selection only when one actually spans
+        // characters.
         const range = currentSelection();
-        if (range) {
-          replaceSelectionAndSnap("");
-          return;
-        }
-        const currentLine = lines[safeCursor.line] ?? "";
-        if (safeCursor.col > 0) {
-          beforeMutation(false);
-          const result = replaceRange(
-            lines,
-            {
-              start: { line: safeCursor.line, col: safeCursor.col - 1 },
-              end: safeCursor,
-            },
-            ""
-          );
-          applyTextEdit(result);
-        } else if (safeCursor.line > 0) {
-          beforeMutation(true);
-          const prevLine = lines[safeCursor.line - 1] ?? "";
-          const result = replaceRange(
-            lines,
-            {
-              start: { line: safeCursor.line - 1, col: prevLine.length },
-              end: safeCursor,
-            },
-            ""
-          );
-          applyTextEdit(result);
-        } else {
-          void currentLine;
-        }
+        const step = applyBackspace(
+          value,
+          safeCursor,
+          range ? (anchor ?? null) : null
+        );
+        if (!step.changed) return;
+        beforeMutation(range !== null || safeCursor.col === 0);
+        applyTextEdit({
+          value: step.value,
+          cursorLine: step.cursorLine,
+          cursorCol: step.cursorCol,
+        });
         return;
       }
 
-      // Delete (forward-delete): removes the character AFTER the cursor, or
-      // joins the next line up when sitting at end-of-line. Mirror of backspace.
+      // Delete (forward-delete): mirror of backspace. Same helper-routing
+      // applies — see comment above.
       if (key.delete) {
         const range = currentSelection();
-        if (range) {
-          replaceSelectionAndSnap("");
-          return;
-        }
         const currentLine = lines[safeCursor.line] ?? "";
-        if (safeCursor.col < currentLine.length) {
-          beforeMutation(false);
-          const result = replaceRange(
-            lines,
-            {
-              start: safeCursor,
-              end: { line: safeCursor.line, col: safeCursor.col + 1 },
-            },
-            ""
-          );
-          applyTextEdit(result);
-        } else if (safeCursor.line < lines.length - 1) {
-          beforeMutation(true);
-          const result = replaceRange(
-            lines,
-            {
-              start: safeCursor,
-              end: { line: safeCursor.line + 1, col: 0 },
-            },
-            ""
-          );
-          applyTextEdit(result);
-        }
+        const step = applyForwardDelete(
+          value,
+          safeCursor,
+          range ? (anchor ?? null) : null
+        );
+        if (!step.changed) return;
+        beforeMutation(range !== null || safeCursor.col >= currentLine.length);
+        applyTextEdit({
+          value: step.value,
+          cursorLine: step.cursorLine,
+          cursorCol: step.cursorCol,
+        });
         return;
       }
 
