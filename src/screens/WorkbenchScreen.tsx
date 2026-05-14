@@ -59,6 +59,7 @@ import { tildify } from "@/lib/scanner";
 import { getTerminalLayout } from "@/lib/responsive-layout";
 import { creatureCharSize } from "@/lib/sprite";
 import { vibeGlyph } from "@/lib/vibe";
+import { isEditorActive, isEditorVisible } from "@/lib/workbench-mode";
 
 export interface WorkbenchScreenProps {
   creature: RepoCreature;
@@ -1323,41 +1324,49 @@ export const WorkbenchScreen = ({
         </Box>
       ) : null}
 
-      {workbenchMode === "notes" && !paletteOpen ? (
-        <>
-          <Panel paddingY={0} width={fullWidth}>
-            <TextArea
-              id="editor"
-              value={editor}
-              onChange={setEditor}
-              rows={editorRows}
-              bordered={false}
-              paddingX={0}
-              mouseTopRow={editorTopRow}
-              mouseLeftCol={editorLeftCol}
-              historyKey={activeId}
-              wrapWidth={editorWrapWidth}
-              isActive={uiMode.kind === "edit" || uiMode.kind === "status"}
-              selectionRequest={selectionRequest}
-              onCursorChange={handleCursorChange}
-              placeholder="start typing. auto-saves on idle. ctrl+n starts a new note. ctrl+f searches. ctrl+p opens the palette."
-              onCopy={(text, ok) => {
-                setUiMode({
-                  kind: "status",
-                  message: ok
-                    ? text.includes("\n") || text.length > 40
-                      ? "copied"
-                      : `copied "${text}"`
-                    : "nothing to copy",
-                  variant: ok ? "success" : "warning",
-                });
-              }}
-            />
-          </Panel>
+      {/* Issue #23: keep the TextArea mounted across workbench mode flips so
+          its local cursor + scroll state survives a NOTES → PORTRAIT → NOTES
+          round-trip. Toggling `display` on the parent Box hides the subtree
+          in PORTRAIT without unmounting; the TextArea's `isActive` is also
+          ANDed with editor-visibility so the hidden editor doesn't steal keys
+          or paint a caret while invisible. ActionRow stays in the same wrapper
+          so it also hides with the editor (it's editor-specific chrome). */}
+      <Box
+        flexDirection="column"
+        display={isEditorVisible({ workbenchMode, paletteOpen }) ? "flex" : "none"}
+      >
+        <Panel paddingY={0} width={fullWidth}>
+          <TextArea
+            id="editor"
+            value={editor}
+            onChange={setEditor}
+            rows={editorRows}
+            bordered={false}
+            paddingX={0}
+            mouseTopRow={editorTopRow}
+            mouseLeftCol={editorLeftCol}
+            historyKey={activeId}
+            wrapWidth={editorWrapWidth}
+            isActive={isEditorActive({ workbenchMode, paletteOpen, uiModeKind: uiMode.kind })}
+            selectionRequest={selectionRequest}
+            onCursorChange={handleCursorChange}
+            placeholder="start typing. auto-saves on idle. ctrl+n starts a new note. ctrl+f searches. ctrl+p opens the palette."
+            onCopy={(text, ok) => {
+              setUiMode({
+                kind: "status",
+                message: ok
+                  ? text.includes("\n") || text.length > 40
+                    ? "copied"
+                    : `copied "${text}"`
+                  : "nothing to copy",
+                variant: ok ? "success" : "warning",
+              });
+            }}
+          />
+        </Panel>
 
-          <ActionRow uiMode={uiMode} dirty={dirty} cursor={editorCursor} charCount={editor.length} />
-        </>
-      ) : null}
+        <ActionRow uiMode={uiMode} dirty={dirty} cursor={editorCursor} charCount={editor.length} />
+      </Box>
 
       {/* Footer: always rendered regardless of mode */}
       <Box
