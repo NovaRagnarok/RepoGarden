@@ -97,8 +97,13 @@ const makeSprite = (placement: Placement): GardenSpriteInfo => ({
   vibeGlyph: "·",
   vibeColor: "#888888",
   wiggle: { halfCycleMs: 1000, phaseMs: 0 },
-  eyeCells: { left: { cx: 0, cy: 0 }, right: { cx: 0, cy: 0 } },
-  eyesClosed: false
+  // Point default eye cells outside the sprite so tests using
+  // hand-rolled tiny frames don't unintentionally trigger the
+  // face-panel paint. Tests that *want* to exercise eyes pass real
+  // GardenSpriteInfo built via createGardenModel.
+  eyeCells: { left: { cx: -1, cy: -1 }, right: { cx: -1, cy: -1 } },
+  eyesClosed: false,
+  blink: { intervalMs: 5000, durationMs: 140, phaseMs: 0 }
 });
 
 const emptySprite = (placement: Placement): GardenSpriteInfo => ({
@@ -636,7 +641,7 @@ test("organic garden applies persisted manual creature placement offsets", () =>
   );
 });
 
-test("renderGardenFrame overlays `_` at the eye cells for sleepy creatures", () => {
+test("renderGardenFrame paints sleepy eyes as `_` on a body-coloured face panel", () => {
   const model = createGardenModel(
     {
       ...makeProps(),
@@ -654,25 +659,20 @@ test("renderGardenFrame overlays `_` at the eye cells for sleepy creatures", () 
   );
   const info = model.scene.sprites.get("alpha");
   assert.ok(info, "missing sprite info");
-  assert.equal(info.eyesClosed, true, "sleepy creature should have eyesClosed=true");
+  assert.equal(info.eyesClosed, true);
   const placement = model.scene.placements[0];
   const frame = renderGardenFrame(model, 0);
   const cellAt = (x: number, y: number) =>
-    frame.cells[y * frame.width + x]?.char;
-  // Each eye cell renders `_` instead of the body's quadrant block char.
-  assert.equal(
-    cellAt(placement.x + info.eyeCells.left.cx, placement.charY + info.eyeCells.left.cy),
-    "_",
-    "expected `_` at the left eye cell"
-  );
-  assert.equal(
-    cellAt(placement.x + info.eyeCells.right.cx, placement.charY + info.eyeCells.right.cy),
-    "_",
-    "expected `_` at the right eye cell"
-  );
+    frame.cells[y * frame.width + x];
+  const leftCell = cellAt(placement.x + info.eyeCells.left.cx, placement.charY + info.eyeCells.left.cy);
+  assert.equal(leftCell?.char, "_", "sleepy left eye should render `_`");
+  assert.equal(leftCell?.bg, info.body, "sleepy eye cell should fill bg with body colour");
+  const rightCell = cellAt(placement.x + info.eyeCells.right.cx, placement.charY + info.eyeCells.right.cy);
+  assert.equal(rightCell?.char, "_", "sleepy right eye should render `_`");
+  assert.equal(rightCell?.bg, info.body, "sleepy eye cell should fill bg with body colour");
 });
 
-test("renderGardenFrame keeps open-eye creatures using the quadrant block char", () => {
+test("renderGardenFrame paints awake eyes as `•` between blinks", () => {
   const model = createGardenModel(
     {
       ...makeProps(),
@@ -690,16 +690,79 @@ test("renderGardenFrame keeps open-eye creatures using the quadrant block char",
   );
   const info = model.scene.sprites.get("alpha");
   assert.ok(info, "missing sprite info");
-  assert.equal(info.eyesClosed, false, "happy creature should have eyesClosed=false");
+  assert.equal(info.eyesClosed, false);
   const placement = model.scene.placements[0];
-  const frame = renderGardenFrame(model, 0);
+  // Pick a `now` outside the blink window so the open glyph paints.
+  // Blink fires when (now + phaseMs) % intervalMs < durationMs. With
+  // duration=140 and intervals ~3500-7000ms, "now = phaseMs + interval/2"
+  // is always outside the window.
+  const now = info.blink.intervalMs / 2 - info.blink.phaseMs;
+  const frame = renderGardenFrame(model, now);
   const cellAt = (x: number, y: number) =>
-    frame.cells[y * frame.width + x]?.char;
-  assert.notEqual(
-    cellAt(placement.x + info.eyeCells.left.cx, placement.charY + info.eyeCells.left.cy),
-    "_",
-    "open-eye creature should not have `_` at the eye cell"
+    frame.cells[y * frame.width + x];
+  const leftCell = cellAt(placement.x + info.eyeCells.left.cx, placement.charY + info.eyeCells.left.cy);
+  assert.equal(leftCell?.char, "•", "awake left eye should render open glyph");
+  assert.equal(leftCell?.bg, info.body, "awake eye cell should still fill bg with body colour");
+});
+
+test("renderGardenFrame paints awake eyes closed during the blink window", () => {
+  const model = createGardenModel(
+    {
+      ...makeProps(),
+      focusIndex: -1,
+      creatures: [
+        {
+          id: "alpha",
+          scan: { id: "alpha", path: "/tmp/alpha", name: "alpha", isDirty: false } as any,
+          memory: {} as any,
+          vibe: { vibe: "happy", reason: "clean.", activity: 1 } as any
+        }
+      ]
+    },
+    0
   );
+  const info = model.scene.sprites.get("alpha");
+  assert.ok(info, "missing sprite info");
+  // Pick now so the blink window is active: now + phaseMs ≡ 0 (mod interval).
+  const now = info.blink.intervalMs - info.blink.phaseMs;
+  const placement = model.scene.placements[0];
+  const frame = renderGardenFrame(model, now);
+  const leftCell = frame.cells[
+    (placement.charY + info.eyeCells.left.cy) * frame.width +
+      (placement.x + info.eyeCells.left.cx)
+  ];
+  assert.equal(leftCell?.char, "_", "awake creature should show closed glyph during blink");
+});
+
+test("renderGardenFrame keeps sleepy eyes closed regardless of blink timing", () => {
+  const model = createGardenModel(
+    {
+      ...makeProps(),
+      focusIndex: -1,
+      creatures: [
+        {
+          id: "alpha",
+          scan: { id: "alpha", path: "/tmp/alpha", name: "alpha", isDirty: false } as any,
+          memory: {} as any,
+          vibe: { vibe: "sleepy", reason: "quiet for 30 days.", daysSinceCommit: 30, activity: 0.05 } as any
+        }
+      ]
+    },
+    0
+  );
+  const info = model.scene.sprites.get("alpha");
+  if (!info) throw new Error("missing sprite info");
+  const placement = model.scene.placements[0];
+  const eyeX: number = placement.x + info.eyeCells.left.cx;
+  const eyeY: number = placement.charY + info.eyeCells.left.cy;
+  // Sample across the blink interval; sleepy creatures should hold `_`
+  // for every now value.
+  for (let frac = 0; frac < 1; frac += 0.2) {
+    const now = info.blink.intervalMs * frac;
+    const frame = renderGardenFrame(model, now);
+    const leftCell = frame.cells[eyeY * frame.width + eyeX];
+    assert.equal(leftCell?.char, "_", `sleepy eye opened at frac=${frac}`);
+  }
 });
 
 test("wiggle cadence is faster for active repos than inert ones in the same vibe bucket", () => {

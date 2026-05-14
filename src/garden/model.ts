@@ -25,6 +25,7 @@ import { vibeGlyph, type Vibe } from "@/lib/vibe";
 
 import { sceneSeedForCreatures } from "@/garden/stars";
 import type {
+  BlinkProfile,
   GardenLayoutTransition,
   GardenDeadZone,
   GardenModel,
@@ -97,6 +98,32 @@ const buildWiggleProfile = (
 
 export const wiggleFrameAt = (profile: WiggleProfile, now: number): 0 | 1 =>
   Math.floor((now + profile.phaseMs) / profile.halfCycleMs) % 2 === 0 ? 0 : 1;
+
+const BLINK_DURATION_MS = 140;
+
+const buildBlinkProfile = (
+  identity: string,
+  activity: number
+): BlinkProfile => {
+  const rng = mulberry32(hashString(`blink:${identity}`));
+  const a = clamp(activity, 0, 1);
+  // Active repos blink every ~3.5s; inert ones every ~7s. Smoothly
+  // interpolated by activity so the cadence tracks the rest of the
+  // animation system rather than living in its own bucket.
+  const interval = Math.round(7000 - 3500 * a);
+  return {
+    intervalMs: interval,
+    durationMs: BLINK_DURATION_MS,
+    phaseMs: Math.round(rng() * interval)
+  };
+};
+
+/** True when the eye glyph should display the *closed* form (the brief
+ *  blink window). Otherwise the open glyph paints. */
+export const blinkClosedAt = (profile: BlinkProfile, now: number): boolean => {
+  const t = (now + profile.phaseMs) % profile.intervalMs;
+  return t < profile.durationMs;
+};
 
 const visualPlacementAtOffset = (
   placement: Placement,
@@ -249,7 +276,11 @@ const buildScene = (props: GardenSceneProps): GardenScene => {
         creature.vibe.activity
       ),
       eyeCells,
-      eyesClosed
+      eyesClosed,
+      blink: buildBlinkProfile(
+        creature.scan.path || creature.id,
+        creature.vibe.activity
+      )
     });
   }
   return {

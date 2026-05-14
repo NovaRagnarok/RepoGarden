@@ -2,8 +2,11 @@ import { computeFocusFrameCells, NAME_GAP_ROWS } from "@/lib/garden-layout";
 import { quadrantChar } from "@/lib/sprite";
 
 import { computeStarVisual, greyHex, starAtCell } from "@/garden/stars";
-import { wiggleFrameAt } from "@/garden/model";
+import { blinkClosedAt, wiggleFrameAt } from "@/garden/model";
 import type { GardenCell, GardenFrame, GardenModel } from "@/garden/types";
+
+const EYE_GLYPH_OPEN = "•";
+const EYE_GLYPH_CLOSED = "_";
 
 const SUB_PER_CELL = 2;
 
@@ -138,12 +141,19 @@ export const renderGardenFrame = (
       !reducedMotion && wiggleFrameAt(info.wiggle, now) === 1
         ? info.frameB
         : info.frameA;
-    const closedEye = info.eyesClosed
-      ? new Set([
-          `${info.eyeCells.left.cx}:${info.eyeCells.left.cy}`,
-          `${info.eyeCells.right.cx}:${info.eyeCells.right.cy}`
-        ])
-      : null;
+    const eyeCellKeys = new Set([
+      `${info.eyeCells.left.cx}:${info.eyeCells.left.cy}`,
+      `${info.eyeCells.right.cx}:${info.eyeCells.right.cy}`
+    ]);
+    // Composited eye glyph for this tick: locked closed when the
+    // creature is sleepy, otherwise blinks briefly on its own cadence.
+    // Both glyphs paint with bg=body so the eye cells read as a clean
+    // "face panel" with a glyph cut into it, regardless of what the
+    // quadrant char at that cell would otherwise have produced.
+    const eyeGlyph =
+      info.eyesClosed || (!reducedMotion && blinkClosedAt(info.blink, now))
+        ? EYE_GLYPH_CLOSED
+        : EYE_GLYPH_OPEN;
     for (let cy = 0; cy < info.charH; cy += 1) {
       for (let cx = 0; cx < info.charW; cx += 1) {
         const sy = cy * SUB_PER_CELL;
@@ -152,15 +162,21 @@ export const renderGardenFrame = (
         const tr = spriteFrame[sy]?.[sx + 1] === 1;
         const bl = spriteFrame[sy + 1]?.[sx] === 1;
         const br = spriteFrame[sy + 1]?.[sx + 1] === 1;
+        if (eyeCellKeys.has(`${cx}:${cy}`)) {
+          // Face panel: fill the cell with body color and paint the
+          // eye glyph (open or closed) on top in the panel background.
+          // Eyes always render even if no body sub-pixel touches the
+          // cell, since the panel itself is the face area.
+          setCell(frame, visual.x + cx, visual.charY + cy, {
+            char: eyeGlyph,
+            fg: model.props.theme.background,
+            bg: info.body
+          });
+          continue;
+        }
         if (!(tl || tr || bl || br)) continue;
-        // Closed-eye overlay: replace the quadrant char at each eye cell
-        // with `_`. Body grid stays untouched so silhouette is stable.
-        const char =
-          closedEye && closedEye.has(`${cx}:${cy}`)
-            ? "_"
-            : quadrantChar(tl, tr, bl, br);
         setCell(frame, visual.x + cx, visual.charY + cy, {
-          char,
+          char: quadrantChar(tl, tr, bl, br),
           fg: info.body
         });
       }

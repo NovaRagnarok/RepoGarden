@@ -84,12 +84,14 @@ export interface GardenSpriteInfo {
   vibeColor: string;
   wiggle: WiggleProfile;
   /** Character-cell coordinates of the sprite's two eyes (left, right).
-   *  Renderers can overlay a closed-eye glyph at these cells without
-   *  altering the underlying body grid. */
+   *  Renderers composite a face panel (bg=body) + eye glyph at these
+   *  cells, overriding whatever quadrant char the body grid would have
+   *  produced. */
   eyeCells: { left: { cx: number; cy: number }; right: { cx: number; cy: number } };
-  /** When true, the renderer paints `_` over each eye cell instead of
-   *  the quadrant char derived from the body grid. */
+  /** When true, the eye glyph is locked to the closed form regardless
+   *  of blink timing. */
   eyesClosed: boolean;
+  blink: BlinkProfile;
 }
 
 export interface GardenScene {
@@ -97,6 +99,22 @@ export interface GardenScene {
   dividers: DividerPlacement[];
   sprites: Map<string, GardenSpriteInfo>;
   sceneSeed: number;
+}
+
+/**
+ * Per-creature blink timing for the composited face-panel eyes. Active
+ * (non-sleepy) creatures blink briefly every few seconds; sleepy
+ * creatures hold the closed glyph regardless. Active repos blink
+ * slightly more often than inert ones (interval shrinks with activity).
+ *
+ * `phaseMs` is randomised per identity so the swarm doesn't blink in
+ * unison. `durationMs` is the (short) window where the closed glyph
+ * paints; otherwise the open glyph paints.
+ */
+export interface BlinkProfile {
+  intervalMs: number;
+  durationMs: number;
+  phaseMs: number;
 }
 
 /**
