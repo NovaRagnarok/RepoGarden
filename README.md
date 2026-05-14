@@ -32,36 +32,9 @@ repogarden
 Each repo becomes a tiny pixel creature whose look reflects branch state, recency, and dirty files. Pick one and press `↵` to drop into a per-repo workbench. (Regenerate the recording with `vhs tape/demo.tape` — see [`tape/README.md`](tape/README.md).)
 
 <details>
-<summary>ASCII version (regenerable from <code>scripts/tui-observe.sh</code>)</summary>
+<summary>Static preview</summary>
 
-```
- a little local habitat                                        ╭────────╮ ╭───────╮ ╭─────────╮
- REPOGARDEN                                                    │ GARDEN │ │ SHELF │ │ JOURNAL │
- where your repos live                                         ╰────────╯ ╰───────╯ ╰─────────╯
-
- roots: ~/repos                                                            • 2 happy  ! 2 noisy
- • pocket-cron                                                             branch main · 0d ago
- ╭────────────────────────────────────────────────────────────────────────────────────────────╮
- │                                                                                            │
- │            ·                                                                     ·         │
- │    ·                          ·                                            ✦               │
- │      ·   ·     ✧                                ✧ ▜▄▄▛  ✧                   ▜▄▄▄▛    ·     │
- │              ✧                     ▗▖▄▄▗▖         ▙██▟                      ▜▛█▜▛          │
- │                                     █▜▛█         ▝▜▟▙▛▘   *     ·        ⋆ ▝█████▘         │
- │                                    ▝████▘                    ·                             │
- │                  ·        ✧ +  ·   ▐▟▛▜▙▌       moss-cms ⋆            ·   tidepool ·   ·   │
- │   *                     ·                                    ·             ·               │
- │                                 habit-fossil      ·                                   ·    │
- │   ╭───────╮                                                              ⋆                 │
- │   │    ·  │                        *                       ·        +      *      ·        │
- │   │  ▄▄▄  │  ·                                 ·                      ✧  *   ·       ·     │
- │   │▗▐▙█▟▌▖│      ·          *              ✧     ·                                         │
- │   │▐▟▜█▛▙▌│                     *                               · ✧                        │
- │   ╰───────╯               ·                                             ·           *      │
- │                                                                                            │
- ╰────────────────────────────────────────────────────────────────────────────────────────────╯
- ↑↓ move · ↵ open · / filter · g view · s settings · ? help · q quit               ★ RepoGarden
-```
+![RepoGarden TUI — a wide starry habitat populated with pixel-art repo creatures, a creatures sidebar on the left, and a workbench card for the selected repo on the right](docs/images/preview.png)
 
 </details>
 
