@@ -37,8 +37,8 @@ jobs:
           node-version: '24'
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
-      # Pack ignores "private": true, so this works for friend-alpha without
-      # publishing. The smoke test catches missing prepack/files/bin wiring.
+      # Pack ignores "private": true, so this works without an npm publish.
+      # The smoke test catches missing prepack/files/bin wiring.
       # We pack with pnpm but install the resulting tarball with npm so we
       # exercise the same path real users hit when they run
       # `npm install -g @outsideheaven/repogarden`.
