@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   closeSync,
   existsSync,
@@ -8,8 +8,17 @@ import {
   readSync,
   statSync,
 } from "node:fs";
-import { homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { readFile, stat as fsStat } from "node:fs/promises";
+import { cpus, homedir } from "node:os";
+import { basename, isAbsolute, join, resolve } from "node:path";
+
+import {
+  buildUpdatedCache,
+  loadScanCache,
+  lookupCachedScan,
+  saveScanCache,
+  type ScanCacheMap
+} from "./scan-cache";
 
 export interface RecentCommit {
   sha: string;
@@ -138,11 +147,19 @@ export const tildify = (path: string): string => {
   return path;
 };
 
-const runGit = (cwd: string, args: string[]): { stdout: string; stderr: string; ok: boolean } => {
+interface GitResult {
+  stdout: string;
+  stderr: string;
+  ok: boolean;
+}
+
+const GIT_TIMEOUT_MS = 4000;
+
+const runGit = (cwd: string, args: string[]): GitResult => {
   const result = spawnSync("git", args, {
     cwd,
     encoding: "utf8",
-    timeout: 4000,
+    timeout: GIT_TIMEOUT_MS,
     env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" }
   });
   return {
@@ -150,6 +167,49 @@ const runGit = (cwd: string, args: string[]): { stdout: string; stderr: string; 
     stderr: (result.stderr ?? "").toString().trimEnd(),
     ok: result.status === 0 && result.error === undefined
   };
+};
+
+/**
+ * Async git via `spawn`, used by the parallel scanner worker pool. Returns
+ * the same shape as `runGit` so call sites are interchangeable — only the
+ * inspection wrappers know which flavor they're calling. Per-call timeout
+ * is enforced via setTimeout + SIGKILL rather than spawn's `timeout` option,
+ * which is unreliable across Node versions for kill semantics.
+ */
+const runGitAsync = (cwd: string, args: string[]): Promise<GitResult> => {
+  return new Promise((resolve) => {
+    const child = spawn("git", args, {
+      cwd,
+      env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" }
+    });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ ok, stdout: stdout.trimEnd(), stderr: stderr.trimEnd() });
+    };
+    const timer = setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // Already exited between the timer firing and our kill — ignore.
+      }
+      finish(false);
+    }, GIT_TIMEOUT_MS);
+    child.stdout?.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk: string) => {
+      stdout += chunk;
+    });
+    child.stderr?.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    child.on("error", () => finish(false));
+    child.on("close", (code) => finish(code === 0));
+  });
 };
 
 const SPARKLINE_DAYS = 30;
@@ -216,10 +276,72 @@ const buildRecentCommitDays = (repoPath: string): number[] | undefined => {
     "--date=format:%Y-%m-%d",
   ]);
   if (!log.ok) return undefined;
+  return bucketCommitDays(log.stdout);
+};
+
+interface StatusBranch {
+  branch?: string;
+  ahead?: number;
+  behind?: number;
+  isDirty: boolean;
+  headSha?: string;
+}
+
+/** Parse `git status --porcelain=v2 --branch` output. Shared by the sync
+ *  light probe and the async skeleton inspector so both interpret git's
+ *  output the same way. Returns the empty-but-clean state for empty input. */
+const parseStatusBranch = (stdout: string): StatusBranch => {
+  let branch: string | undefined;
+  let headSha: string | undefined;
+  let ahead: number | undefined;
+  let behind: number | undefined;
+  let isDirty = false;
+
+  for (const line of stdout.split(/\r?\n/)) {
+    if (line.startsWith("# branch.oid ")) {
+      const sha = line.slice("# branch.oid ".length).trim();
+      headSha = sha === "(initial)" ? undefined : sha;
+    } else if (line.startsWith("# branch.head ")) {
+      const ref = line.slice("# branch.head ".length).trim();
+      branch = ref === "(detached)" ? undefined : ref;
+    } else if (line.startsWith("# branch.ab ")) {
+      const match = line.match(/\+(-?\d+)\s+-(-?\d+)/);
+      if (match) {
+        ahead = Number.parseInt(match[1], 10);
+        behind = Number.parseInt(match[2], 10);
+      }
+    } else if (line && !line.startsWith("#")) {
+      isDirty = true;
+    }
+  }
+
+  return { branch, ahead, behind, isDirty, headSha };
+};
+
+/** Parse `git log -5 --pretty=%H%x09%s%x09%cI%x09%an` output into commits. */
+const parseRecentCommitsLog = (stdout: string): RecentCommit[] => {
+  return stdout
+    .split("\n")
+    .filter((line) => line.includes("\t"))
+    .map((line) => {
+      const [sha, subject, committedAt, author] = line.split("\t");
+      return {
+        sha,
+        shortSha: sha.slice(0, 7),
+        subject,
+        committedAt,
+        author
+      };
+    });
+};
+
+/** Bucket dated commit lines (one YYYY-MM-DD per line, newest-first git
+ *  default) into the most-recent SPARKLINE_DAYS days, oldest at index 0. */
+const bucketCommitDays = (stdout: string): number[] => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const buckets = new Array<number>(SPARKLINE_DAYS).fill(0);
-  for (const raw of log.stdout.split("\n")) {
+  for (const raw of stdout.split("\n")) {
     const day = raw.trim();
     if (!day) continue;
     const date = new Date(day + "T00:00:00");
@@ -387,6 +509,82 @@ const buildDirtyFileStatuses = (
   repoPath: string
 ): { files: DirtyFileStatus[]; total: number } | undefined => {
   const status = runGit(repoPath, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
+  if (!status.ok) return undefined;
+  const files = parseGitStatusPorcelain(status.stdout);
+  return { files: files.slice(0, DIRTY_STATUS_LIMIT), total: files.length };
+};
+
+/** Async sibling of `buildDirtyChanges` for the parallel scanner. Uses
+ *  `runGitAsync` for the `git diff` and per-file `git show HEAD:...` calls so
+ *  other workers in the pool can interleave their git work instead of waiting
+ *  on a synchronous spawn. Filesystem reads stay sync — each is bounded to
+ *  `DIRTY_PREVIEW_MAX_BYTES` and runs against the local working tree, so the
+ *  blocking window is small. */
+const buildDirtyChangesAsync = async (
+  repoPath: string
+): Promise<{ changes: DirtyFileChange[]; total: number } | undefined> => {
+  const list = await runGitAsync(repoPath, ["diff", "--name-only", "-z", "HEAD"]);
+  if (!list.ok) return undefined;
+  const files = list.stdout
+    .split("\0")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  if (files.length === 0) return { changes: [], total: 0 };
+
+  const changes: DirtyFileChange[] = [];
+  for (const filename of files.slice(0, DIRTY_FILE_LIMIT)) {
+    if (isSensitiveFilename(filename)) {
+      changes.push({ filename, oldText: "", newText: "", truncated: false, skipped: "sensitive" });
+      continue;
+    }
+
+    const absPath = join(repoPath, filename);
+    let workingSize = 0;
+    try {
+      workingSize = statSync(absPath).size;
+    } catch {
+      // File may have been deleted in the working tree; fall through.
+    }
+
+    if (workingSize > DIRTY_PREVIEW_MAX_BYTES) {
+      changes.push({ filename, oldText: "", newText: "", truncated: false, skipped: "too-large" });
+      continue;
+    }
+
+    if (workingSize > 0 && looksBinary(absPath)) {
+      changes.push({ filename, oldText: "", newText: "", truncated: false, skipped: "binary" });
+      continue;
+    }
+
+    const head = await runGitAsync(repoPath, ["show", `HEAD:${filename}`]);
+    let working = "";
+    try {
+      working = readFileSync(absPath, "utf8");
+    } catch {
+      working = "";
+    }
+    const oldLines = (head.ok ? head.stdout : "").split("\n");
+    const newLines = working.split("\n");
+    const truncated = oldLines.length > DIRTY_LINE_CAP || newLines.length > DIRTY_LINE_CAP;
+    changes.push({
+      filename,
+      oldText: oldLines.slice(0, DIRTY_LINE_CAP).join("\n"),
+      newText: newLines.slice(0, DIRTY_LINE_CAP).join("\n"),
+      truncated
+    });
+  }
+  return { changes, total: files.length };
+};
+
+const buildDirtyFileStatusesAsync = async (
+  repoPath: string
+): Promise<{ files: DirtyFileStatus[]; total: number } | undefined> => {
+  const status = await runGitAsync(repoPath, [
+    "status",
+    "--porcelain=v1",
+    "-z",
+    "--untracked-files=all"
+  ]);
   if (!status.ok) return undefined;
   const files = parseGitStatusPorcelain(status.stdout);
   return { files: files.slice(0, DIRTY_STATUS_LIMIT), total: files.length };
@@ -592,31 +790,272 @@ export const inspectRepoLight = (repoPath: string): LightScan | null => {
   const status = runGit(repoPath, ["status", "--porcelain=v2", "--branch"]);
   if (!status.ok) return null;
 
-  let branch: string | undefined;
-  let headSha: string | undefined;
-  let ahead: number | undefined;
-  let behind: number | undefined;
-  let isDirty = false;
+  return parseStatusBranch(status.stdout);
+};
 
-  for (const line of status.stdout.split(/\r?\n/)) {
-    if (line.startsWith("# branch.oid ")) {
-      const sha = line.slice("# branch.oid ".length).trim();
-      headSha = sha === "(initial)" ? undefined : sha;
-    } else if (line.startsWith("# branch.head ")) {
-      const ref = line.slice("# branch.head ".length).trim();
-      branch = ref === "(detached)" ? undefined : ref;
-    } else if (line.startsWith("# branch.ab ")) {
-      const match = line.match(/\+(-?\d+)\s+-(-?\d+)/);
-      if (match) {
-        ahead = Number.parseInt(match[1], 10);
-        behind = Number.parseInt(match[2], 10);
+const makeRepoId = (repoPath: string): string => {
+  const name = basename(repoPath);
+  return `${name}-${Buffer.from(repoPath).toString("base64url").slice(-8)}`;
+};
+
+interface GitDirs {
+  /** The path-specific gitdir. For a worktree, this is the per-worktree
+   *  directory (carrying HEAD, index, logs). For a plain repo, identical
+   *  to `commonDir`. */
+  gitDir: string;
+  /** The shared gitdir holding objects/ and refs/. For a worktree, this is
+   *  the primary repo's `.git`. For a plain repo, identical to `gitDir`. */
+  commonDir: string;
+}
+
+/** Resolve the real git dirs for a working tree. Handles three layouts:
+ *   - plain repo: `<path>/.git` is a directory; gitDir == commonDir.
+ *   - submodule:  `<path>/.git` is a file with `gitdir: <path>`; gitDir is
+ *                 the submodule's own gitdir, no `commondir` file.
+ *   - worktree:   `<path>/.git` is a file pointing to
+ *                 `<main>/.git/worktrees/<name>`. Refs live in the main
+ *                 repo's `.git`, so we read `commondir` to find them.
+ *  Returns undefined when there is no `.git` at all. */
+const resolveGitDirs = async (repoPath: string): Promise<GitDirs | undefined> => {
+  const dotGit = join(repoPath, ".git");
+  let info;
+  try {
+    info = await fsStat(dotGit);
+  } catch {
+    return undefined;
+  }
+
+  let gitDir: string;
+  if (info.isDirectory()) {
+    gitDir = dotGit;
+  } else if (info.isFile()) {
+    let content: string;
+    try {
+      content = (await readFile(dotGit, "utf8")).trim();
+    } catch {
+      return undefined;
+    }
+    if (!content.startsWith("gitdir:")) return undefined;
+    const target = content.slice("gitdir:".length).trim();
+    gitDir = isAbsolute(target) ? target : resolve(repoPath, target);
+  } else {
+    return undefined;
+  }
+
+  // `commondir` is present in per-worktree gitdirs and points (often
+  // relatively) at the shared repo gitdir that owns refs/ + objects/.
+  let commonDir = gitDir;
+  try {
+    const commonRel = (await readFile(join(gitDir, "commondir"), "utf8")).trim();
+    if (commonRel) {
+      commonDir = isAbsolute(commonRel) ? commonRel : resolve(gitDir, commonRel);
+    }
+  } catch {
+    // No commondir → plain repo or submodule, gitDir already serves as common.
+  }
+
+  return { gitDir, commonDir };
+};
+
+const SHA40 = /^[0-9a-f]{40}/;
+
+/** Read HEAD and (when it's symbolic) walk to the underlying sha. Tries
+ *  loose refs first (`<gitDir>/refs/heads/<branch>`), then falls back to
+ *  the `packed-refs` file. Returns `{}` on empty repos or unreadable HEAD —
+ *  the scanner treats that as a still-valid "skeleton with no commits yet". */
+const readHeadRef = async (
+  dirs: GitDirs
+): Promise<{ branch?: string; sha?: string }> => {
+  // HEAD is always in the per-worktree gitDir (each worktree has its own).
+  let head: string;
+  try {
+    head = (await readFile(join(dirs.gitDir, "HEAD"), "utf8")).trim();
+  } catch {
+    return {};
+  }
+
+  if (head.startsWith("ref: ")) {
+    const ref = head.slice("ref: ".length).trim();
+    const branch = ref.startsWith("refs/heads/")
+      ? ref.slice("refs/heads/".length)
+      : undefined;
+
+    // Refs live in the COMMON gitdir (shared across worktrees). The
+    // per-worktree gitdir only carries HEAD/index/logs.
+    try {
+      const loose = (await readFile(join(dirs.commonDir, ref), "utf8")).trim();
+      if (SHA40.test(loose)) return { branch, sha: loose.slice(0, 40) };
+    } catch {
+      // Falls through to packed-refs lookup.
+    }
+
+    // Packed refs: lines are "<sha> <ref>", with optional "^<sha>" peel
+    // lines for annotated tags (irrelevant here — we're matching branches).
+    try {
+      const packed = await readFile(join(dirs.commonDir, "packed-refs"), "utf8");
+      for (const line of packed.split("\n")) {
+        if (!line || line.startsWith("#") || line.startsWith("^")) continue;
+        const space = line.indexOf(" ");
+        if (space < 40) continue;
+        const sha = line.slice(0, space);
+        const packedRef = line.slice(space + 1).trim();
+        if (packedRef === ref && SHA40.test(sha)) {
+          return { branch, sha: sha.slice(0, 40) };
+        }
       }
-    } else if (line && !line.startsWith("#")) {
-      isDirty = true;
+    } catch {
+      // No packed-refs file — that's normal for fresh repos.
+    }
+
+    // Empty repo or pruned ref — return branch only.
+    return { branch };
+  }
+
+  // Detached HEAD: HEAD contains the sha directly.
+  if (SHA40.test(head)) return { sha: head.slice(0, 40) };
+
+  return {};
+};
+
+/**
+ * Phase 0 — filesystem-only repo identification. Reads `.git/HEAD` and
+ * resolves the branch ref via plain file reads, no git subprocess. Used to
+ * paint the garden list (name + branch + last-commit SHA) within a few ms
+ * of scan start, before any `git status` spawn has even returned. `isDirty`
+ * stays false in this result; the real dirty/ahead/behind state arrives
+ * with phase 1 (`inspectRepoSkeletonAsync`).
+ */
+export const inspectRepoPreskeletonAsync = async (
+  repoPath: string
+): Promise<ScannedRepo> => {
+  const name = basename(repoPath);
+  const id = makeRepoId(repoPath);
+  const base: ScannedRepo = { id, path: repoPath, name, isDirty: false };
+
+  const dirs = await resolveGitDirs(repoPath);
+  if (!dirs) return { ...base, scanError: "not a git repo" };
+
+  const { branch, sha } = await readHeadRef(dirs);
+  return { ...base, branch, lastCommitSha: sha };
+};
+
+/**
+ * Phase 1 of the parallel scan: a single `git status --porcelain=v2 --branch`
+ * call yields branch, ahead/behind, dirty, and HEAD sha. Enough to render a
+ * repo row in the garden list while the heavier inspection finishes. Returns
+ * a `ScannedRepo` carrying a `scanError` if the path is no longer a git repo
+ * or if git refused to talk — phase 2 is skipped in those cases.
+ */
+export const inspectRepoSkeletonAsync = async (
+  repoPath: string
+): Promise<ScannedRepo> => {
+  const name = basename(repoPath);
+  const id = makeRepoId(repoPath);
+  const base: ScannedRepo = { id, path: repoPath, name, isDirty: false };
+
+  if (!existsSync(join(repoPath, ".git"))) {
+    return { ...base, scanError: "not a git repo" };
+  }
+
+  const status = await runGitAsync(repoPath, [
+    "status",
+    "--porcelain=v2",
+    "--branch"
+  ]);
+  if (!status.ok) {
+    return { ...base, scanError: "git status failed" };
+  }
+
+  const parsed = parseStatusBranch(status.stdout);
+  return {
+    ...base,
+    branch: parsed.branch,
+    ahead: parsed.ahead,
+    behind: parsed.behind,
+    isDirty: parsed.isDirty,
+    lastCommitSha: parsed.headSha
+  };
+};
+
+/**
+ * Phase 2 enrichment: recentCommits + last-commit subject/date, total commit
+ * count, sparkline buckets, and (for dirty repos) the dirty-file inventory
+ * plus the bounded diff snapshot. Merges results onto `skeleton` so the
+ * caller can stream the same `path` through a Map without losing skeleton
+ * fields. `log -5` doubles as the source of `lastCommit*` — saves one spawn
+ * over the legacy sync path that ran `log -1` and `log -5` separately.
+ */
+export const inspectRepoEnrichAsync = async (
+  skeleton: ScannedRepo
+): Promise<ScannedRepo> => {
+  if (skeleton.scanError) return skeleton;
+  const repoPath = skeleton.path;
+
+  // All phase-2 work runs concurrently. For dirty repos that's up to 5 git
+  // spawns at once per worker, but they're independent so libuv pipes them
+  // through to the kernel without serialization. `rev-list --count HEAD` is
+  // O(history) and dominates this call on repos with millions of commits —
+  // for that workload, consider demoting it to phase 3 (see commit history).
+  const [recent, total, days, dirtySnapshot, dirtyStatus] = await Promise.all([
+    runGitAsync(repoPath, ["log", "-5", "--pretty=%H%x09%s%x09%cI%x09%an"]),
+    runGitAsync(repoPath, ["rev-list", "--count", "HEAD"]),
+    runGitAsync(repoPath, [
+      "log",
+      `--since=${SPARKLINE_DAYS}.days`,
+      "--max-count=1000",
+      "--format=%cd",
+      "--date=format:%Y-%m-%d"
+    ]),
+    skeleton.isDirty ? buildDirtyChangesAsync(repoPath) : Promise.resolve(undefined),
+    skeleton.isDirty ? buildDirtyFileStatusesAsync(repoPath) : Promise.resolve(undefined)
+  ]);
+
+  let recentCommits: RecentCommit[] | undefined;
+  let lastCommitSha: string | undefined = skeleton.lastCommitSha;
+  let lastCommitSubject: string | undefined;
+  let lastCommitAt: string | undefined;
+  if (recent.ok && recent.stdout) {
+    recentCommits = parseRecentCommitsLog(recent.stdout);
+    if (recentCommits.length > 0) {
+      lastCommitSha = recentCommits[0].sha;
+      lastCommitSubject = recentCommits[0].subject;
+      lastCommitAt = recentCommits[0].committedAt;
     }
   }
 
-  return { branch, ahead, behind, isDirty, headSha };
+  const commitCount = total.ok ? Number.parseInt(total.stdout.trim(), 10) : Number.NaN;
+  const recentCommitDays = days.ok ? bucketCommitDays(days.stdout) : undefined;
+
+  return {
+    ...skeleton,
+    lastCommitSha,
+    lastCommitSubject,
+    lastCommitAt,
+    recentCommits,
+    recentCommitDays,
+    commitCount: Number.isFinite(commitCount) ? commitCount : undefined,
+    dirtyChanges: dirtySnapshot?.changes,
+    dirtyFiles: dirtyStatus?.files,
+    dirtyFileCount: dirtyStatus?.total ?? dirtySnapshot?.total
+  };
+};
+
+/**
+ * Phase 3 — best-effort extras that don't gate the "scan complete" feeling.
+ * Currently: primary-language detection, a fs walk over the working tree
+ * (depth 2) that counts source-file bytes. Runs after every repo already has
+ * its git data on screen, so a monorepo's deep src tree doesn't hold up the
+ * rest of the scan.
+ */
+export const inspectRepoExtrasAsync = async (
+  scan: ScannedRepo
+): Promise<ScannedRepo> => {
+  if (scan.scanError) return scan;
+  // detectLanguage is synchronous fs IO — wrap in an awaited microtask so
+  // the worker pool can interleave with other repos' work.
+  await Promise.resolve();
+  const primaryLanguage = detectLanguage(scan.path);
+  return primaryLanguage === scan.primaryLanguage ? scan : { ...scan, primaryLanguage };
 };
 
 export interface ScanResult {
@@ -671,18 +1110,81 @@ export interface RootProgress {
 }
 
 export interface ProgressiveScanEvents {
-  onRepo?: (repo: ScannedRepo, index: number, total: number) => void;
+  /** Phase 0 — fires after a pure-filesystem read of `.git/HEAD` and the
+   *  ref it points to. Carries name + branch + lastCommitSha only; no
+   *  dirty/ahead/behind yet. Lets the garden list paint within a few ms
+   *  of scan start, before any git subprocess has returned. */
+  onRepoSkeleton?: (repo: ScannedRepo, done: number, total: number) => void;
+  /** Phase 1 — fires after `git status --porcelain=v2 --branch` lands.
+   *  Adds isDirty / ahead / behind to the skeleton row. Roughly one git
+   *  spawn per repo, bounded by SCAN_CONCURRENCY. */
+  onRepoStatus?: (repo: ScannedRepo, done: number, total: number) => void;
+  /** Phase 2 — fires when enrichment lands: recent commits, sparkline,
+   *  commit count, dirty inventory, dirty diffs. `done` and `total` count
+   *  repos that have completed phase 2. The legacy single-phase scanner
+   *  also emitted this; existing callers that wire `onRepo` keep working. */
+  onRepo?: (repo: ScannedRepo, done: number, total: number) => void;
+  /** Phase 3 — fires when extras land (currently primaryLanguage). The
+   *  emitted repo is a strict patch over the phase-2 result. The scan
+   *  promise resolves only after every repo has been through all four
+   *  phases. */
+  onRepoExtras?: (repo: ScannedRepo, done: number, total: number) => void;
   onRoot?: (progress: RootProgress) => void;
   onRootsResolved?: (progress: RootProgress[]) => void;
   onError?: (root: string, message: string) => void;
   onComplete?: (result: ScanResult) => void;
 }
 
-/** Async-friendly scanner: yields each inspected repo through `onRepo`. */
+/** Worker-pool concurrency for parallel scans. Capped at 8 because
+ *  spawning more than that just queues at the kernel level on most laptops
+ *  and the marginal speedup falls off a cliff. Floor of 2 so we always
+ *  parallelize at least a little even on weird single-core sandboxes. */
+const envConcurrency = (() => {
+  const raw = process.env.REPOGARDEN_SCAN_CONCURRENCY;
+  if (!raw) return undefined;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+})();
+const SCAN_CONCURRENCY =
+  envConcurrency ?? Math.max(2, Math.min(8, cpus().length || 4));
+
+/**
+ * Parallel four-phase scanner.
+ *
+ *   Phase 0 (skeleton)    — fs read of `.git/HEAD` + branch ref. No git
+ *                            subprocess. Runs in parallel for every repo via
+ *                            `Promise.all` (no worker pool needed). Emits
+ *                            `onRepoSkeleton` — name + branch + sha.
+ *   Phase 1 (status)      — `git status --porcelain=v2 --branch`. Adds
+ *                            isDirty/ahead/behind. Worker pool, concurrency
+ *                            bounded by SCAN_CONCURRENCY. Emits `onRepoStatus`.
+ *   Phase 2 (enrichment)  — log -5, rev-list count, sparkline log, dirty
+ *                            inventory, dirty diffs. Emits `onRepo`.
+ *   Phase 3 (extras)      — language detection (fs walk). Emits
+ *                            `onRepoExtras`.
+ *
+ * Each emission carries the cumulative full `ScannedRepo` for that path so a
+ * consumer can keep a `Map<path, ScannedRepo>` and replace on every event.
+ * The promise resolves only after every repo has finished phase 3, which is
+ * when `result.repos` is the fully-populated, name-sorted list (matching the
+ * legacy synchronous `scanRoots` contract).
+ */
+export interface ScanOptions {
+  /** When false, skip the persistent scan cache entirely (no read, no
+   *  write). Tests use this to keep `~/.repogarden/scan-cache.json`
+   *  untouched. Default: enabled, unless the env var
+   *  `REPOGARDEN_SCAN_CACHE` is set to an empty string. */
+  cache?: boolean;
+  /** Override the cache file path. Mainly for tests; production reads from
+   *  `~/.repogarden/scan-cache.json` (or `$REPOGARDEN_SCAN_CACHE`). */
+  cacheFile?: string;
+}
+
 export const scanRootsProgressive = async (
   roots: string[],
   events: ProgressiveScanEvents = {},
-  maxDepth = 4
+  maxDepth = 4,
+  options: ScanOptions = {}
 ): Promise<ScanResult> => {
   const result: ScanResult = { repos: [], rootsUsed: [], errors: [] };
   const seen = new Set<string>();
@@ -721,6 +1223,7 @@ export const scanRootsProgressive = async (
     }
   }
 
+  const total = allPaths.length;
   if (events.onRootsResolved) {
     events.onRootsResolved(
       result.rootsUsed.map((root) => ({
@@ -731,25 +1234,47 @@ export const scanRootsProgressive = async (
     );
   }
 
-  for (let i = 0; i < allPaths.length; i++) {
-    const repoPath = allPaths[i];
-    const owner = pathOwners[i];
-    try {
-      const inspected = inspectRepo(repoPath);
-      result.repos.push(inspected);
-      events.onRepo?.(inspected, i, allPaths.length);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "scan failed";
-      const fallback: ScannedRepo = {
-        id: basename(repoPath),
-        path: repoPath,
-        name: basename(repoPath),
-        isDirty: false,
-        scanError: message
-      };
-      result.repos.push(fallback);
-      events.onRepo?.(fallback, i, allPaths.length);
-    }
+  // Per-path slot in the result list so workers can overwrite as phases land
+  // without needing a Map lookup. Repos are inserted in discovery order and
+  // re-sorted by name at the end (matches legacy contract).
+  const slots: (ScannedRepo | undefined)[] = new Array(total);
+
+  const fallbackFor = (repoPath: string, message: string): ScannedRepo => ({
+    id: makeRepoId(repoPath),
+    path: repoPath,
+    name: basename(repoPath),
+    isDirty: false,
+    scanError: message
+  });
+
+  // Persistent cache from prior runs — skipped entirely if disabled. Loaded
+  // synchronously so phase 0 can short-circuit before kicking off git work.
+  const cacheEnabled = options.cache !== false;
+  const priorCache: ScanCacheMap = cacheEnabled
+    ? loadScanCache(options.cacheFile)
+    : {};
+  /** Indices that hit the cache. Phase 1 and phase 2 workers skip these —
+   *  their slot already holds the cached `ScannedRepo` and the event
+   *  counters were advanced inline during phase 0. */
+  const cachedIndices = new Set<number>();
+
+  // ---- Phase 0: fs-only skeletons for every repo. -------------------------
+  // No git subprocess. Just `.git/HEAD` + ref resolution. Runs as a flat
+  // Promise.all because the per-repo cost is dominated by a couple of small
+  // file reads, not by anything that benefits from bounded concurrency.
+  // Emits onRepoSkeleton in completion order — for a fresh disk cache this
+  // is essentially "all at once" within a few tens of ms.
+  //
+  // Cache integration: after reading HEAD, we ask the cache. A hit (same
+  // sha as last run) means we emit the cached scan as `onRepoStatus`,
+  // `onRepo`, and `onRepoExtras` inline, and mark the index so phases 1-3
+  // workers don't redo any work.
+  let skeletonsDone = 0;
+  let statusDone = 0;
+  let enrichedDone = 0;
+  let extrasDone = 0;
+
+  const advanceRoot = (owner: string) => {
     const nextDone = (rootDone.get(owner) ?? 0) + 1;
     rootDone.set(owner, nextDone);
     events.onRoot?.({
@@ -757,11 +1282,144 @@ export const scanRootsProgressive = async (
       done: nextDone,
       total: rootTotals.get(owner) ?? 0,
     });
-    // Yield to the event loop so React state updates can paint.
-    await new Promise((resolve) => setImmediate(resolve));
+  };
+
+  const preskeletons = allPaths.map((path) => inspectRepoPreskeletonAsync(path));
+  await Promise.all(
+    preskeletons.map(async (promise, index) => {
+      let scan: ScannedRepo;
+      try {
+        scan = await promise;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "scan failed";
+        scan = fallbackFor(allPaths[index], message);
+      }
+      slots[index] = scan;
+      skeletonsDone += 1;
+      events.onRepoSkeleton?.(scan, skeletonsDone, total);
+
+      // Cache lookup against the freshly-read HEAD sha. Hit means we can
+      // skip the entire git pipeline for this repo.
+      const cached = lookupCachedScan(priorCache, scan.path, scan.lastCommitSha);
+      if (cached && !cached.scanError) {
+        cachedIndices.add(index);
+        slots[index] = cached;
+        statusDone += 1;
+        events.onRepoStatus?.(cached, statusDone, total);
+        enrichedDone += 1;
+        events.onRepo?.(cached, enrichedDone, total);
+        advanceRoot(pathOwners[index]);
+        extrasDone += 1;
+        events.onRepoExtras?.(cached, extrasDone, total);
+      }
+    })
+  );
+
+  // ---- Phase 1 pool: git status for every cache-MISS repo. ---------------
+  // Workers run `git status --porcelain=v2 --branch` and fold dirty/ahead/
+  // behind onto each repo's slot. We finish all phase 1 before phase 2 so
+  // the user sees the full status-flagged list before enrichment churn
+  // starts — phase 2's git calls otherwise hog the kernel and slow phase 1.
+  // Cache hits skip this pool entirely (counters were advanced in phase 0).
+  let phase1Cursor = 0;
+  const phase1Worker = async () => {
+    while (true) {
+      const index = phase1Cursor++;
+      if (index >= total) return;
+      if (cachedIndices.has(index)) continue;
+      const repoPath = allPaths[index];
+      const preskeleton = slots[index];
+      // If phase 0 already failed (no .git), skip the git call; the slot's
+      // existing scanError carries downstream.
+      if (preskeleton?.scanError) {
+        statusDone += 1;
+        events.onRepoStatus?.(preskeleton, statusDone, total);
+        continue;
+      }
+      let scan: ScannedRepo;
+      try {
+        scan = await inspectRepoSkeletonAsync(repoPath);
+        // Preserve any preskeleton fields that the status call doesn't
+        // overwrite (id is identical via makeRepoId, but be explicit).
+        if (preskeleton) scan = { ...preskeleton, ...scan };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "scan failed";
+        scan = preskeleton
+          ? { ...preskeleton, scanError: message }
+          : fallbackFor(repoPath, message);
+      }
+      slots[index] = scan;
+      statusDone += 1;
+      events.onRepoStatus?.(scan, statusDone, total);
+    }
+  };
+
+  const phase1Count = Math.min(SCAN_CONCURRENCY, total);
+  const phase1Workers: Promise<void>[] = [];
+  for (let i = 0; i < phase1Count; i += 1) phase1Workers.push(phase1Worker());
+  await Promise.all(phase1Workers);
+
+  // ---- Phase 2 + phase 3 pool: enrichment, then extras, per cache-MISS repo.
+  // Workers still pipeline phase 2 → phase 3 for a single repo (rather than
+  // running two more split pools) because phase 3 is just a fs walk — it
+  // doesn't share contention with phase 2's git spawns, and chaining means
+  // we emit a single `onRepoExtras` per repo that the consumer can use as
+  // the "final" event without tracking phase 2 vs 3 separately.
+  // Cache hits skip this pool entirely.
+  let phase2Cursor = 0;
+
+  const phase2Worker = async () => {
+    while (true) {
+      const index = phase2Cursor++;
+      if (index >= total) return;
+      if (cachedIndices.has(index)) continue;
+      const owner = pathOwners[index];
+      let scan = slots[index] ?? fallbackFor(allPaths[index], "skeleton missing");
+
+      if (!scan.scanError) {
+        try {
+          scan = await inspectRepoEnrichAsync(scan);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "scan failed";
+          scan = { ...scan, scanError: message };
+        }
+        slots[index] = scan;
+      }
+      enrichedDone += 1;
+      events.onRepo?.(scan, enrichedDone, total);
+      advanceRoot(owner);
+
+      if (!scan.scanError) {
+        try {
+          scan = await inspectRepoExtrasAsync(scan);
+        } catch {
+          // Extras are best-effort — language detection can fail on
+          // permission errors or exotic filesystems. Keep the phase-2
+          // result rather than tagging the whole repo with a scan error.
+        }
+        slots[index] = scan;
+      }
+      extrasDone += 1;
+      events.onRepoExtras?.(scan, extrasDone, total);
+    }
+  };
+
+  const phase2Workers: Promise<void>[] = [];
+  for (let i = 0; i < phase1Count; i += 1) phase2Workers.push(phase2Worker());
+  await Promise.all(phase2Workers);
+
+  for (const entry of slots) {
+    if (entry) result.repos.push(entry);
+  }
+  result.repos.sort((left, right) => left.name.localeCompare(right.name));
+
+  // Persist the scan so the next launch hits the cache. We rebuild the
+  // entire entry set rather than merging — entries for repos no longer
+  // under any root naturally fall out, keeping the file from growing.
+  if (cacheEnabled) {
+    saveScanCache(buildUpdatedCache(result.repos), options.cacheFile);
   }
 
-  result.repos.sort((left, right) => left.name.localeCompare(right.name));
   events.onComplete?.(result);
   return result;
 };

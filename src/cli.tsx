@@ -114,17 +114,38 @@ const App = ({
       setRescanError(undefined);
       setScanProgress({ done: 0, total: 0 });
       setScanProgressByRoot(undefined);
-      const collected: ScannedRepo[] = [];
+      // Map keyed by path so the three scanner phases (skeleton → enrichment →
+      // extras) all patch the same row, regardless of which worker emits first.
+      // Iteration order matches insertion (= skeleton-arrival order), so the
+      // garden list still streams in roughly the order repos finish phase 1.
+      const collected = new Map<string, ScannedRepo>();
+      const pushPartial = () => {
+        // reconcile:false — partial batches mid-scan would otherwise trim the
+        // snapshot and re-emit phantom repo-added events as more arrive.
+        setCreatures(enrichScans(Array.from(collected.values()), { reconcile: false }));
+      };
       try {
         const result = await scanRootsProgressive(rootsToScan, {
-          onRepo: (repo, index, total) => {
-            collected.push(repo);
-            setScanProgress({ done: index + 1, total });
-            // Stream creatures as they're discovered so the garden fills in
-            // live. Skip the snapshot reconcile here — see EnrichScansOptions:
-            // reconciling a partial list trims the snapshot and makes the next
-            // partial batch emit phantom repo-added events.
-            setCreatures(enrichScans([...collected], { reconcile: false }));
+          // Phase 0 and phase 1 emissions populate rows but don't advance
+          // the progress bar — phase 0 lands ~instantly and would shoot the
+          // bar to 100% before any real work happens. Bar tracks phase 2
+          // (enrichment), which is the meaningful "scan finishing" pace.
+          onRepoSkeleton: (repo) => {
+            collected.set(repo.path, repo);
+            pushPartial();
+          },
+          onRepoStatus: (repo) => {
+            collected.set(repo.path, repo);
+            pushPartial();
+          },
+          onRepo: (repo, done, total) => {
+            collected.set(repo.path, repo);
+            setScanProgress({ done, total });
+            pushPartial();
+          },
+          onRepoExtras: (repo) => {
+            collected.set(repo.path, repo);
+            pushPartial();
           },
           onRootsResolved: (rootsProgress) => {
             setScanProgressByRoot(rootsProgress);
