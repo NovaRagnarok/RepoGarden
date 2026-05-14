@@ -385,3 +385,62 @@ test("quadrantChar maps empty and full cells", () => {
   assert.equal(quadrantChar(false, false, false, false), " ");
   assert.equal(quadrantChar(true, true, true, true), "█");
 });
+
+// ---------------------------------------------------------------------------
+// eyesClosed variant
+// ---------------------------------------------------------------------------
+
+const countZeros = (matrix: SubMatrix): number => {
+  let n = 0;
+  for (const row of matrix) for (const cell of row) if (cell === 0) n += 1;
+  return n;
+};
+
+test("eyesClosed sprite carves more zero sub-pixels (the slit) than the open variant", () => {
+  // Multiple identities: the slit is one extra zero per eye = 2 extra
+  // zeros minimum. Same RNG seed, same body shape, only the eye carving
+  // differs.
+  for (let i = 0; i < 8; i += 1) {
+    const id = `/tmp/sleepy-${i}`;
+    const open = generateCreature(id, 6, 4, false);
+    const closed = generateCreature(id, 6, 4, true);
+    const openZeros = countZeros(open);
+    const closedZeros = countZeros(closed);
+    assert.ok(
+      closedZeros > openZeros,
+      `creature ${i}: expected closed (${closedZeros}) to carve more zeros than open (${openZeros})`
+    );
+  }
+});
+
+test("eyesClosed sprite preserves the open sprite's outer body footprint", () => {
+  // The slit lives inside the body — the overall bounding box of the
+  // body cells should not change. Otherwise we'd silently shrink/grow
+  // the sprite when vibe flips.
+  const id = "/tmp/sleepy-footprint";
+  const open = generateCreature(id, 6, 4, false);
+  const closed = generateCreature(id, 6, 4, true);
+
+  const bounds = (m: SubMatrix) => {
+    let minY = Infinity, maxY = -Infinity, minX = Infinity, maxX = -Infinity;
+    for (let y = 0; y < m.length; y += 1) {
+      for (let x = 0; x < m[y].length; x += 1) {
+        if (m[y][x] === 1) {
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+        }
+      }
+    }
+    return { minY, maxY, minX, maxX };
+  };
+
+  assert.deepEqual(bounds(open), bounds(closed));
+});
+
+test("generateCreatureFrames with eyesClosed produces both animation frames carved", () => {
+  const { frameA, frameB } = generateCreatureFrames("/tmp/sleepy-anim", 6, 4, true);
+  assert.ok(countZeros(frameA) >= 4, "frameA should carve at least 4 zero sub-pixels (2 slits)");
+  assert.ok(countZeros(frameB) >= 4, "frameB should carve at least 4 zero sub-pixels (2 slits)");
+});

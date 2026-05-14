@@ -396,35 +396,71 @@ const stampBody = (grid: SubMatrix, state: GeneratorState, rng: () => number): v
   }
 };
 
-const carveEyes = (grid: SubMatrix, state: GeneratorState): void => {
-  // Single sub-pixel eyes. They read as little invader eye slots, not the big
-  // square holes that made the previous pass look like identical bobs.
-  const eyePixels = [
+// For each eye, list the sub-pixels that get carved out of the body.
+// Open eyes: one sub-pixel per eye → reads as two dot eyes.
+// Closed eyes: extend each eye one sub-pixel *inward* (toward the
+// centerline) to form a 2-sub-pixel horizontal slit per eye. Inward is
+// safer than outward because eyeLeft = centerLeft - eyeOffset and
+// eyeRight = centerRight + eyeOffset both sit close to the body edge;
+// extending outward risks the extra carving falling outside the body.
+const eyeCarvePositions = (
+  state: GeneratorState,
+  closed: boolean
+): { y: number; x: number }[] => {
+  const positions = [
     { y: state.eyeRow, x: state.eyeLeft },
     { y: state.eyeRow, x: state.eyeRight }
   ];
+  if (!closed) return positions;
+  positions.push({ y: state.eyeRow, x: state.eyeLeft + 1 });
+  positions.push({ y: state.eyeRow, x: state.eyeRight - 1 });
+  return positions;
+};
+
+const carveEyes = (
+  grid: SubMatrix,
+  state: GeneratorState,
+  closed: boolean
+): void => {
+  // Sub-pixel eyes. They read as little invader eye slots, not the big
+  // square holes that made the previous pass look like identical bobs.
+  // Closed eyes get a second adjacent sub-pixel inward so the resulting
+  // quadrant glyph reads as a horizontal slit instead of a dot.
+  const eyePixels = eyeCarvePositions(state, closed);
 
   for (const eye of eyePixels) {
     setPixel(grid, eye.y, eye.x, 0);
     state.protectedZeros.add(pixelKey(eye.y, eye.x));
 
-    // Ensure every eye is inside body: left/right and above/below are body.
+    // Ensure every eye sub-pixel is inside body: cardinal neighbours
+    // are body cells. (The neighbouring eye sub-pixel of a closed-eye
+    // slit is set to 0 again at the end so the slit stays open.)
     for (const [dy, dx] of CARDINAL_NEIGHBORS) {
       setPixel(grid, eye.y + dy, eye.x + dx, 1);
     }
   }
 
-  setPixel(grid, state.eyeRow, state.eyeLeft, 0);
-  setPixel(grid, state.eyeRow, state.eyeRight, 0);
+  // Re-stamp the holes — the cardinal-neighbour loop above set adjacent
+  // slit sub-pixels back to body when it ran for the dot half of the
+  // pair. This restores them.
+  for (const eye of eyePixels) {
+    setPixel(grid, eye.y, eye.x, 0);
+  }
 };
 
-const reinforceEyes = (grid: SubMatrix, state: GeneratorState): void => {
-  for (const x of [state.eyeLeft, state.eyeRight]) {
-    const y = state.eyeRow;
+const reinforceEyes = (
+  grid: SubMatrix,
+  state: GeneratorState,
+  closed: boolean
+): void => {
+  const eyePixels = eyeCarvePositions(state, closed);
+  for (const eye of eyePixels) {
     for (const [dy, dx] of CARDINAL_NEIGHBORS) {
-      setPixel(grid, y + dy, x + dx, 1);
+      setPixel(grid, eye.y + dy, eye.x + dx, 1);
     }
-    setPixel(grid, y, x, 0);
+  }
+  for (const eye of eyePixels) {
+    setPixel(grid, eye.y, eye.x, 0);
   }
 };
 
@@ -632,7 +668,12 @@ const extendFootDown = (grid: SubMatrix): SubMatrix => {
   return out;
 };
 
-const buildCreature = (identity: string, charW: number, charH: number): CreatureBuild => {
+const buildCreature = (
+  identity: string,
+  charW: number,
+  charH: number,
+  eyesClosed: boolean
+): CreatureBuild => {
   const safeCharW = Math.max(3, Math.round(charW));
   const safeCharH = Math.max(2, Math.round(charH));
   const grid = emptyGrid(safeCharW * 2, safeCharH * 2);
@@ -643,11 +684,11 @@ const buildCreature = (identity: string, charW: number, charH: number): Creature
   stampLegs(grid, state, rng);
   const limb = planAnimatedLimb(grid, state, rng);
   drawLimbStem(grid, limb);
-  carveEyes(grid, state);
+  carveEyes(grid, state, eyesClosed);
   repairDisconnectedPixels(grid, state.protectedZeros);
-  reinforceEyes(grid, state);
+  reinforceEyes(grid, state, eyesClosed);
   repairDisconnectedPixels(grid, state.protectedZeros);
-  reinforceEyes(grid, state);
+  reinforceEyes(grid, state, eyesClosed);
 
   // bodyBob shifts the whole body up one sub-pixel; only safe if no limb
   // pixel sits on row 0. legExtend doesn't shift anything, so it's always
@@ -660,9 +701,10 @@ const buildCreature = (identity: string, charW: number, charH: number): Creature
 export const generateCreature = (
   identity: string,
   charW: number,
-  charH: number
+  charH: number,
+  eyesClosed = false
 ): SubMatrix => {
-  const { base, limb } = buildCreature(identity, charW, charH);
+  const { base, limb } = buildCreature(identity, charW, charH, eyesClosed);
   const out = base.map((row) => [...row]);
   drawLimbTip(out, limb.tipA);
   return out;
@@ -671,7 +713,8 @@ export const generateCreature = (
 export const generateCreatureFrames = (
   identity: string,
   charW: number,
-  charH: number
+  charH: number,
+  eyesClosed = false
 ): { frameA: SubMatrix; frameB: SubMatrix } => {
   // Three mutually-exclusive idle styles per creature:
   //   - bodyBob: body lifts one sub-pixel in frame A; a leg pixel bridges
@@ -681,7 +724,7 @@ export const generateCreatureFrames = (
   //     tile floor. Limb stays in tipA both frames.
   //   - none (or unbobbable bodyBob): the limb tip swings between tipA
   //     and tipB as before.
-  const { base, limb, bobStyle, bobbable } = buildCreature(identity, charW, charH);
+  const { base, limb, bobStyle, bobbable } = buildCreature(identity, charW, charH, eyesClosed);
   const frameA = base.map((row) => [...row]);
   const frameB = base.map((row) => [...row]);
 

@@ -209,10 +209,17 @@ const buildScene = (props: GardenSceneProps): GardenScene => {
   const sprites = new Map<string, GardenSpriteInfo>();
   for (const placement of layout.placements) {
     const creature = placement.tile.creature;
+    // Sleepy-vibe creatures get closed-eye sprites — same eye position
+    // but a 2-sub-pixel inward extension that reads as a horizontal slit
+    // rather than a dot. Triggered off the bucket (not the continuous
+    // activity scalar) so a creature's eye state changes only when its
+    // vibe flips, not on every fractional activity tick.
+    const eyesClosed = creature.vibe.vibe === "sleepy";
     const { frameA, frameB } = generateCreatureFrames(
       creature.scan.path || creature.id,
       placement.tile.charW,
-      placement.tile.charH
+      placement.tile.charH,
+      eyesClosed
     );
     const { body } = pickSpriteColors(
       creature.scan.path || creature.id,
