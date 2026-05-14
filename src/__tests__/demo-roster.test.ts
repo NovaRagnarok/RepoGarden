@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildDemoCreatures,
   buildDemoNameMap,
   clearActiveDemoIds,
   DEMO_NAMES,
@@ -87,6 +88,24 @@ test("clearActiveDemoIds falls back to hash-modulo (stable per id)", () => {
   const after = demoNameFor("not-in-the-active-set");
   assert.equal(before, after, "fallback should be stable for the same id");
   assert.ok(DEMO_NAMES.includes(after));
+});
+
+test("buildDemoCreatures yields a populated roster suitable for the onboarding demo hook", () => {
+  // The onboarding screen's `d` hotkey (handleTryDemo in cli.tsx) seeds
+  // these into state when the user has zero real creatures. Guard against
+  // a future refactor that accidentally returns []: the screen would flip
+  // privacy.setMode("demo") on an empty list and the user would land on
+  // the same empty garden they started from.
+  const creatures = buildDemoCreatures();
+  assert.ok(creatures.length >= 8, "demo roster should have at least 8 creatures");
+  const ids = new Set(creatures.map((c) => c.id));
+  assert.equal(ids.size, creatures.length, "demo creature ids should be unique");
+  const vibes = new Set(creatures.map((c) => c.vibe.vibe));
+  assert.ok(vibes.size >= 2, "demo roster should span multiple vibes for a believable garden");
+  for (const c of creatures) {
+    assert.ok(c.scan.name && c.scan.name.length > 0, "every demo creature needs a name");
+    assert.ok(c.scan.path && c.scan.path.length > 0, "every demo creature needs a path");
+  }
 });
 
 test("setActiveDemoIds with the same fingerprint skips rebuilding", () => {

@@ -172,10 +172,14 @@ const GardenViewInner = ({
   useMouse(handleMouse, { isActive: creatures.length > 0 });
 
   if (creatures.length === 0) {
+    // We reach this only when the filter/hidden list collapses to nothing
+    // (a true zero-result scan routes to OnboardingScreen's contextual
+    // empty-state instead). Stay terse — the user is one keystroke away
+    // from clearing the filter.
     return (
       <Panel paddingY={1} width={width} height={height}>
         <Text dimColor color={theme.colors.mutedForeground}>
-          empty plot - press r to scan.
+          empty plot — press r to rescan, / to clear a filter, or p to edit roots.
         </Text>
       </Panel>
     );

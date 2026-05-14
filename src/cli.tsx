@@ -15,7 +15,7 @@ import {
   parseFocusChunk,
   subscribeFocus
 } from "@/lib/focus";
-import { PrivacyProvider } from "@/components/privacy-context";
+import { PrivacyProvider, usePrivacy } from "@/components/privacy-context";
 import { ToastProvider, useToasts } from "@/components/ui/toast-host";
 import { BootScreen } from "@/screens/BootScreen";
 import { OnboardingScreen } from "@/screens/OnboardingScreen";
@@ -41,6 +41,7 @@ import {
   refreshOneCreature,
   type RepoCreature,
 } from "@/lib/creature";
+import { buildDemoCreatures } from "@/lib/demo-roster";
 import { loadMemory, saveMemory, type ProjectMemory } from "@/lib/memory";
 import { CLI_HELP_TEXT, hasHelpFlag, hasVersionFlag } from "@/lib/cli-help";
 import { checkForUpdate, readCurrentVersion } from "@/lib/update-check";
@@ -89,6 +90,7 @@ const App = ({
 }: AppProps) => {
   const { exit } = useApp();
   const { push: pushToast } = useToasts();
+  const privacy = usePrivacy();
   const [phase, setPhase] = useState<Phase>("booting");
   const [scanStatus, setScanStatus] = useState<ScanStatus | undefined>();
   const [themeId, setThemeId] = useState<string>(initialThemeId);
@@ -383,6 +385,19 @@ const App = ({
     pushToast(`density · ${next}`, "info");
   };
 
+  // Demo mode from onboarding: when the user has no scan roots (or scanned
+  // and found nothing), `d` swaps to demo mode AND seeds a synthetic roster
+  // so the garden actually has creatures to render. Without the seed, demo
+  // mode alone is a no-op when creatures.length === 0 (the masker just maps
+  // over an empty array). Roots stay untouched — exiting demo mode via the
+  // `demo` sequence in garden view returns to whatever state the user was in.
+  const handleTryDemo = () => {
+    setCreatures((current) => (current.length === 0 ? buildDemoCreatures() : current));
+    privacy.setMode("demo");
+    setPhase("ready");
+    pushToast("demo mode · synthetic repos, type 'demo' to exit", "info", 6000);
+  };
+
   const handleRescan = async () => {
     if (roots.length === 0) {
       setPhase("onboarding");
@@ -464,12 +479,20 @@ const App = ({
   }
 
   if (phase === "onboarding") {
-    const seedPath = roots.length > 0 ? roots.join("\n") : "~/repos";
+    // First-run leaves the input empty so the `d` hotkey (demo preview)
+    // can fire without the user first clearing a hint string. When prior
+    // roots exist (post-empty-scan), seed them so the user can edit and
+    // rescan without retyping. The empty-state branch in OnboardingScreen
+    // gates the `d`/`s` hotkeys on an empty input — see useInput there.
+    const seedPath = roots.length > 0 ? roots.join("\n") : "";
     return (
       <OnboardingScreen
         initialPath={seedPath}
         onScan={handleScan}
+        onTryDemo={handleTryDemo}
+        onOpenSettings={() => setPhase("settings")}
         scanStatus={scanStatus}
+        scannedRoots={roots}
       />
     );
   }
@@ -506,6 +529,7 @@ const App = ({
         onScan={handleScan}
         onCancel={() => setPhase("ready")}
         scanStatus={scanStatus}
+        scannedRoots={roots}
       />
     );
   }
