@@ -641,7 +641,7 @@ test("organic garden applies persisted manual creature placement offsets", () =>
   );
 });
 
-const CLOSED_EYE_GLYPH = "▁";
+const CLOSED_EYE_GLYPH = "▂";
 
 test("renderGardenFrame paints sleepy eyes as a thick low bar on a body-coloured face panel", () => {
   const model = createGardenModel(

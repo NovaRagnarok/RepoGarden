@@ -5,9 +5,9 @@ import { computeStarVisual, greyHex, starAtCell } from "@/garden/stars";
 import { blinkClosedAt, wiggleFrameAt } from "@/garden/model";
 import type { GardenCell, GardenFrame, GardenModel } from "@/garden/types";
 
-// Lower one-eighth block — sits on the same baseline as `_` but reads
-// thicker, more like a closed eyelid resting at the bottom of the cell.
-const EYE_GLYPH_CLOSED = "▁";
+// Lower one-quarter block — sits at the bottom of the cell like `_`
+// but with a thicker bar that reads clearly as a closed eyelid.
+const EYE_GLYPH_CLOSED = "▂";
 
 const SUB_PER_CELL = 2;
 
