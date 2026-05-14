@@ -5,8 +5,9 @@ import { computeStarVisual, greyHex, starAtCell } from "@/garden/stars";
 import { blinkClosedAt, wiggleFrameAt } from "@/garden/model";
 import type { GardenCell, GardenFrame, GardenModel } from "@/garden/types";
 
-const EYE_GLYPH_OPEN = "•";
-const EYE_GLYPH_CLOSED = "_";
+// Lower one-eighth block — sits on the same baseline as `_` but reads
+// thicker, more like a closed eyelid resting at the bottom of the cell.
+const EYE_GLYPH_CLOSED = "▁";
 
 const SUB_PER_CELL = 2;
 
@@ -141,19 +142,19 @@ export const renderGardenFrame = (
       !reducedMotion && wiggleFrameAt(info.wiggle, now) === 1
         ? info.frameB
         : info.frameA;
-    const eyeCellKeys = new Set([
-      `${info.eyeCells.left.cx}:${info.eyeCells.left.cy}`,
-      `${info.eyeCells.right.cx}:${info.eyeCells.right.cy}`
-    ]);
-    // Composited eye glyph for this tick: locked closed when the
-    // creature is sleepy, otherwise blinks briefly on its own cadence.
-    // Both glyphs paint with bg=body so the eye cells read as a clean
-    // "face panel" with a glyph cut into it, regardless of what the
-    // quadrant char at that cell would otherwise have produced.
-    const eyeGlyph =
-      info.eyesClosed || (!reducedMotion && blinkClosedAt(info.blink, now))
-        ? EYE_GLYPH_CLOSED
-        : EYE_GLYPH_OPEN;
+    // Closed eyes only override the body-grid paint — open eyes keep
+    // the original sub-pixel-derived quadrant char so the awake look
+    // matches the pre-face-panel rendering. The face panel (bg=body
+    // + glyph cut into it) appears whenever the creature is sleepy,
+    // or briefly during the blink window for awake creatures.
+    const eyesShut =
+      info.eyesClosed || (!reducedMotion && blinkClosedAt(info.blink, now));
+    const eyeCellKeys = eyesShut
+      ? new Set([
+          `${info.eyeCells.left.cx}:${info.eyeCells.left.cy}`,
+          `${info.eyeCells.right.cx}:${info.eyeCells.right.cy}`
+        ])
+      : null;
     for (let cy = 0; cy < info.charH; cy += 1) {
       for (let cx = 0; cx < info.charW; cx += 1) {
         const sy = cy * SUB_PER_CELL;
@@ -162,13 +163,9 @@ export const renderGardenFrame = (
         const tr = spriteFrame[sy]?.[sx + 1] === 1;
         const bl = spriteFrame[sy + 1]?.[sx] === 1;
         const br = spriteFrame[sy + 1]?.[sx + 1] === 1;
-        if (eyeCellKeys.has(`${cx}:${cy}`)) {
-          // Face panel: fill the cell with body color and paint the
-          // eye glyph (open or closed) on top in the panel background.
-          // Eyes always render even if no body sub-pixel touches the
-          // cell, since the panel itself is the face area.
+        if (eyeCellKeys && eyeCellKeys.has(`${cx}:${cy}`)) {
           setCell(frame, visual.x + cx, visual.charY + cy, {
-            char: eyeGlyph,
+            char: EYE_GLYPH_CLOSED,
             fg: model.props.theme.background,
             bg: info.body
           });
