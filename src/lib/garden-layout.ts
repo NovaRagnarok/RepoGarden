@@ -384,6 +384,65 @@ const slotsBlockedByZone = (
   return dCols * dRows;
 };
 
+/** Labels-aware variant of `gardenPageCapacity`. Uses the actual longest
+ *  name + sprite dims across the supplied tiles instead of the
+ *  baseline `PAGE_SLOT_W`. Use this when guaranteeing zero overlap and zero
+ *  edge-crop matters more than density — e.g. the static GIF / text-frame
+ *  export pipeline, where the user is sharing a snapshot rather than
+ *  interacting with it.
+ *
+ *  Returns the maximum number of these specific creatures that can be placed
+ *  without their labels overflowing their slot or the canvas. The caller
+ *  should slice creatures to this count (and paginate the rest) before
+ *  handing them to `placeCreatures`. */
+export const safeGardenCapacity = (
+  tiles: SizedTile[],
+  canvasW: number,
+  canvasH: number,
+  deadZone?: { width: number; height: number },
+  topRightDeadZone?: { width: number; height: number }
+): number => {
+  if (tiles.length === 0) return 0;
+  const maxSpriteCols = Math.max(...tiles.map((t) => t.spriteCols));
+  const maxSpriteRows = Math.max(...tiles.map((t) => t.charRows));
+  const maxLabelCols = Math.max(
+    ...tiles.map((t) => t.creature.scan.name.length + 2)
+  );
+  // Same formula `placeCreatures` uses for its hard minimums — keeping the
+  // two in lockstep means the capacity we report matches the capacity the
+  // placer actually offers.
+  const minSlotW = Math.max(maxSpriteCols, maxLabelCols) + SLOT_PAD_X;
+  const minSlotH = maxSpriteRows + NAME_GAP_ROWS + NAME_H;
+  const usableW = Math.max(minSlotW, canvasW - 1);
+  const nameReserve = NAME_GAP_ROWS + NAME_H;
+  const usableH = Math.max(minSlotH, canvasH - SKY_ROWS - GROUND_ROWS - nameReserve);
+  const cols = Math.max(1, Math.floor(usableW / minSlotW));
+  const rows = Math.max(1, Math.floor(usableH / minSlotH));
+  const grid = cols * rows;
+  let blocked = 0;
+  if (deadZone) {
+    blocked += slotsBlockedByZone(
+      deadZone.width,
+      deadZone.height + nameReserve,
+      minSlotW,
+      minSlotH,
+      cols,
+      rows
+    );
+  }
+  if (topRightDeadZone) {
+    blocked += slotsBlockedByZone(
+      topRightDeadZone.width,
+      topRightDeadZone.height,
+      minSlotW,
+      minSlotH,
+      cols,
+      rows
+    );
+  }
+  return Math.max(1, grid - blocked);
+};
+
 /** Mirror of the placer's "fit creatures into the canvas without overlap"
  *  capacity formula, using PAGE_SLOT_DIMS[density] in place of the placer's
  *  hard minimums so a page leaves room to breathe. Dead-zone discounts are

@@ -23,7 +23,19 @@ import { layoutMode, useTerminalSize } from "@/hooks/use-terminal-size";
 import type { RepoCreature } from "@/lib/creature";
 import { tildify } from "@/lib/scanner";
 import { vibeGlyph, type Vibe } from "@/lib/vibe";
-import { gardenPageCapacity, paginateCreatures, type GardenDensity } from "@/lib/garden-layout";
+import {
+  gardenPageCapacity,
+  paginateCreatures,
+  safeGardenCapacity,
+  type GardenDensity
+} from "@/lib/garden-layout";
+import { writeToSystemClipboard } from "@/lib/clipboard";
+import { exportGardenGif } from "@/lib/gif/export";
+import { renderShareableTextFrame } from "@/lib/gif/text-export";
+import { frameToText } from "@/lib/text-frame";
+import { buildTiles, createGardenModel, pinForExport } from "@/garden/model";
+import { renderGardenFrame } from "@/garden/render";
+import type { GardenSceneProps, GardenThemeColors } from "@/garden/types";
 import { GardenView } from "@/screens/GardenView";
 import { CreatureSprite } from "@/components/CreatureSprite";
 import { Credit } from "@/components/Credit";
@@ -102,7 +114,7 @@ export const ReadyShell = ({
 }: ReadyShellProps) => {
   const theme = useTheme();
   const { reduced: reducedMotion } = useMotion();
-  const { latest: latestStatus } = useToasts();
+  const { latest: latestStatus, push: pushToast } = useToasts();
   const { columns, rows } = useTerminalSize();
   const responsive = getTerminalLayout(columns, rows);
   const usage = useUsage(undefined, { disabled: usageBarDisabled });
@@ -117,6 +129,11 @@ export const ReadyShell = ({
   // when the next input would no longer be a prefix of "demo".
   const demoSequenceRef = useRef<string>("");
   const demoSequenceLastKeyRef = useRef<number | null>(null);
+  // Populated below once gardenWidth/gardenHeight/etc are known. The input
+  // handler reads through the ref so the `x`/`t`/`T` keys can grab a fresh
+  // scene-props snapshot without a separate `useInput` block.
+  const sceneSnapshotRef = useRef<(() => GardenSceneProps | null) | null>(null);
+  const exportingRef = useRef(false);
   // Action handlers (workbench, open folder, toggle hidden) need the real
   // underlying creature even while privacy is on — opening "~/▓▓▓" would just
   // fail. Resolve by id from the unmasked prop.
@@ -231,6 +248,77 @@ export const ReadyShell = ({
   // down — after gardenWidth/gardenHeight/overlayDeadZone are known — so
   // pagination can slice visibleCreatures before the cursor walks it.
   const followAfterUnhideRef = useRef<string | null>(null);
+
+  const handleExportGif = useCallback(async () => {
+    const snapshot = sceneSnapshotRef.current?.();
+    if (!snapshot) {
+      pushToast("nothing to export yet", "info");
+      return;
+    }
+    if (exportingRef.current) return;
+    exportingRef.current = true;
+    pushToast("rendering gif…", "info");
+    try {
+      // Use the live habitat dimensions verbatim — the goal is that the
+      // user recognises their garden in the GIF. The snapshot already
+      // carries `pagedVisibleCreatures`, so the export inherits paging too:
+      // if you're on page 2 of 3 when you press `x`, the GIF is page 2.
+      // Only mutation: drop the focus ring — it's a habitat shot, not a
+      // session screenshot.
+      const result = await exportGardenGif({ ...snapshot, focusIndex: -1 });
+      pushToast(`saved ${tildify(result.path)}`, "success", 6_000);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "gif export failed";
+      pushToast(message, "error", 6_000);
+    } finally {
+      exportingRef.current = false;
+    }
+  }, [pushToast]);
+
+  const handleCopyTextFrameSmall = useCallback(async () => {
+    const snapshot = sceneSnapshotRef.current?.();
+    if (!snapshot) {
+      pushToast("nothing to copy yet", "info");
+      return;
+    }
+    // "Small" mode: bisect a wide-short panorama until it fits Discord's
+    // 1999-char budget. Names get truncated at 16 chars + `…` so the
+    // placer can pack a denser horizontal row instead of stacking 2-up.
+    const text = renderShareableTextFrame(snapshot.creatures, {
+      theme: snapshot.theme,
+      maxChars: 1999,
+      nameMaxChars: 16,
+      shareFormat: true,
+      startWidth: 150,
+      startHeight: 12
+    });
+    const ok = writeToSystemClipboard(text);
+    pushToast(
+      ok ? `copied panorama (${text.length} chars)` : "clipboard unavailable",
+      ok ? "success" : "error"
+    );
+  }, [pushToast]);
+
+  const handleCopyTextFrameBig = useCallback(async () => {
+    const snapshot = sceneSnapshotRef.current?.();
+    if (!snapshot) {
+      pushToast("nothing to copy yet", "info");
+      return;
+    }
+    // "Big" mode: render the current habitat page at the live canvas
+    // dimensions verbatim. No bisect, no truncation. Useful for pasting
+    // into a wide editor / README / Slack canvas where the 2000-char
+    // limit doesn't apply.
+    const model = createGardenModel(snapshot, 0);
+    pinForExport(model);
+    const frame = renderGardenFrame(model, 0);
+    const text = frameToText(frame, { brand: true, fenced: true });
+    const ok = writeToSystemClipboard(text);
+    pushToast(
+      ok ? "copied habitat frame" : "clipboard unavailable",
+      ok ? "success" : "error"
+    );
+  }, [pushToast]);
 
   useInput((input, key) => {
     if (filterMode) {
@@ -441,6 +529,22 @@ export const ReadyShell = ({
       setCardVisible((current) => !current);
       return;
     }
+    // Share-the-garden keys. Active in garden + shelf only — journal is text,
+    // not a habitat. `x` → animated GIF to ~/Downloads; `t` → Discord-sized
+    // panorama (under 2000 chars, truncated names, single horizontal-ish row);
+    // `T` → full-canvas habitat snapshot (no size limit).
+    if (input === "x") {
+      void handleExportGif();
+      return;
+    }
+    if (input === "t") {
+      void handleCopyTextFrameSmall();
+      return;
+    }
+    if (input === "T") {
+      void handleCopyTextFrameBig();
+      return;
+    }
     // Page nav — only meaningful in garden view (shelf/journal don't paginate).
     // Clamps at edges so a stray ] at the last page doesn't move the cursor.
     // Focus resets to the first creature on the new page so the highlight
@@ -590,6 +694,61 @@ export const ReadyShell = ({
     : focusIndex < pagedVisibleCreatures.length
       ? focusIndex
       : -1;
+
+  // Snapshot builder for the export keybindings (x/t/T). Refreshed every
+  // render so the export keys always see the current page, focus, theme,
+  // and layout. Returns null in views where habitat export doesn't make
+  // sense (journal, empty pages).
+  sceneSnapshotRef.current = (): GardenSceneProps | null => {
+    if (displayView !== "garden" && displayView !== "shelf") return null;
+    if (pagedVisibleCreatures.length === 0) return null;
+    const gardenThemeColors: GardenThemeColors = {
+      foreground: theme.colors.foreground,
+      background: theme.colors.background,
+      mutedForeground: theme.colors.mutedForeground,
+      primary: theme.colors.primary,
+      accent: theme.colors.accent,
+      success: theme.colors.success,
+      warning: theme.colors.warning,
+      error: theme.colors.error,
+      info: theme.colors.info,
+      creaturePalette: theme.creaturePalette
+    };
+    const innerWidth = Math.max(20, gardenWidth - 4);
+    const canvasH = Math.max(10, gardenHeight - 4);
+    // Strip saved drag positions so the export uses canonical placement.
+    // A prior manual drag in the TUI would otherwise pull creatures toward
+    // the canvas edge in the snapshot, where long labels can clip.
+    const canonicalCreatures = pagedVisibleCreatures.map((c) => ({
+      ...c,
+      memory: { ...c.memory, gardenPlacement: undefined }
+    }));
+    // The live page may pack more creatures than fit without label overlap
+    // (especially with long repo names). For export, slice down to the
+    // labels-aware capacity so the snapshot reads cleanly. Same first-N
+    // ordering as the live view — the user still sees the start of their
+    // current page in the export. `pinForExport` (applied later to the
+    // resulting model) zeroes wander so labels can't drift off-canvas;
+    // we leave reducedMotion=false here so the body wiggle still animates.
+    const draftProps: GardenSceneProps = {
+      creatures: canonicalCreatures,
+      focusIndex: gardenFocusIndex,
+      innerWidth,
+      canvasH,
+      deadZone: responsive.showSidebar ? overlayDeadZone : undefined,
+      placementMode: habitatPlacementMode,
+      theme: gardenThemeColors,
+      reducedMotion: false
+    };
+    const safeCapacity = safeGardenCapacity(
+      buildTiles(draftProps),
+      innerWidth,
+      canvasH,
+      responsive.showSidebar ? overlayDeadZone : undefined
+    );
+    const safeCreatures = pagedVisibleCreatures.slice(0, safeCapacity);
+    return { ...draftProps, creatures: safeCreatures };
+  };
 
   useEffect(() => {
     if (focusIndex >= focusList.length && focusList.length > 0) {
