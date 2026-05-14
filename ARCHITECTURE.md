@@ -168,6 +168,15 @@ Important behavior:
 - After boot, a 30s light refresh probes each repo with a cheap
   `git status --porcelain=v2 --branch`. If HEAD changed, that one repo gets a
   full inspect so commit/journal data stay accurate.
+- A background observer (`src/lib/observer.ts`) layers on top: `fs.watch`
+  on each repo's `.git/logs/HEAD` triggers a single-repo
+  `refreshOneCreature` within ~250 ms of any commit / amend / pull / reset;
+  a non-recursive watch on each scan root surfaces new repos within
+  ~500 ms by running `inspectRepo` + splicing into the registry. Both
+  paths flow through `enrichScans`'s snapshot reconcile so the journal
+  events still come from the same seam. The 30s light refresh stays
+  underneath as a safety net for filesystems where `fs.watch` is
+  unreliable (network mounts, `/mnt/c` on WSL2).
 
 If a change affects vibe, commit visibility, branch changes, or what appears in
 the garden after rescans, follow this pipeline before touching UI code.
@@ -196,11 +205,14 @@ Two details matter when editing persistence code:
 
 Two hooks poll local/external state on intervals:
 
-- `src/hooks/use-events.ts`: re-reads `events.jsonl` every 5s
+- `src/hooks/use-events.ts`: re-reads `events.jsonl` on `fs.watch` activity
+  with a 30s safety-net poll underneath
 - `src/hooks/use-usage.ts`: refreshes Claude/Codex usage roughly every 120s
 
-The journal does not subscribe to filesystem events yet; it polls. The backlog
-already calls this out as future work.
+Repository-side changes are driven by the same pattern: `src/lib/observer.ts`
+watches each tracked repo's `.git/logs/HEAD` and each scan-root directory for
+new repos, and the existing 30s light refresh covers anything `fs.watch`
+misses.
 
 ## Input and terminal plumbing
 

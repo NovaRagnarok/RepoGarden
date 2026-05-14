@@ -25,8 +25,14 @@ import { WorkbenchScreen } from "@/screens/WorkbenchScreen";
 import { HelpOverlay } from "@/screens/HelpOverlay";
 import { openInFileBrowser } from "@/lib/system";
 import { defaultThemeId, themeById, themeCatalogue } from "@/themes";
-import { loadConfig, updateConfig } from "@/lib/config";
-import { scanRootsProgressive, type ScannedRepo, type RootProgress } from "@/lib/scanner";
+import { loadConfig, observerEnabled, updateConfig } from "@/lib/config";
+import {
+  inspectRepo,
+  scanRootsProgressive,
+  type RootProgress,
+  type ScannedRepo,
+} from "@/lib/scanner";
+import { startObserver } from "@/lib/observer";
 import {
   buildCreature,
   enrichScans,
@@ -60,6 +66,7 @@ interface AppProps {
   initialView: ReadyView;
   initialReducedMotion: boolean;
   initialUsageBarDisabled: boolean;
+  initialObserverEnabled: boolean;
   onThemeChange: (theme: Theme) => void;
   onReducedMotionChange: (reduced: boolean) => void;
 }
@@ -70,6 +77,7 @@ const App = ({
   initialView,
   initialReducedMotion,
   initialUsageBarDisabled,
+  initialObserverEnabled,
   onThemeChange,
   onReducedMotionChange
 }: AppProps) => {
@@ -86,6 +94,7 @@ const App = ({
   const [readyView, setReadyView] = useState<ReadyView>(initialView);
   const [reducedMotion, setReducedMotion] = useState<boolean>(initialReducedMotion);
   const [usageBarDisabled, setUsageBarDisabled] = useState<boolean>(initialUsageBarDisabled);
+  const [observerOn, setObserverOn] = useState<boolean>(initialObserverEnabled);
   const [scanProgress, setScanProgress] = useState<{ done: number; total: number } | undefined>();
   const [scanProgressByRoot, setScanProgressByRoot] = useState<RootProgress[] | undefined>();
 
@@ -203,6 +212,56 @@ const App = ({
     return () => clearInterval(id);
   }, [phase, isRescanning]);
 
+  // Background observer: fs.watch on each repo's .git/logs/HEAD and on
+  // each scan-root. Keyed on the *set* of repo paths (not creature data)
+  // so commit-driven state updates don't churn the watcher list. The
+  // 30s safety-net poll above still runs, covering filesystems where
+  // fs.watch silently drops events (network mounts, /mnt/c on WSL2).
+  // Skipped while a full rescan is in flight to avoid racing the
+  // single-repo refresh against the global enrichScans pass.
+  const creaturesRef = useRef(creatures);
+  creaturesRef.current = creatures;
+  const watchedRepoKey = creatures
+    .map((creature) => `${creature.id}::${creature.scan.path}`)
+    .join("|");
+  useEffect(() => {
+    if (phase === "booting" || phase === "onboarding" || phase === "edit-roots") {
+      return;
+    }
+    if (isRescanning) return;
+    if (!observerOn) return;
+    // Env override still wins per-run; persisted toggle covers normal use.
+    if (process.env.REPOGARDEN_DISABLE_OBSERVER === "1") return;
+    const config = loadConfig();
+
+    const stop = startObserver({
+      repos: creaturesRef.current.map((creature) => ({
+        id: creature.id,
+        path: creature.scan.path,
+      })),
+      roots,
+      maxWatches: config.observer.maxWatches,
+      onCommitDetected: (id) => {
+        setCreatures((current) => {
+          const next = refreshOneCreature(current, id);
+          return next === current ? current : next;
+        });
+      },
+      onNewRepoDetected: (path) => {
+        setCreatures((current) => {
+          if (current.some((creature) => creature.scan.path === path)) {
+            return current;
+          }
+          const fresh = inspectRepo(path);
+          if (fresh.scanError) return current;
+          const nextScans = [...current.map((c) => c.scan), fresh];
+          return enrichScans(nextScans);
+        });
+      },
+    });
+    return stop;
+  }, [phase, isRescanning, observerOn, watchedRepoKey, roots]);
+
   // Boot sequence: if we already have roots, scan them; otherwise show onboarding.
   useEffect(() => {
     let cancelled = false;
@@ -279,6 +338,14 @@ const App = ({
     setUsageBarDisabled(next);
     updateConfig({ usageBarDisabled: next });
     pushToast(`usage bar · ${next ? "off" : "on"}`, "info");
+  };
+
+  const handleToggleObserver = () => {
+    const next = !observerOn;
+    setObserverOn(next);
+    const current = loadConfig();
+    updateConfig({ observer: { ...current.observer, enabled: next } });
+    pushToast(`observer · ${next ? "on" : "off"}`, "info");
   };
 
   const handleRescan = async () => {
@@ -378,8 +445,10 @@ const App = ({
         currentThemeId={themeId}
         reducedMotion={reducedMotion}
         usageBarDisabled={usageBarDisabled}
+        observerEnabled={observerOn}
         onToggleReducedMotion={handleToggleReducedMotion}
         onToggleUsageBar={handleToggleUsageBar}
+        onToggleObserver={handleToggleObserver}
         onPickTheme={handlePickTheme}
         onClose={() => setPhase("ready")}
       />
@@ -490,6 +559,7 @@ const Root = () => {
             initialView={config.view}
             initialReducedMotion={reducedMotion}
             initialUsageBarDisabled={config.usageBarDisabled}
+            initialObserverEnabled={config.observer.enabled}
             onThemeChange={setActiveTheme}
             onReducedMotionChange={setReducedMotion}
           />

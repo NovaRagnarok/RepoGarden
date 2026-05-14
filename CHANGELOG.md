@@ -6,11 +6,13 @@ All notable changes to RepoGarden land here. Format follows [Keep a Changelog](h
 
 ### Added
 
+- **Background observer** for live commit + new-repo backfill. `fs.watch` on each repo's `.git/logs/HEAD` catches commits / amends / pulls / resets within ~250 ms; a non-recursive watch on each scan-root catches new repos dropped into a tracked folder within ~500 ms. The existing 30 s safety-net poll still runs underneath so updates arrive on filesystems where `fs.watch` is unreliable. Default-on; the settings screen exposes `o` as a persistent toggle, and `REPOGARDEN_DISABLE_OBSERVER=1` still wins for single-run launches. Closes the §4.1 "flagged for recovery" item in `docs/legacy-not-ported.md`.
 - **Pull from the workbench** (fast-forward only). PORTRAIT exposes `u` as a two-press confirm (first arms, second runs); the command palette has a "pull from remote" entry that runs immediately. Result lands as a sticky banner on failure / non-zero and as a transient success banner otherwise. Preflight blocks the action when the tree is dirty, HEAD is detached, the branch has no upstream, or scan errored. Each attempt appends a `pull` event to the journal — payload carries `ok`, `exitCode`, `branch`, `beforeSha`, `afterSha`, `commitsPulled`, `summary`, `durationMs`, `timedOut`. Closes the §7.3 "flagged for recovery" item in `docs/legacy-not-ported.md`.
 
 ### Internal
 
-- New module `src/lib/git-pull.ts` (async `git pull --ff-only` with 60 s timeout, line-streaming `onLine` callback, and small sync sha helpers). New event-summary kind `pull`. New single-repo refresh helper `refreshOneCreature` in `src/lib/creature.ts` re-inspects one repo and re-runs `enrichScans` so the snapshot reconcile fires. Test count: 290 → 306.
+- New module `src/lib/observer.ts` (per-handle debounce, watch budget cap at 150, error-tolerant per the `subscribeToEventsFile` pattern). New `observer` field on `TuiConfig` and `observerEnabled()` helper honoring the env override. cli.tsx adds one `useEffect` keyed on the *set* of repo paths so commit-driven state updates don't churn the watcher list.
+- New module `src/lib/git-pull.ts` (async `git pull --ff-only` with 60 s timeout, line-streaming `onLine` callback, and small sync sha helpers). New event-summary kind `pull`. New single-repo refresh helper `refreshOneCreature` in `src/lib/creature.ts` re-inspects one repo and re-runs `enrichScans` so the snapshot reconcile fires. Test count: 290 → 318.
 
 ## [0.3.3] — 2026-05-13
 

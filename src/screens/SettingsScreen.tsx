@@ -37,9 +37,11 @@ export interface SettingsScreenProps {
   currentThemeId: string;
   reducedMotion?: boolean;
   usageBarDisabled?: boolean;
+  observerEnabled?: boolean;
   onPickTheme: (id: string) => void;
   onToggleReducedMotion?: () => void;
   onToggleUsageBar?: () => void;
+  onToggleObserver?: () => void;
   onClose: () => void;
 }
 
@@ -318,9 +320,11 @@ export const SettingsScreen = ({
   currentThemeId,
   reducedMotion = false,
   usageBarDisabled = false,
+  observerEnabled = true,
   onPickTheme,
   onToggleReducedMotion,
   onToggleUsageBar,
+  onToggleObserver,
   onClose
 }: SettingsScreenProps) => {
   const appliedTheme = useTheme();
@@ -375,6 +379,10 @@ export const SettingsScreen = ({
     }
     if (input === "u" && onToggleUsageBar) {
       onToggleUsageBar();
+      return;
+    }
+    if (input === "o" && onToggleObserver) {
+      onToggleObserver();
       return;
     }
     if (key.escape || input === "q") {
@@ -599,6 +607,14 @@ export const SettingsScreen = ({
                 {usageBarDisabled ? "○ off" : "● on"}
               </Text>
             </Box>
+            <Box flexDirection="row" justifyContent="space-between">
+              <Text color={previewTheme.colors.foreground}>
+                <Text bold>o</Text> observer · live-watches .git for commits + new repos
+              </Text>
+              <Text color={observerEnabled ? previewTheme.colors.success : previewTheme.colors.mutedForeground}>
+                {observerEnabled ? "● on" : "○ off"}
+              </Text>
+            </Box>
           </Panel>
         </Box>
 
@@ -630,7 +646,7 @@ export const SettingsScreen = ({
           </Text>
           <Box flexDirection="row" justifyContent="space-between">
             <Text dimColor color={previewTheme.colors.mutedForeground}>
-              click preview · dbl-click/enter apply · ↑/↓ pick · m motion · u usage · esc back
+              click preview · dbl-click/enter apply · ↑/↓ pick · m motion · u usage · o observer · esc back
             </Text>
             <Credit />
           </Box>

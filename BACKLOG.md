@@ -40,7 +40,6 @@ Open `npm run dev` from the repo root and the terminal should read like a little
 - shareable session snapshot (printable ASCII / text export of the current garden)
 - usage-bar follow-ups: `/usage` overlay with reset countdowns + provider-by-provider breakdown; optional plan-limit config for Claude so its windows can render a real bar instead of raw counts; opt-out flag in `src/lib/config.ts` for users who don't want the row at all
 - JOURNAL pruning: `pruneEvents({ olderThan })` exists in `src/lib/events.ts` but isn't wired up. Decide on a retention window (90 days?) and call it at startup.
-- post-commit ingestion: optional opt-in git hook installer that appends a `commit` event directly to `~/.repogarden/events.jsonl` on commit, so JOURNAL stops depending on rescan polling for users with active repos. Keep it opt-in per repo; never silently mutate a repo's `.git/hooks/`.
 - repo-associated AI session surfacing: future idea: optional repo-associated AI session surfacing from Claude/Codex session files, if users explicitly enable it. Extract a per-repo "recent AI work" summary (subjects / tool calls / files touched) and surface it in PORTRAIT or as a JOURNAL event kind. Inspired by Chronicle's "per-repo AI session" framing.
 
 ## Priority C

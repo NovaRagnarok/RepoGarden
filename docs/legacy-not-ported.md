@@ -83,13 +83,13 @@ For each item: **Was** (v1 behavior + path), **TUI** (PORTED / PARTIAL / DROPPED
 
 ### Tauri scan + observer pipeline
 - **Was:** Rust-side recursive repo discovery + commit observer for backfilling new repos, exposed via `scan_projects`, `load_projects`, `observe_visible_commits`, `recover_from_scan`. `legacy/src-tauri/src/scanner.rs`, `legacy/src-tauri/src/commands.rs`.
-- **TUI:** PARTIAL. `src/lib/scanner.ts` is a Node-side walk that queries git directly (`git ls-files`, `git log`, `git status`). Manual rescan only; the commit observer that backfilled new repos is *pending* — a long-lived watcher (or a daemon mode) is on the table once the CLI lifecycle has a clear story for it.
-- **Why:** The user-invoked CLI model is enough for the alpha, but live backfill of new commits / new repos is genuinely useful and the absence is felt — flagged for recovery, not a permanent drop.
+- **TUI:** PORTED. `src/lib/scanner.ts` is a Node-side walk that queries git directly (`git ls-files`, `git log`, `git status`). The commit observer is now `src/lib/observer.ts`: `fs.watch` on each repo's `.git/logs/HEAD` triggers a single-repo `refreshOneCreature` within ~250 ms of any commit / amend / pull / reset; a non-recursive watch on each scan-root surfaces new repos within ~500 ms. The 30 s light refresh (`refreshCreaturesLight`) stays underneath as a safety net for filesystems where `fs.watch` is unreliable.
+- **Why:** The user-invoked CLI model carried the alpha, but live backfill is genuinely useful and the absence was felt. The observer reuses the existing `refreshOneCreature` + `enrichScans` seams so journal events flow through the same path as a manual rescan.
 
 ### Project registry state machine
 - **Was:** centralized registry with autoscan, refresh, save, hide / restore, pull, position changes, emotion-burst queue. `legacy/src/app/useProjectRegistry{Controller,State,Actions}.ts`, `useDesktopObservers.ts`.
-- **TUI:** PARTIAL. `src/cli.tsx` keeps local React state and writes per-repo data to filesystem memory (`src/lib/memory.ts`), notes (`src/lib/notes.ts`), and the event journal (`src/lib/events.ts`). Refresh / hide / restore / position changes ported; autoscan + observer + emotion-burst queue did not, and the first two are tied to the pending observer work above.
-- **Why:** Journal-as-source-of-truth + manual refresh is the right alpha shape; once the observer pipeline lands, the registry will grow back the autoscan/refresh-on-event behaviors it lost.
+- **TUI:** PARTIAL. `src/cli.tsx` keeps local React state and writes per-repo data to filesystem memory (`src/lib/memory.ts`), notes (`src/lib/notes.ts`), and the event journal (`src/lib/events.ts`). Refresh / hide / restore / position changes ported; autoscan-on-commit and new-repo backfill now ride the observer pipeline above. The emotion-burst queue is still dropped (tied to §1.4).
+- **Why:** Once the observer landed, the registry got back the autoscan/refresh-on-event behaviors it lost — without the desktop animation queue that wrapped them.
 
 ### Hidden projects
 - **Was:** hidden-repo IDs persisted via Tauri DB + localStorage fallback.
@@ -184,8 +184,7 @@ Items the TUI is missing today. Split between **flagged for recovery** (we want 
 1. **Emotion / motion cues** (§1.4) — narrower terminal-native subset of mood + emotion-cue + confidence, paired with §5.1.
 2. **In-garden captions / bubbles** (§1.5) — some sprite-adjacent info, not just workbench-only.
 3. **Richer project heuristics** (§5.1) — mood / confidence axes beyond the 4-state vibe.
-4. **Background observer** (§4.1) — live backfill of new commits / new repos; ties into §4.2 (autoscan, refresh-on-event).
-5. **App-shell / Ink integration tests** (§8.1) — end-to-end coverage on top of the existing unit suite.
+4. **App-shell / Ink integration tests** (§8.1) — end-to-end coverage on top of the existing unit suite.
 
 ### Trade-offs (not coming back)
 
