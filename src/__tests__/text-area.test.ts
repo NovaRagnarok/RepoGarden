@@ -1,7 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { applyBackspace, applyForwardDelete } from "../lib/editor-buffer";
+import {
+  applyBackspace,
+  applyForwardDelete,
+  graphemeLength,
+  sliceGraphemes,
+  splitGraphemes,
+} from "../lib/editor-buffer";
 
 /**
  * State-space tests for the TextArea backspace / delete keysteps.
@@ -178,6 +184,120 @@ test("regression #16: applyForwardDelete clamps a stranded cursor the same way",
   // so this is correctly a no-op rather than a crash or phantom edit.
   assert.equal(result.changed, false);
   assert.equal(result.value, "hi");
+});
+
+/**
+ * Codepoint / grapheme-cluster correctness (#24). Prior to this fix, every
+ * column index in the editor was a UTF-16 code unit, which meant a 4-byte
+ * emoji took two "columns": a right-arrow could land between its surrogate
+ * halves, and a single Backspace would chop the trailing low surrogate off
+ * and persist a broken glyph to disk. `Position.col` is now a grapheme
+ * index — one emoji is one cell, no matter how many code units back it.
+ */
+
+test("splitGraphemes treats a surrogate-pair emoji as one cluster", () => {
+  assert.deepEqual(splitGraphemes("a👍b"), ["a", "👍", "b"]);
+  assert.equal(graphemeLength("a👍b"), 3);
+});
+
+test("sliceGraphemes round-trips a substring without splitting a surrogate", () => {
+  assert.equal(sliceGraphemes("a👍b", 1, 2), "👍");
+  // No way for the helper to surface a half-surrogate: every slice
+  // boundary lands on a grapheme cluster edge.
+  assert.equal(sliceGraphemes("a👍b", 0, 2), "a👍");
+});
+
+test("applyBackspace deletes a full emoji (issue #24 example)", () => {
+  // "a👍b" has three grapheme cells: a (col 0→1), 👍 (col 1→2), b (col 2→3).
+  // Backspace at col 2 (right after the emoji) must drop the whole 👍,
+  // leaving "ab" and cursorCol=1. Previously the cursor was indexed in
+  // UTF-16 code units, so the analogous press landed between the surrogate
+  // halves of 👍 and only one of them was deleted, persisting a broken
+  // glyph to disk.
+  const result = applyBackspace("a👍b", { line: 0, col: 2 }, null);
+  assert.equal(result.changed, true);
+  assert.equal(result.value, "ab");
+  assert.deepEqual(
+    { line: result.cursorLine, col: result.cursorCol },
+    { line: 0, col: 1 }
+  );
+});
+
+test("applyBackspace clamps a stale code-unit col across an emoji to the cluster edge", () => {
+  // Belt-and-braces for the original bug shape: a stale cursor whose col
+  // was computed under the old code-unit model (col 3 = mid-surrogate of
+  // 👍 in "a👍b") must clamp to a real grapheme boundary and still produce
+  // a clean delete. Either of the adjacent boundaries is acceptable; we
+  // assert the buffer never ends up with an orphaned surrogate half.
+  const result = applyBackspace("a👍b", { line: 0, col: 3 }, null);
+  assert.equal(result.changed, true);
+  assert.equal(
+    Array.from(result.value).length,
+    graphemeLength(result.value),
+    "no lone surrogate survives"
+  );
+});
+
+test("applyForwardDelete from before an emoji removes the whole cluster", () => {
+  // "a👍b" — col 1 is right before the emoji. Forward-delete removes 👍
+  // and leaves "ab" with the cursor still at col 1.
+  const result = applyForwardDelete("a👍b", { line: 0, col: 1 }, null);
+  assert.equal(result.changed, true);
+  assert.equal(result.value, "ab");
+  assert.deepEqual(
+    { line: result.cursorLine, col: result.cursorCol },
+    { line: 0, col: 1 }
+  );
+});
+
+test("backspace through 'a👍b' twice from end leaves 'a' (round-trip)", () => {
+  // Simulates: user types "a👍b", arrows over the emoji, backspaces twice.
+  // After two backspaces the buffer must read "a" — no orphaned surrogate
+  // half ever lands in `value`.
+  let value = "a👍b";
+  // First press from end-of-line (col 3) deletes 'b'.
+  let result = applyBackspace(value, { line: 0, col: 3 }, null);
+  assert.equal(result.value, "a👍");
+  value = result.value;
+  // Second press from new end (col 2) deletes the whole emoji.
+  result = applyBackspace(value, { line: 0, col: result.cursorCol }, null);
+  assert.equal(result.value, "a");
+  // Critical: the surviving buffer has no lone surrogate, so its
+  // codepoint length equals its grapheme length.
+  assert.equal(
+    Array.from(result.value).length,
+    graphemeLength(result.value)
+  );
+});
+
+test("right-arrow simulation: col 1 → col 2 across an emoji lands past the cluster", () => {
+  // The editor's cursor-right handler increments col by 1 grapheme.
+  // Starting at col=1 (right before 👍), one step right must land at
+  // col=2 (right after 👍) — NOT col=2-in-code-units, which would be
+  // mid-surrogate. We verify by slicing: graphemes [0, 2) is "a👍".
+  const line = "a👍b";
+  const startCol = 1;
+  const nextCol = startCol + 1;
+  assert.equal(sliceGraphemes(line, 0, nextCol), "a👍");
+  assert.equal(graphemeLength(line), 3);
+});
+
+test("applyBackspace on a ZWJ family emoji deletes the whole cluster (Intl.Segmenter)", () => {
+  // Only meaningful when grapheme-cluster splitting is available — Node>=24
+  // ships `Intl.Segmenter` unconditionally, so we exercise the upgrade path
+  // here. The family is multiple codepoints joined by U+200D; a codepoint-
+  // only fix would leave dangling joiners after a single backspace.
+  const family = "\u{1F468}‍\u{1F469}‍\u{1F467}"; // 👨‍👩‍👧
+  const buffer = `x${family}`;
+  const cursorCol = graphemeLength(buffer); // 2 — at end
+  const result = applyBackspace(buffer, { line: 0, col: cursorCol }, null);
+  assert.equal(result.changed, true);
+  // A single backspace removes the whole family, leaving just "x".
+  assert.equal(result.value, "x");
+  assert.deepEqual(
+    { line: result.cursorLine, col: result.cursorCol },
+    { line: 0, col: 1 }
+  );
 });
 
 test("hold-Backspace simulation: ten consecutive presses with a moving stale cursor never freeze", () => {

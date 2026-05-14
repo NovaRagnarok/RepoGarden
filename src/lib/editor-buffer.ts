@@ -1,10 +1,29 @@
 import {
+  graphemeLength,
   isEmptyRange,
   orderRange,
   replaceRange,
+  sliceGraphemes,
   type Position,
   type SelectionRange,
 } from "@/lib/text-selection";
+
+// Re-export the grapheme helpers from the editor module so call sites have
+// a single import surface for "column arithmetic". `Position.col` is a
+// grapheme-cluster index throughout the editor; these helpers are the
+// canonical way to translate between that index and an underlying string.
+export { graphemeLength, sliceGraphemes, splitGraphemes } from "@/lib/text-selection";
+
+/**
+ * Codepoint-aware length / slice aliases. Today these are backed by
+ * `Intl.Segmenter` grapheme splitting (Node >=24), which closes the
+ * surrogate-pair gap AND treats ZWJ families / flags / skin-tone modifiers
+ * as single cells. The aliases exist so callers that only need codepoint
+ * correctness can opt out of grapheme semantics later if needed without
+ * a churn of call-site renames.
+ */
+export const codepointLength = graphemeLength;
+export const sliceCodepoints = sliceGraphemes;
 
 export const getEditorLines = (value: string): string[] => value.split("\n");
 
@@ -19,7 +38,10 @@ export const stripEditorControlChars = (input: string): string =>
 export const clampPosition = (lines: string[], position: Position): Position => {
   const safeLines = lines.length > 0 ? lines : [""];
   const line = Math.max(0, Math.min(safeLines.length - 1, position.line));
-  const col = Math.max(0, Math.min((safeLines[line] ?? "").length, position.col));
+  const col = Math.max(
+    0,
+    Math.min(graphemeLength(safeLines[line] ?? ""), position.col)
+  );
   return { line, col };
 };
 
@@ -35,7 +57,7 @@ export const clampSelectionRange = (
 export const endOfDocument = (value: string): Position => {
   const lines = getEditorLines(value);
   const lastLine = Math.max(0, lines.length - 1);
-  return { line: lastLine, col: (lines[lastLine] ?? "").length };
+  return { line: lastLine, col: graphemeLength(lines[lastLine] ?? "") };
 };
 
 export const allTextSelection = (value: string): SelectionRange | null => {
@@ -208,7 +230,7 @@ export const applyBackspace = (
     const result = replaceRange(
       lines,
       {
-        start: { line: safeCursor.line - 1, col: prevLine.length },
+        start: { line: safeCursor.line - 1, col: graphemeLength(prevLine) },
         end: safeCursor,
       },
       ""
@@ -247,7 +269,7 @@ export const applyForwardDelete = (
   }
 
   const currentLine = lines[safeCursor.line] ?? "";
-  if (safeCursor.col < currentLine.length) {
+  if (safeCursor.col < graphemeLength(currentLine)) {
     const result = replaceRange(
       lines,
       {

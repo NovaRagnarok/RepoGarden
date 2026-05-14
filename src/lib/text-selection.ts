@@ -24,6 +24,68 @@ export interface SelectionRange {
 export const normalizeLineEndings = (text: string): string =>
   text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
+/**
+ * Split `text` into grapheme clusters. Logical column arithmetic across the
+ * editor (cursor positions, selection ranges, backspace/forward-delete) is
+ * done in this unit so a 4-byte emoji or ZWJ family counts as one cell —
+ * never landing the caret between surrogate halves or splitting a cluster
+ * mid-character. Node >=24 ships `Intl.Segmenter` in every build, so we use
+ * it unconditionally; the fallback is codepoint splitting via `Array.from`
+ * (still strictly better than `.split("")`, which yields code units).
+ *
+ * The empty string returns an empty array.
+ */
+const graphemeSegmenter: Intl.Segmenter | null =
+  typeof Intl !== "undefined" && typeof Intl.Segmenter === "function"
+    ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
+    : null;
+
+export const splitGraphemes = (text: string): string[] => {
+  if (text.length === 0) return [];
+  if (graphemeSegmenter) {
+    const out: string[] = [];
+    for (const segment of graphemeSegmenter.segment(text)) {
+      out.push(segment.segment);
+    }
+    return out;
+  }
+  // Codepoint fallback. `Array.from` walks code points, joining surrogate
+  // pairs back into a single string entry each.
+  return Array.from(text);
+};
+
+/** Number of grapheme clusters in `text`. The unit of `Position.col`. */
+export const graphemeLength = (text: string): number => splitGraphemes(text).length;
+
+/**
+ * Slice `text` by grapheme indices and re-join. Used everywhere we need a
+ * substring of a logical line bounded by logical (cursor) columns.
+ */
+export const sliceGraphemes = (
+  text: string,
+  start: number,
+  end?: number
+): string => {
+  const graphemes = splitGraphemes(text);
+  return graphemes.slice(start, end).join("");
+};
+
+/**
+ * Convert a grapheme-index column into a code-unit offset within `text`.
+ * Used when underlying string ops (e.g. building the new buffer in
+ * `replaceRange`) need to splice the JS string itself.
+ */
+export const graphemeColToCodeUnit = (text: string, col: number): number => {
+  if (col <= 0) return 0;
+  const graphemes = splitGraphemes(text);
+  if (col >= graphemes.length) return text.length;
+  let offset = 0;
+  for (let i = 0; i < col; i++) {
+    offset += (graphemes[i] ?? "").length;
+  }
+  return offset;
+};
+
 /** True when two logical positions point at the same cell. */
 export const positionsEqual = (a: Position, b: Position): boolean =>
   a.line === b.line && a.col === b.col;
@@ -40,7 +102,7 @@ export const clampPosition = (lines: string[], pos: Position): Position => {
   );
   const col = Math.max(
     0,
-    Math.min((safeLines[line] ?? "").length, finiteInteger(pos.col))
+    Math.min(graphemeLength(safeLines[line] ?? ""), finiteInteger(pos.col))
   );
   return { line, col };
 };
@@ -94,14 +156,14 @@ export const getSelectedText = (lines: string[], range: SelectionRange): string 
   const safeLines = lines.length > 0 ? lines : [""];
   const { start, end } = clampRange(safeLines, range);
   if (start.line === end.line) {
-    return (safeLines[start.line] ?? "").slice(start.col, end.col);
+    return sliceGraphemes(safeLines[start.line] ?? "", start.col, end.col);
   }
   const parts: string[] = [];
-  parts.push((safeLines[start.line] ?? "").slice(start.col));
+  parts.push(sliceGraphemes(safeLines[start.line] ?? "", start.col));
   for (let i = start.line + 1; i < end.line; i++) {
     parts.push(safeLines[i] ?? "");
   }
-  parts.push((safeLines[end.line] ?? "").slice(0, end.col));
+  parts.push(sliceGraphemes(safeLines[end.line] ?? "", 0, end.col));
   return parts.join("\n");
 };
 
@@ -125,8 +187,11 @@ export const replaceRange = (
   const { start, end } = clampRange(safeLines, range);
   const normalizedReplacement = normalizeLineEndings(replacement);
   const beforeLines = safeLines.slice(0, start.line);
-  const beforePart = (safeLines[start.line] ?? "").slice(0, start.col);
-  const afterPart = (safeLines[end.line] ?? "").slice(end.col);
+  // start.col / end.col are grapheme-cluster indices; slice the underlying
+  // strings by grapheme so a 4-byte emoji or ZWJ family at the boundary is
+  // never split mid-codepoint.
+  const beforePart = sliceGraphemes(safeLines[start.line] ?? "", 0, start.col);
+  const afterPart = sliceGraphemes(safeLines[end.line] ?? "", end.col);
   const afterLines = safeLines.slice(end.line + 1);
 
   const replacementLines = normalizedReplacement.split("\n");
@@ -149,10 +214,12 @@ export const replaceRange = (
   }
 
   const cursorLine = start.line + replacementLines.length - 1;
+  // Post-edit cursor sits at the end of the inserted text — express in
+  // grapheme units so callers stay consistent with `Position.col`.
   const cursorCol =
     replacementLines.length === 1
-      ? start.col + normalizedReplacement.length
-      : (replacementLines[replacementLines.length - 1] ?? "").length;
+      ? start.col + graphemeLength(normalizedReplacement)
+      : graphemeLength(replacementLines[replacementLines.length - 1] ?? "");
 
   return { value: newLines.join("\n"), cursorLine, cursorCol };
 };

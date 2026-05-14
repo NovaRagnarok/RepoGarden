@@ -11,7 +11,14 @@
  * possible; otherwise hard-wrap at the width. The whitespace is kept with
  * the preceding visual line (so the next visual line starts on a non-space),
  * which matches what most text editors do.
+ *
+ * All column indices (`VisualLine.start`, the `col` returned by
+ * `cursorToVisual`, and the `visualCol` accepted by `visualToCursor`) are
+ * grapheme-cluster indices — the same unit `Position.col` uses everywhere
+ * in the editor. A 4-byte emoji occupies one cell; the caret never lands
+ * mid-surrogate (#24).
  */
+import { graphemeLength, splitGraphemes } from "@/lib/text-selection";
 
 export interface VisualLine {
   /** Index into the logical lines array this visual line came from. */
@@ -33,20 +40,21 @@ interface Segment {
  */
 export const wrapLine = (text: string, width: number): Segment[] => {
   const safeWidth = Number.isFinite(width) ? Math.floor(width) : 0;
-  if (safeWidth <= 0 || text.length <= safeWidth) {
+  const graphemes = splitGraphemes(text);
+  if (safeWidth <= 0 || graphemes.length <= safeWidth) {
     return [{ start: 0, text }];
   }
   const result: Segment[] = [];
   let pos = 0;
-  while (pos < text.length) {
-    if (text.length - pos <= safeWidth) {
-      result.push({ start: pos, text: text.slice(pos) });
+  while (pos < graphemes.length) {
+    if (graphemes.length - pos <= safeWidth) {
+      result.push({ start: pos, text: graphemes.slice(pos).join("") });
       break;
     }
     // Look for a wrap point within [pos, pos + safeWidth]. Prefer the last
     // whitespace so the break falls at a word boundary; if none fits, hard
     // wrap at `safeWidth` exactly.
-    const candidate = text.slice(pos, pos + safeWidth);
+    const candidate = graphemes.slice(pos, pos + safeWidth);
     let breakAt = -1;
     for (let i = candidate.length - 1; i >= 0; i--) {
       if (/\s/.test(candidate[i] ?? "")) {
@@ -58,12 +66,12 @@ export const wrapLine = (text: string, width: number): Segment[] => {
       // Include the whitespace with this segment so the next visual line
       // starts on a non-space.
       const segLen = breakAt + 1;
-      result.push({ start: pos, text: text.slice(pos, pos + segLen) });
+      result.push({ start: pos, text: graphemes.slice(pos, pos + segLen).join("") });
       pos += segLen;
     } else {
       // No whitespace in the window (a single long word, or whitespace only
       // at column 0). Hard wrap at safeWidth.
-      result.push({ start: pos, text: text.slice(pos, pos + safeWidth) });
+      result.push({ start: pos, text: graphemes.slice(pos, pos + safeWidth).join("") });
       pos += safeWidth;
     }
   }
@@ -114,7 +122,7 @@ export const cursorToVisual = (
     const vl = visualLines[i];
     if (vl.logicalLine !== cursorLine) continue;
     fallback = i;
-    const endExclusive = vl.start + vl.text.length;
+    const endExclusive = vl.start + graphemeLength(vl.text);
     if (cursorCol >= vl.start && cursorCol < endExclusive) {
       return { row: i, col: cursorCol - vl.start };
     }
@@ -126,7 +134,7 @@ export const cursorToVisual = (
     }
   }
   if (fallback >= 0) {
-    return { row: fallback, col: visualLines[fallback].text.length };
+    return { row: fallback, col: graphemeLength(visualLines[fallback].text) };
   }
   return { row: 0, col: 0 };
 };
@@ -144,6 +152,6 @@ export const visualToCursor = (
   if (visualLines.length === 0) return { line: 0, col: 0 };
   const clampedRow = Math.max(0, Math.min(visualLines.length - 1, visualRow));
   const vl = visualLines[clampedRow];
-  const col = Math.min(Math.max(0, visualCol), vl.text.length);
+  const col = Math.min(Math.max(0, visualCol), graphemeLength(vl.text));
   return { line: vl.logicalLine, col: vl.start + col };
 };
