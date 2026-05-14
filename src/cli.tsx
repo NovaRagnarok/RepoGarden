@@ -44,6 +44,7 @@ import {
 import { loadMemory, saveMemory, type ProjectMemory } from "@/lib/memory";
 import { CLI_HELP_TEXT, hasHelpFlag, hasVersionFlag } from "@/lib/cli-help";
 import { checkForUpdate, readCurrentVersion } from "@/lib/update-check";
+import { scheduleStartupPrune } from "@/lib/startup-prune";
 
 type Phase = "booting" | "onboarding" | "ready" | "settings" | "workbench" | "help" | "edit-roots";
 
@@ -168,6 +169,16 @@ const App = ({
     },
     [pushToast]
   );
+
+  // Fire-and-forget journal maintenance. Drops events older than the
+  // default 90-day retention window (audit item #7). Scheduled via
+  // setTimeout(0) so the boot UI paints before we touch disk, and wrapped
+  // in try/catch inside the helper so a slow/unreadable journal can't
+  // stall or crash boot. Runs exactly once per process.
+  useEffect(() => {
+    const handle = scheduleStartupPrune();
+    return () => clearTimeout(handle);
+  }, []);
 
   // Fire-and-forget update check. Runs once per session, after the boot
   // sequence settles. Cached for 24h under ~/.repogarden/update-check.json,

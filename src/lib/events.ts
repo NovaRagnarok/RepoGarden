@@ -248,6 +248,87 @@ export const readEvents = (opts: ReadEventsOptions = {}): JournalEvent[] => {
 };
 
 // ---------------------------------------------------------------------------
+// Retention / pruning
+// ---------------------------------------------------------------------------
+
+/**
+ * Default journal retention window in days. Matches audit item #7's
+ * recommendation: drop entries older than 90 days at startup so the
+ * events.jsonl file can't grow unbounded across long-lived installs.
+ */
+export const DEFAULT_RETENTION_DAYS = 90;
+
+export interface PruneEventsOptions {
+  /**
+   * Cutoff Date — events with `ts` strictly earlier than this are dropped.
+   * Anything at-or-after the cutoff is preserved.
+   */
+  olderThan: Date;
+}
+
+export interface PruneEventsResult {
+  /** Number of events dropped from the journal. */
+  pruned: number;
+  /** Number of events retained after the prune. */
+  kept: number;
+}
+
+/**
+ * Drop journal events older than `olderThan` from events.jsonl.
+ *
+ * Best-effort and synchronous: if the file is missing or unreadable we
+ * report zero work done rather than throwing — the caller treats this as
+ * a maintenance no-op. Malformed lines are dropped silently (same policy
+ * as `readEvents`). The rewrite is atomic (tmp + rename) so a crash
+ * mid-prune can't corrupt the live journal.
+ */
+export const pruneEvents = (opts: PruneEventsOptions): PruneEventsResult => {
+  const cutoffTime = opts.olderThan.getTime();
+  if (!Number.isFinite(cutoffTime)) return { pruned: 0, kept: 0 };
+
+  const path = eventsPath();
+  if (!existsSync(path)) return { pruned: 0, kept: 0 };
+
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch {
+    return { pruned: 0, kept: 0 };
+  }
+
+  const kept: string[] = [];
+  let pruned = 0;
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      // Malformed lines aren't recoverable; treat as pruned.
+      pruned += 1;
+      continue;
+    }
+    const normalized = normalizeJournalEvent(parsed);
+    if (!normalized) {
+      pruned += 1;
+      continue;
+    }
+    if (eventTime(normalized) < cutoffTime) {
+      pruned += 1;
+      continue;
+    }
+    kept.push(JSON.stringify(normalized));
+  }
+
+  if (pruned === 0) return { pruned: 0, kept: kept.length };
+
+  const next = kept.length > 0 ? kept.join("\n") + "\n" : "";
+  atomicWriteFile(path, next);
+  return { pruned, kept: kept.length };
+};
+
+// ---------------------------------------------------------------------------
 // File-change subscription
 // ---------------------------------------------------------------------------
 

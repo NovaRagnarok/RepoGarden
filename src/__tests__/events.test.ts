@@ -12,6 +12,8 @@ import {
   loadScanSnapshot,
   saveScanSnapshot,
   subscribeToEventsFile,
+  pruneEvents,
+  DEFAULT_RETENTION_DAYS,
   type JournalEvent,
 } from "../lib/events";
 import { saveMemory, loadMemory } from "../lib/memory";
@@ -677,5 +679,75 @@ test("subscribeToEventsFile returns a callable even if fs.watch fails", () => {
     const unsubscribe = subscribeToEventsFile(() => {});
     assert.equal(typeof unsubscribe, "function");
     unsubscribe();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// pruneEvents — retention window
+// ---------------------------------------------------------------------------
+
+test("DEFAULT_RETENTION_DAYS is 90 days", () => {
+  // Audit item #7: 90-day window is the fixed default for this pass.
+  assert.equal(DEFAULT_RETENTION_DAYS, 90);
+});
+
+test("pruneEvents drops events strictly older than the cutoff", () => {
+  withFakeHome(() => {
+    const old1 = "2024-01-01T00:00:00.000Z";
+    const old2 = "2024-06-01T00:00:00.000Z";
+    const fresh = "2026-05-01T00:00:00.000Z";
+
+    appendEvent(makeEvent("commit", "alpha", old1));
+    appendEvent(makeEvent("commit", "alpha", old2));
+    appendEvent(makeEvent("commit", "alpha", fresh));
+
+    const cutoff = new Date("2025-01-01T00:00:00.000Z");
+    const result = pruneEvents({ olderThan: cutoff });
+
+    assert.equal(result.pruned, 2);
+    assert.equal(result.kept, 1);
+
+    const remaining = readEvents();
+    assert.equal(remaining.length, 1);
+    assert.equal(remaining[0].ts, fresh);
+  });
+});
+
+test("pruneEvents is a no-op when no events are old enough", () => {
+  withFakeHome(() => {
+    appendEvent(makeEvent("commit", "alpha", "2026-05-01T00:00:00.000Z"));
+    appendEvent(makeEvent("commit", "alpha", "2026-05-10T00:00:00.000Z"));
+
+    const result = pruneEvents({ olderThan: new Date("2025-01-01T00:00:00.000Z") });
+    assert.equal(result.pruned, 0);
+    assert.equal(result.kept, 2);
+    assert.equal(readEvents().length, 2);
+  });
+});
+
+test("pruneEvents returns zero counts when the journal file is missing", () => {
+  withFakeHome(() => {
+    const result = pruneEvents({ olderThan: new Date() });
+    assert.equal(result.pruned, 0);
+    assert.equal(result.kept, 0);
+  });
+});
+
+test("pruneEvents drops malformed lines along with stale entries", () => {
+  withFakeHome((home) => {
+    const dir = join(home, ".repogarden");
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, "events.jsonl");
+    const stale = JSON.stringify(makeEvent("commit", "alpha", "2024-01-01T00:00:00.000Z"));
+    const fresh = JSON.stringify(makeEvent("commit", "alpha", "2026-05-01T00:00:00.000Z"));
+    writeFileSync(path, `${stale}\nnot-json\n${fresh}\n`, "utf8");
+
+    const result = pruneEvents({ olderThan: new Date("2025-01-01T00:00:00.000Z") });
+    // stale + malformed both drop; fresh survives.
+    assert.equal(result.pruned, 2);
+    assert.equal(result.kept, 1);
+    const remaining = readEvents();
+    assert.equal(remaining.length, 1);
+    assert.equal(remaining[0].ts, "2026-05-01T00:00:00.000Z");
   });
 });
