@@ -280,6 +280,26 @@ export interface EnrichScansOptions {
   preserveMissing?: boolean;
 }
 
+/**
+ * Re-inspect a single creature's repo and rebuild the full creature list
+ * with its updated scan in place. Used after explicit single-repo actions
+ * (e.g., a workbench pull) so the workbench reflects the new HEAD without
+ * paying for a full directory walk. `enrichScans` reconciles against the
+ * snapshot so any new commits flow into the journal naturally.
+ *
+ * Returns the original list when the id is unknown.
+ */
+export const refreshOneCreature = (
+  creatures: RepoCreature[],
+  id: string
+): RepoCreature[] => {
+  const index = creatures.findIndex((creature) => creature.id === id);
+  if (index === -1) return creatures;
+  const fresh = inspectRepo(creatures[index].scan.path);
+  const nextScans = creatures.map((creature, i) => (i === index ? fresh : creature.scan));
+  return enrichScans(nextScans);
+};
+
 export const enrichScans = (
   scans: ScannedRepo[],
   options: EnrichScansOptions = {}

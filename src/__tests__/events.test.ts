@@ -406,6 +406,32 @@ test("readEvents can filter by event kind", () => {
   });
 });
 
+test("pull event round-trips through appendEvent + readEvents", () => {
+  withFakeHome(() => {
+    appendEvent({
+      ts: "2026-05-13T12:00:00.000Z",
+      repoId: "alpha",
+      repoName: "alpha",
+      kind: "pull",
+      payload: {
+        ok: true,
+        exitCode: 0,
+        branch: "main",
+        beforeSha: "aaaa111",
+        afterSha: "bbbb222",
+        commitsPulled: 3,
+        summary: "Fast-forward",
+      },
+    });
+    const events = readEvents({ kinds: ["pull"] });
+    assert.equal(events.length, 1);
+    assert.equal(events[0].kind, "pull");
+    assert.equal(events[0].payload.ok, true);
+    assert.equal(events[0].payload.commitsPulled, 3);
+    assert.equal(events[0].payload.branch, "main");
+  });
+});
+
 test("appendEvent sanitizes control characters and non-json payload values", () => {
   withFakeHome(() => {
     appendEvent({

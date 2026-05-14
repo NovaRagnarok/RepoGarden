@@ -27,7 +27,13 @@ import { openInFileBrowser } from "@/lib/system";
 import { defaultThemeId, themeById, themeCatalogue } from "@/themes";
 import { loadConfig, updateConfig } from "@/lib/config";
 import { scanRootsProgressive, type ScannedRepo, type RootProgress } from "@/lib/scanner";
-import { buildCreature, enrichScans, refreshCreaturesLight, type RepoCreature } from "@/lib/creature";
+import {
+  buildCreature,
+  enrichScans,
+  refreshCreaturesLight,
+  refreshOneCreature,
+  type RepoCreature,
+} from "@/lib/creature";
 import { loadMemory, saveMemory, type ProjectMemory } from "@/lib/memory";
 import { CLI_HELP_TEXT, hasHelpFlag, hasVersionFlag } from "@/lib/cli-help";
 import { checkForUpdate, readCurrentVersion } from "@/lib/update-check";
@@ -309,6 +315,16 @@ const App = ({
     }
   };
 
+  const handlePulled = (creature: RepoCreature) => {
+    setCreatures((current) => {
+      const next = refreshOneCreature(current, creature.id);
+      if (next === current) return current;
+      const fresh = next.find((entry) => entry.id === creature.id);
+      if (fresh) setActiveWorkbench(fresh);
+      return next;
+    });
+  };
+
   const handleToggleHidden = (creature: RepoCreature) => {
     const willHide = !creature.memory.hidden;
     const nextMemory: ProjectMemory = { ...creature.memory, hidden: willHide };
@@ -391,6 +407,7 @@ const App = ({
       <WorkbenchScreen
         creature={activeWorkbench}
         usageBarDisabled={usageBarDisabled}
+        onPulled={handlePulled}
         onClose={() => {
           // The workbench owns note persistence now; we only stamp
           // lastVisitedAt so the creature's vibe and sort order reflect

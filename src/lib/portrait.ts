@@ -484,8 +484,9 @@ export const buildPortraitActions = (
     actions.push({
       id: "behind",
       title: "sync with upstream",
-      detail: `${plural(behind, "commit")} behind remote; pull, rebase, or inspect before new work.`,
+      detail: `${plural(behind, "commit")} behind remote; press u to pull (fast-forward only).`,
       severity: "warning",
+      shortcut: "u",
       section: "commits",
     });
   }

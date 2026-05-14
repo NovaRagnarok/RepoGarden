@@ -28,6 +28,7 @@ export const JOURNAL_EVENT_KINDS = [
   "vibe-changed",
   "repo-added",
   "branch-switched",
+  "pull",
 ] as const;
 
 export type JournalEventKind = (typeof JOURNAL_EVENT_KINDS)[number];

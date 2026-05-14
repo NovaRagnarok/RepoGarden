@@ -2,6 +2,16 @@
 
 All notable changes to RepoGarden land here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows [SemVer](https://semver.org/spec/v2.0.0.html). Earlier history lives in `git log`.
 
+## [Unreleased]
+
+### Added
+
+- **Pull from the workbench** (fast-forward only). PORTRAIT exposes `u` as a two-press confirm (first arms, second runs); the command palette has a "pull from remote" entry that runs immediately. Result lands as a sticky banner on failure / non-zero and as a transient success banner otherwise. Preflight blocks the action when the tree is dirty, HEAD is detached, the branch has no upstream, or scan errored. Each attempt appends a `pull` event to the journal — payload carries `ok`, `exitCode`, `branch`, `beforeSha`, `afterSha`, `commitsPulled`, `summary`, `durationMs`, `timedOut`. Closes the §7.3 "flagged for recovery" item in `docs/legacy-not-ported.md`.
+
+### Internal
+
+- New module `src/lib/git-pull.ts` (async `git pull --ff-only` with 60 s timeout, line-streaming `onLine` callback, and small sync sha helpers). New event-summary kind `pull`. New single-repo refresh helper `refreshOneCreature` in `src/lib/creature.ts` re-inspects one repo and re-runs `enrichScans` so the snapshot reconcile fires. Test count: 290 → 306.
+
 ## [0.3.3] — 2026-05-13
 
 ### Added

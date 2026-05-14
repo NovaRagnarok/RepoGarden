@@ -139,8 +139,8 @@ For each item: **Was** (v1 behavior + path), **TUI** (PORTED / PARTIAL / DROPPED
 
 ### Pull updates from inside the app
 - **Was:** `pull_project_updates` command that ran `git pull` on a target repo via the Tauri shell.
-- **TUI:** PARTIAL *for now* — flagged for recovery. The TUI surfaces "you should pull" via the journal / portrait but does not run git for you yet. Bringing it back as an explicit workbench action (with visible output / failure handling) is wanted.
-- **Why:** Read-only is the safe alpha default, but "I see the prompt, I want to act on it without leaving the TUI" is a real flow; the path back is an explicit, confirmed action rather than a silent shell-out.
+- **TUI:** PORTED (fast-forward only). The PORTRAIT view exposes `u` as a two-press confirm (first press arms, second press runs); the command palette has a "pull from remote" entry that runs immediately because the palette gesture is already deliberate. Pulls run `git pull --ff-only` via `src/lib/git-pull.ts` with a 60 s timeout, surface the result as a sticky banner on failure / non-zero, and append a `pull` event to the journal (`{ ok, exitCode, branch, beforeSha, afterSha, commitsPulled, summary, durationMs, timedOut }`). Preflight blocks the action when the working tree is dirty, HEAD is detached, the branch has no upstream, or scan errored — the user sees a warning banner instead of a half-state pull.
+- **Why:** Read-only stayed the alpha default until the path back was an explicit, confirmed action with visible output. `--ff-only` is the conservative starting point — divergent histories fail with the real git message instead of dropping the user into a merge state they can't see from inside the TUI. Rebase / merge strategies are deferred; non-ff-only flows belong on a follow-up slice if they earn their keep.
 
 ### File-system + clipboard shell integrations
 - **Was:** `open_repo_path`, `open_app_data_dir`, clipboard read/write.
@@ -185,8 +185,7 @@ Items the TUI is missing today. Split between **flagged for recovery** (we want 
 2. **In-garden captions / bubbles** (§1.5) — some sprite-adjacent info, not just workbench-only.
 3. **Richer project heuristics** (§5.1) — mood / confidence axes beyond the 4-state vibe.
 4. **Background observer** (§4.1) — live backfill of new commits / new repos; ties into §4.2 (autoscan, refresh-on-event).
-5. **Pull-from-app** (§7.3) — explicit, confirmed workbench action with visible output.
-6. **App-shell / Ink integration tests** (§8.1) — end-to-end coverage on top of the existing unit suite.
+5. **App-shell / Ink integration tests** (§8.1) — end-to-end coverage on top of the existing unit suite.
 
 ### Trade-offs (not coming back)
 

@@ -79,6 +79,26 @@ export const eventSummary = (
       return to ? `switched to ${to}` : "branch switched";
     }
 
+    case "pull": {
+      const ok = payload.ok === true;
+      const branch = clean(payload.branch);
+      const onto = branch ? ` onto ${branch}` : "";
+      if (ok) {
+        const rawCommits = payload.commitsPulled;
+        if (rawCommits === undefined || rawCommits === null) {
+          return `pulled changes${onto}`;
+        }
+        const commits = Number(rawCommits);
+        if (!Number.isFinite(commits) || commits <= 0) {
+          return branch ? `already up to date with ${branch}` : "already up to date";
+        }
+        const noun = commits === 1 ? "commit" : "commits";
+        return `pulled ${commits} ${noun}${onto}`;
+      }
+      const reason = clean(payload.summary);
+      return reason ? `pull failed: ${cap(reason, 60)}` : "pull failed";
+    }
+
     default:
       return kind;
   }

@@ -22,7 +22,14 @@ import { useTerminalSize } from "@/hooks/use-terminal-size";
 import { useUsage } from "@/hooks/use-usage";
 import { writeToSystemClipboard } from "@/lib/clipboard";
 import type { RepoCreature } from "@/lib/creature";
-import { readEvents, type JournalEvent } from "@/lib/events";
+import { appendEvent, readEvents, type JournalEvent } from "@/lib/events";
+import {
+  countCommitsBetween,
+  pickPullSummary,
+  pullRepo,
+  readHeadSha,
+  type PullResult,
+} from "@/lib/git-pull";
 import { loadMemory, saveMemory } from "@/lib/memory";
 import { findTextMatches, pickNextMatch, positionToOffset } from "@/lib/note-search";
 import {
@@ -55,6 +62,7 @@ import { vibeGlyph } from "@/lib/vibe";
 export interface WorkbenchScreenProps {
   creature: RepoCreature;
   onClose: () => void;
+  onPulled?: (creature: RepoCreature) => void;
   usageBarDisabled?: boolean;
 }
 
@@ -69,9 +77,21 @@ type Mode =
   | { kind: "goto-line" }
   | { kind: "confirm-clear" }
   | { kind: "confirm-delete" }
-  | { kind: "status"; message: string; variant: "success" | "warning" | "error" };
+  | { kind: "confirm-pull" }
+  | { kind: "pulling" }
+  | {
+      kind: "status";
+      message: string;
+      variant: "success" | "info" | "warning" | "error";
+      sticky?: boolean;
+    };
 
-export const WorkbenchScreen = ({ creature, onClose, usageBarDisabled = false }: WorkbenchScreenProps) => {
+export const WorkbenchScreen = ({
+  creature,
+  onClose,
+  onPulled,
+  usageBarDisabled = false,
+}: WorkbenchScreenProps) => {
   const theme = useTheme();
   const { columns, rows } = useTerminalSize();
   const responsive = getTerminalLayout(columns, rows);
@@ -184,9 +204,11 @@ export const WorkbenchScreen = ({ creature, onClose, usageBarDisabled = false }:
   }, [activeId, notes.bodies]);
 
   // Auto-dismiss transient status banners after ~1.5s. Confirmations stick
-  // until the user acts or hits escape.
+  // until the user acts or hits escape. Pull results pass `sticky: true` so
+  // a non-fast-forward error doesn't vanish before the user can read it.
   useEffect(() => {
     if (uiMode.kind !== "status") return;
+    if (uiMode.sticky) return;
     const timer = setTimeout(() => setUiMode({ kind: "edit" }), 1500);
     return () => clearTimeout(timer);
   }, [uiMode]);
@@ -373,6 +395,93 @@ export const WorkbenchScreen = ({ creature, onClose, usageBarDisabled = false }:
     });
   }, [creature.scan.path]);
 
+  const pullPreflight = useCallback((): { ok: true } | { ok: false; reason: string } => {
+    if (creature.scan.scanError) return { ok: false, reason: "not a git repo" };
+    if (creature.scan.isDirty) {
+      return { ok: false, reason: "working tree has changes — commit or stash first" };
+    }
+    if (!creature.scan.branch || creature.scan.branch === "HEAD") {
+      return { ok: false, reason: "detached HEAD — checkout a branch first" };
+    }
+    if (creature.scan.ahead === undefined && creature.scan.behind === undefined) {
+      return { ok: false, reason: "branch has no upstream" };
+    }
+    return { ok: true };
+  }, [creature.scan]);
+
+  const requestPull = useCallback(() => {
+    const check = pullPreflight();
+    if (!check.ok) {
+      setUiMode({ kind: "status", message: check.reason, variant: "warning", sticky: true });
+      return;
+    }
+    setUiMode({ kind: "confirm-pull" });
+  }, [pullPreflight]);
+
+  const executePull = useCallback(async () => {
+    setUiMode({ kind: "pulling" });
+    const beforeSha = creature.scan.lastCommitSha;
+    let result: PullResult;
+    try {
+      result = await pullRepo({ cwd: creature.scan.path });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "pull crashed";
+      setUiMode({ kind: "status", message: `pull failed: ${message}`, variant: "error", sticky: true });
+      return;
+    }
+
+    const summary = pickPullSummary(result);
+    const afterSha = result.ok ? readHeadSha(creature.scan.path) ?? beforeSha : beforeSha;
+    let commitsPulled: number | undefined;
+    if (result.ok) {
+      if (/already up to date/i.test(result.stdout)) {
+        commitsPulled = 0;
+      } else if (beforeSha && afterSha && beforeSha !== afterSha) {
+        commitsPulled = countCommitsBetween(creature.scan.path, beforeSha, afterSha);
+      } else if (beforeSha === afterSha) {
+        commitsPulled = 0;
+      }
+    }
+
+    appendEvent({
+      ts: new Date().toISOString(),
+      repoId: creature.id,
+      repoName: creature.scan.name,
+      kind: "pull",
+      payload: {
+        ok: result.ok,
+        exitCode: result.exitCode,
+        branch: creature.scan.branch,
+        beforeSha,
+        afterSha,
+        commitsPulled,
+        summary,
+        durationMs: result.durationMs,
+        timedOut: result.timedOut,
+      },
+    });
+
+    if (result.ok) {
+      const variant: "success" | "warning" = commitsPulled === 0 ? "warning" : "success";
+      const message =
+        commitsPulled === 0
+          ? `already up to date${creature.scan.branch ? ` with ${creature.scan.branch}` : ""}`
+          : commitsPulled !== undefined
+            ? `pulled ${commitsPulled} ${commitsPulled === 1 ? "commit" : "commits"}${creature.scan.branch ? ` onto ${creature.scan.branch}` : ""}`
+            : `pulled changes${creature.scan.branch ? ` onto ${creature.scan.branch}` : ""}`;
+      setUiMode({ kind: "status", message, variant, sticky: commitsPulled !== 0 });
+      onPulled?.(creature);
+      return;
+    }
+
+    setUiMode({
+      kind: "status",
+      message: `pull failed: ${summary}`,
+      variant: "error",
+      sticky: true,
+    });
+  }, [creature, onPulled]);
+
   const handlePortraitEnter = useCallback(() => {
     if (portraitSection === "notes") {
       switchMode("notes");
@@ -541,8 +650,21 @@ export const WorkbenchScreen = ({ creature, onClose, usageBarDisabled = false }:
     }
 
     if (key.escape) {
-      if (uiMode.kind === "confirm-clear" || uiMode.kind === "confirm-delete") {
+      if (
+        uiMode.kind === "confirm-clear" ||
+        uiMode.kind === "confirm-delete" ||
+        uiMode.kind === "confirm-pull"
+      ) {
         setUiMode({ kind: "edit" });
+        return;
+      }
+      if (uiMode.kind === "status" && uiMode.sticky) {
+        setUiMode({ kind: "edit" });
+        return;
+      }
+      if (uiMode.kind === "pulling") {
+        // Don't let escape interrupt an in-flight pull — the OS-level
+        // process will keep running and we'd lose the result.
         return;
       }
       const saved = persistCurrentEditor(notes);
@@ -550,6 +672,10 @@ export const WorkbenchScreen = ({ creature, onClose, usageBarDisabled = false }:
       onClose();
       return;
     }
+
+    // Block all further input while a pull is in flight. The async resolver
+    // owns the next setUiMode call.
+    if (uiMode.kind === "pulling") return;
 
     if (key.ctrl && input === "1") {
       switchMode("portrait");
@@ -632,6 +758,18 @@ export const WorkbenchScreen = ({ creature, onClose, usageBarDisabled = false }:
         setPortraitEvents(readEvents({ repoId: creature.id, limit: 40 }));
         setUiMode({ kind: "status", message: "portrait refreshed", variant: "success" });
         return;
+      }
+      if (input === "u") {
+        if (uiMode.kind === "confirm-pull") {
+          void executePull();
+        } else {
+          requestPull();
+        }
+        return;
+      }
+      // Any other key dismisses a pending pull confirmation without acting.
+      if (uiMode.kind === "confirm-pull") {
+        setUiMode({ kind: "edit" });
       }
       return;
     }
@@ -872,6 +1010,23 @@ export const WorkbenchScreen = ({ creature, onClose, usageBarDisabled = false }:
       },
     });
     items.push({
+      key: "action-pull",
+      label: "pull from remote",
+      hint: "u",
+      onSelect: () => {
+        const saved = persistCurrentEditor(notes);
+        if (saved !== notes) setNotes(saved);
+        // The palette gesture (open + pick) is already deliberate, so skip
+        // the second-press confirm that protects portrait's single-key `u`.
+        const check = pullPreflight();
+        if (!check.ok) {
+          setUiMode({ kind: "status", message: check.reason, variant: "warning", sticky: true });
+          return;
+        }
+        void executePull();
+      },
+    });
+    items.push({
       key: "action-close",
       label: "close workbench",
       hint: "esc",
@@ -1025,7 +1180,16 @@ export const WorkbenchScreen = ({ creature, onClose, usageBarDisabled = false }:
           activeSection={portraitSection}
           detailsOpen={portraitDetailsOpen}
           scrollOffset={portraitScrollOffset}
-          status={uiMode.kind === "status" ? uiMode : undefined}
+          status={(() => {
+            if (uiMode.kind === "status") return { message: uiMode.message, variant: uiMode.variant };
+            if (uiMode.kind === "confirm-pull") {
+              return { message: "press u again to pull · esc to cancel", variant: "warning" as const };
+            }
+            if (uiMode.kind === "pulling") {
+              return { message: "pulling…", variant: "info" as const };
+            }
+            return undefined;
+          })()}
           compact={isCompact}
         />
       ) : null}
@@ -1163,8 +1327,8 @@ export const WorkbenchScreen = ({ creature, onClose, usageBarDisabled = false }:
           <Text dimColor color={theme.colors.mutedForeground} wrap="truncate-end">
             {workbenchMode === "portrait"
               ? isCompact
-                ? "1-6 section · enter details/action · n notes · esc back"
-                : "1-6 section · j/k/←/→ section · PgUp/PgDn scroll · a actions · v overview · enter act/details · d details · n notes · c copy summary · p copy path · r refresh · ctrl+2 notes · esc back"
+                ? "1-6 section · enter details/action · n notes · u pull · esc back"
+                : "1-6 section · j/k/←/→ section · PgUp/PgDn scroll · a actions · v overview · enter act/details · d details · n notes · u pull · c copy summary · p copy path · r refresh · ctrl+2 notes · esc back"
               : isCompact
                 ? "ctrl+1 portrait · ctrl+n new · ctrl+f find · ctrl+p palette · auto-save · esc back"
                 : "ctrl+1 portrait · tab indent · shift+tab outdent · ctrl+←/→ switch · ctrl+n new · ctrl+r rename · ctrl+d delete · ctrl+f find · ctrl+j/b next/prev · ctrl+g line · ctrl+p palette · ctrl+a select all · ctrl+y copy · ctrl+v paste · ctrl+x cut · ctrl+z undo · auto-save · esc back"}
@@ -1338,6 +1502,24 @@ const ActionRow = ({ uiMode, dirty, cursor, charCount }: ActionRowProps) => {
       </Box>
     );
   }
+  if (uiMode.kind === "confirm-pull") {
+    return (
+      <Box paddingTop={1}>
+        <Badge variant="warning" bold>
+          press u again to pull · esc to cancel
+        </Badge>
+      </Box>
+    );
+  }
+  if (uiMode.kind === "pulling") {
+    return (
+      <Box paddingTop={1}>
+        <Badge variant="info" bold>
+          pulling…
+        </Badge>
+      </Box>
+    );
+  }
   if (uiMode.kind === "status") {
     return (
       <Box paddingTop={1}>
@@ -1373,7 +1555,7 @@ interface PortraitModeProps {
    *  WorkbenchScreen resets to 0 on every section change so each section
    *  starts at the top. */
   scrollOffset?: number;
-  status?: Extract<Mode, { kind: "status" }>;
+  status?: { message: string; variant: PortraitSeverity };
   compact?: boolean;
 }
 
