@@ -91,6 +91,20 @@ Start with:
 - Manual verification: [`docs/manual-tests/`](docs/manual-tests)
 - What didn't survive v1: [`docs/legacy-not-ported.md`](docs/legacy-not-ported.md)
 
+## Capturing the README demo
+
+The README's preview GIF is recorded from [`tape/demo.tape`](tape/demo.tape). For full setup instructions, see [`tape/README.md`](tape/README.md).
+
+**Prerequisites:** `vhs`, `ttyd`, and `ffmpeg` — all user-local binaries.
+
+**Quick regenerate:**
+```bash
+pnpm build
+vhs tape/demo.tape
+```
+
+The output lands at `docs/images/demo.gif`. The recording runs against a seeded `/tmp/repogarden-demo-home` (via `setup.sh`) so it never touches your real `~/.repogarden` directory.
+
 ## Contributions
 
 By contributing to RepoGarden, you agree that your contributions will be licensed under the MIT License (see LICENSE).
