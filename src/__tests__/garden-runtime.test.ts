@@ -752,6 +752,42 @@ test("renderGardenFrame paints awake eyes closed during the blink window", () =>
   assert.equal(leftCell?.char, CLOSED_EYE_GLYPH, "awake creature should show closed glyph during blink");
 });
 
+test("renderGardenFrame holds sleepy creatures at frame B so the body bob doesn't drag the closed eye", () => {
+  const model = createGardenModel(
+    {
+      ...makeProps(),
+      focusIndex: -1,
+      creatures: [
+        {
+          id: "alpha",
+          scan: { id: "alpha", path: "/tmp/alpha", name: "alpha", isDirty: false } as any,
+          memory: {} as any,
+          vibe: { vibe: "sleepy", reason: "quiet for 30 days.", daysSinceCommit: 30, activity: 0.05 } as any
+        }
+      ]
+    },
+    0
+  );
+  const info = model.scene.sprites.get("alpha");
+  if (!info) throw new Error("missing sprite info");
+  const placement = model.scene.placements[0];
+  // Sample times across two wiggle cycles. Whatever the wiggle timer
+  // says, the sleepy creature should always paint its closed eye at
+  // frame B's eye cell position — never frame A's.
+  const expectedX: number = placement.x + info.eyeCells.frameB.left.cx;
+  const expectedY: number = placement.charY + info.eyeCells.frameB.left.cy;
+  for (let i = 0; i < 8; i += 1) {
+    const now = (info.wiggle.halfCycleMs * i) / 2;
+    const frame = renderGardenFrame(model, now);
+    const cell = frame.cells[expectedY * frame.width + expectedX];
+    assert.equal(
+      cell?.char,
+      CLOSED_EYE_GLYPH,
+      `sleepy creature's closed-eye glyph drifted away from frame B at now=${now}`
+    );
+  }
+});
+
 test("renderGardenFrame keeps sleepy eyes closed regardless of blink timing", () => {
   const model = createGardenModel(
     {

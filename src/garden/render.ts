@@ -138,7 +138,15 @@ export const renderGardenFrame = (
     const visual = model.visualPlacements.get(creature.id) ?? placement;
     const info = model.scene.sprites.get(creature.id);
     if (!info) continue;
-    const useFrameB = !reducedMotion && wiggleFrameAt(info.wiggle, now) === 1;
+    // Sleepy creatures hold the body at rest (frame B = unshifted) so
+    // the closed-eye overlay doesn't get dragged along by the body bob.
+    // The bob shifts the body by half a cell, but a character glyph can
+    // only sit in whole cells — there's no way to track half-cell
+    // motion, so the cleanest fix is to skip the bob while asleep.
+    // Awake creatures (including during the 140ms blink window) keep
+    // their normal bob, and the per-frame eye cells track it.
+    const useFrameB =
+      info.eyesClosed || (!reducedMotion && wiggleFrameAt(info.wiggle, now) === 1);
     const spriteFrame = useFrameB ? info.frameB : info.frameA;
     const activeEyeCells = useFrameB ? info.eyeCells.frameB : info.eyeCells.frameA;
     // Closed eyes only override the body-grid paint — open eyes keep
