@@ -26,6 +26,24 @@ for name in "${NAMES[@]}"; do
     commit --allow-empty -q -m "seed"
 done
 
+# Seed the TUI config so the GIF shows the dense, no-pagination layout —
+# every demo creature lands on a single screen instead of paging through.
+# `gardenPaginate: false` + `gardenDensity: "dense"` are the two 0.5.0
+# settings that drive this. Other defaults are left for the app to fill in.
+mkdir -p "$DEMO_HOME/.repogarden"
+cat > "$DEMO_HOME/.repogarden/tui.json" <<EOF
+{
+  "themeId": "high-contrast",
+  "scanRoots": [],
+  "view": "garden",
+  "reducedMotion": false,
+  "usageBarDisabled": false,
+  "observer": { "enabled": true },
+  "gardenPaginate": false,
+  "gardenDensity": "dense"
+}
+EOF
+
 # Stage a launcher inside the demo home so the tape can invoke RepoGarden
 # without hardcoding the absolute repo path. The tape runs `~/launch`.
 cat > "$DEMO_HOME/launch" <<EOF

@@ -23,7 +23,7 @@ import { layoutMode, useTerminalSize } from "@/hooks/use-terminal-size";
 import type { RepoCreature } from "@/lib/creature";
 import { tildify } from "@/lib/scanner";
 import { vibeGlyph, type Vibe } from "@/lib/vibe";
-import { gardenPageCapacity, paginateCreatures } from "@/lib/garden-layout";
+import { gardenPageCapacity, paginateCreatures, type GardenDensity } from "@/lib/garden-layout";
 import { GardenView } from "@/screens/GardenView";
 import { CreatureSprite } from "@/components/CreatureSprite";
 import { Credit } from "@/components/Credit";
@@ -62,6 +62,13 @@ export interface ReadyShellProps {
    *  calls, no footer row). Mirrors the env-level
    *  REPOGARDEN_DISABLE_USAGE=1 toggle as a persistent settings choice. */
   usageBarDisabled?: boolean;
+  /** Master pagination toggle for the garden view. False jams the whole
+   *  creature list onto a single page and lets the placer's graceful-
+   *  degradation handle dense packing. Default true. */
+  gardenPaginate?: boolean;
+  /** Per-page slot density (garden) and per-cell breathing room (shelf).
+   *  Default `comfortable`. */
+  gardenDensity?: GardenDensity;
 }
 
 const vibeBadgeVariant: Record<Vibe, "default" | "warning" | "error" | "info" | "success"> = {
@@ -89,7 +96,9 @@ export const ReadyShell = ({
   rescanError,
   scanProgress,
   scanProgressByRoot,
-  usageBarDisabled = false
+  usageBarDisabled = false,
+  gardenPaginate = true,
+  gardenDensity = "comfortable"
 }: ReadyShellProps) => {
   const theme = useTheme();
   const { reduced: reducedMotion } = useMotion();
@@ -537,12 +546,19 @@ export const ReadyShell = ({
   );
   const gardenInnerHeight = Math.max(10, gardenHeight - 4);
   const gardenCapacity = useMemo(
-    () => gardenPageCapacity(gardenInnerWidth, gardenInnerHeight, overlayDeadZone),
-    [gardenInnerWidth, gardenInnerHeight, overlayDeadZone?.width, overlayDeadZone?.height]
+    () => gardenPageCapacity(gardenInnerWidth, gardenInnerHeight, overlayDeadZone, undefined, gardenDensity),
+    [gardenInnerWidth, gardenInnerHeight, overlayDeadZone?.width, overlayDeadZone?.height, gardenDensity]
   );
+  // When pagination is off, the whole creature list goes onto a single page
+  // and the placer's graceful-degradation handles dense packing if the
+  // canvas can't physically fit everyone without overlap.
   const gardenPages = useMemo(
-    () => (isGardenView ? paginateCreatures(visibleCreatures, gardenCapacity) : [visibleCreatures]),
-    [isGardenView, visibleCreatures, gardenCapacity]
+    () => {
+      if (!isGardenView) return [visibleCreatures];
+      if (!gardenPaginate) return [visibleCreatures];
+      return paginateCreatures(visibleCreatures, gardenCapacity);
+    },
+    [isGardenView, gardenPaginate, visibleCreatures, gardenCapacity]
   );
   const gardenPageCount = Math.max(1, gardenPages.length);
   const safeGardenPageIndex = Math.min(gardenPageIndex, gardenPageCount - 1);
@@ -1611,6 +1627,7 @@ export const ReadyShell = ({
               onCreaturePlacementChange={handleGardenCreaturePlacementChange}
               deadZone={overlayDeadZone}
               placementMode={habitatPlacementMode}
+              density={gardenDensity}
             />
             {overlayCardSlot.reserved ? (
               <Box
@@ -1649,6 +1666,7 @@ export const ReadyShell = ({
             onFocusDelta={handleGardenFocusDelta}
             onCreaturePlacementChange={handleGardenCreaturePlacementChange}
             placementMode={habitatPlacementMode}
+            density={gardenDensity}
           />
         </Box>
       ) : responsive.showSidebar ? (

@@ -31,6 +31,7 @@ import {
 } from "@/garden/stars";
 import { wiggleFrameAt } from "@/garden/model";
 import { vibeGlyph, type Vibe } from "@/lib/vibe";
+import type { GardenDensity } from "@/lib/garden-layout";
 import { DEMO_NAMES, demoVibeFor } from "@/lib/demo-roster";
 
 export interface SettingsScreenProps {
@@ -38,10 +39,14 @@ export interface SettingsScreenProps {
   reducedMotion?: boolean;
   usageBarDisabled?: boolean;
   observerEnabled?: boolean;
+  gardenPaginate?: boolean;
+  gardenDensity?: GardenDensity;
   onPickTheme: (id: string) => void;
   onToggleReducedMotion?: () => void;
   onToggleUsageBar?: () => void;
   onToggleObserver?: () => void;
+  onToggleGardenPaginate?: () => void;
+  onCycleGardenDensity?: () => void;
   onClose: () => void;
 }
 
@@ -321,10 +326,14 @@ export const SettingsScreen = ({
   reducedMotion = false,
   usageBarDisabled = false,
   observerEnabled = true,
+  gardenPaginate = true,
+  gardenDensity = "comfortable",
   onPickTheme,
   onToggleReducedMotion,
   onToggleUsageBar,
   onToggleObserver,
+  onToggleGardenPaginate,
+  onCycleGardenDensity,
   onClose
 }: SettingsScreenProps) => {
   const appliedTheme = useTheme();
@@ -383,6 +392,14 @@ export const SettingsScreen = ({
     }
     if (input === "o" && onToggleObserver) {
       onToggleObserver();
+      return;
+    }
+    if (input === "p" && onToggleGardenPaginate) {
+      onToggleGardenPaginate();
+      return;
+    }
+    if (input === "g" && onCycleGardenDensity) {
+      onCycleGardenDensity();
       return;
     }
     if (key.escape || input === "q") {
@@ -615,6 +632,22 @@ export const SettingsScreen = ({
                 {observerEnabled ? "● on" : "○ off"}
               </Text>
             </Box>
+            <Box flexDirection="row" justifyContent="space-between">
+              <Text color={previewTheme.colors.foreground}>
+                <Text bold>p</Text> pagination · off shows every creature on one screen
+              </Text>
+              <Text color={gardenPaginate ? previewTheme.colors.success : previewTheme.colors.mutedForeground}>
+                {gardenPaginate ? "● on" : "○ off"}
+              </Text>
+            </Box>
+            <Box flexDirection="row" justifyContent="space-between">
+              <Text color={previewTheme.colors.foreground}>
+                <Text bold>g</Text> density · how packed garden + shelf feel
+              </Text>
+              <Text color={previewTheme.colors.success}>
+                {gardenDensity}
+              </Text>
+            </Box>
           </Panel>
         </Box>
 
@@ -646,7 +679,7 @@ export const SettingsScreen = ({
           </Text>
           <Box flexDirection="row" justifyContent="space-between">
             <Text dimColor color={previewTheme.colors.mutedForeground}>
-              click preview · dbl-click/enter apply · ↑/↓ pick · m motion · u usage · o observer · esc back
+              click preview · dbl-click/enter apply · ↑/↓ pick · m motion · u usage · o observer · p paginate · g density · esc back
             </Text>
             <Credit />
           </Box>

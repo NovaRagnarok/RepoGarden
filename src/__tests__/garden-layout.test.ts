@@ -274,6 +274,50 @@ test("lineUpCreatures keeps a centered partial row out of the overlay dead zone"
   );
 });
 
+test("gardenPageCapacity returns more creatures per page at dense than at cozy", () => {
+  const w = 80;
+  const h = 24;
+  const cozy = gardenPageCapacity(w, h, undefined, undefined, "cozy");
+  const comfortable = gardenPageCapacity(w, h, undefined, undefined, "comfortable");
+  const dense = gardenPageCapacity(w, h, undefined, undefined, "dense");
+  assert.ok(cozy < comfortable, `cozy ${cozy} should fit fewer than comfortable ${comfortable}`);
+  assert.ok(comfortable < dense, `comfortable ${comfortable} should fit fewer than dense ${dense}`);
+});
+
+test("gardenPageCapacity default density matches explicit comfortable", () => {
+  const w = 80;
+  const h = 24;
+  assert.equal(
+    gardenPageCapacity(w, h),
+    gardenPageCapacity(w, h, undefined, undefined, "comfortable")
+  );
+});
+
+test("lineUpCreatures dense density fits more creatures per shelf row than cozy", () => {
+  // Build enough tiles that the row will wrap. Comparing how many fit in
+  // each density's first row is the cleanest signal that slot width changed.
+  const tiles = Array.from({ length: 20 }, (_, i) =>
+    makeTileWithVibe(i, `h${i}`, "happy", 4, 3)
+  );
+  const cozyLayout = lineUpCreatures(tiles, 80, 30, undefined, undefined, "cozy");
+  const denseLayout = lineUpCreatures(tiles, 80, 30, undefined, undefined, "dense");
+  const firstRowY = (layout: typeof cozyLayout): number =>
+    Math.min(...layout.placements.map((p) => p.charY));
+  const cozyFirstRow = layout(cozyLayout, firstRowY(cozyLayout));
+  const denseFirstRow = layout(denseLayout, firstRowY(denseLayout));
+  assert.ok(
+    denseFirstRow > cozyFirstRow,
+    `dense should fit more than cozy in the first row (cozy ${cozyFirstRow}, dense ${denseFirstRow})`
+  );
+
+  function layout<T extends { placements: Array<{ charY: number }> }>(
+    l: T,
+    y: number
+  ): number {
+    return l.placements.filter((p) => p.charY === y).length;
+  }
+});
+
 test("placeCreatures keeps sprite bodies separated when long labels are present", () => {
   const tiles = [
     makeTile(0, "GreenCardGuide", 6, 4),

@@ -258,6 +258,7 @@ export class GardenEngine {
       deadZone: props.deadZone,
       topRightDeadZone: props.topRightDeadZone,
       placementMode: props.placementMode,
+      density: props.density,
       theme: props.theme,
       reducedMotion: props.reducedMotion
     };

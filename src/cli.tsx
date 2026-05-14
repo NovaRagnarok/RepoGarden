@@ -26,6 +26,7 @@ import { HelpOverlay } from "@/screens/HelpOverlay";
 import { openInFileBrowser } from "@/lib/system";
 import { defaultThemeId, themeById, themeCatalogue } from "@/themes";
 import { loadConfig, observerEnabled, updateConfig } from "@/lib/config";
+import type { GardenDensity } from "@/lib/garden-layout";
 import {
   inspectRepo,
   scanRootsProgressive,
@@ -67,6 +68,8 @@ interface AppProps {
   initialReducedMotion: boolean;
   initialUsageBarDisabled: boolean;
   initialObserverEnabled: boolean;
+  initialGardenPaginate: boolean;
+  initialGardenDensity: GardenDensity;
   onThemeChange: (theme: Theme) => void;
   onReducedMotionChange: (reduced: boolean) => void;
 }
@@ -78,6 +81,8 @@ const App = ({
   initialReducedMotion,
   initialUsageBarDisabled,
   initialObserverEnabled,
+  initialGardenPaginate,
+  initialGardenDensity,
   onThemeChange,
   onReducedMotionChange
 }: AppProps) => {
@@ -95,6 +100,8 @@ const App = ({
   const [reducedMotion, setReducedMotion] = useState<boolean>(initialReducedMotion);
   const [usageBarDisabled, setUsageBarDisabled] = useState<boolean>(initialUsageBarDisabled);
   const [observerOn, setObserverOn] = useState<boolean>(initialObserverEnabled);
+  const [gardenPaginate, setGardenPaginate] = useState<boolean>(initialGardenPaginate);
+  const [gardenDensity, setGardenDensity] = useState<GardenDensity>(initialGardenDensity);
   const [scanProgress, setScanProgress] = useState<{ done: number; total: number } | undefined>();
   const [scanProgressByRoot, setScanProgressByRoot] = useState<RootProgress[] | undefined>();
 
@@ -348,6 +355,23 @@ const App = ({
     pushToast(`observer · ${next ? "on" : "off"}`, "info");
   };
 
+  const handleToggleGardenPaginate = () => {
+    const next = !gardenPaginate;
+    setGardenPaginate(next);
+    updateConfig({ gardenPaginate: next });
+    pushToast(`pagination · ${next ? "on" : "off"}`, "info");
+  };
+
+  // Cycle through cozy → comfortable → dense → cozy so a single hotkey can
+  // walk the user across the whole spectrum.
+  const handleCycleGardenDensity = () => {
+    const order: GardenDensity[] = ["cozy", "comfortable", "dense"];
+    const next = order[(order.indexOf(gardenDensity) + 1) % order.length];
+    setGardenDensity(next);
+    updateConfig({ gardenDensity: next });
+    pushToast(`density · ${next}`, "info");
+  };
+
   const handleRescan = async () => {
     if (roots.length === 0) {
       setPhase("onboarding");
@@ -446,9 +470,13 @@ const App = ({
         reducedMotion={reducedMotion}
         usageBarDisabled={usageBarDisabled}
         observerEnabled={observerOn}
+        gardenPaginate={gardenPaginate}
+        gardenDensity={gardenDensity}
         onToggleReducedMotion={handleToggleReducedMotion}
         onToggleUsageBar={handleToggleUsageBar}
         onToggleObserver={handleToggleObserver}
+        onToggleGardenPaginate={handleToggleGardenPaginate}
+        onCycleGardenDensity={handleCycleGardenDensity}
         onPickTheme={handlePickTheme}
         onClose={() => setPhase("ready")}
       />
@@ -524,6 +552,8 @@ const App = ({
       scanProgress={scanProgress}
       scanProgressByRoot={scanProgressByRoot}
       usageBarDisabled={usageBarDisabled}
+      gardenPaginate={gardenPaginate}
+      gardenDensity={gardenDensity}
     />
   );
 };
@@ -560,6 +590,8 @@ const Root = () => {
             initialReducedMotion={reducedMotion}
             initialUsageBarDisabled={config.usageBarDisabled}
             initialObserverEnabled={config.observer.enabled}
+            initialGardenPaginate={config.gardenPaginate}
+            initialGardenDensity={config.gardenDensity}
             onThemeChange={setActiveTheme}
             onReducedMotionChange={setReducedMotion}
           />

@@ -1,5 +1,5 @@
 import type { RepoCreature } from "@/lib/creature";
-import type { DividerPlacement, Placement, ShelfOverflow } from "@/lib/garden-layout";
+import type { DividerPlacement, GardenDensity, Placement, ShelfOverflow } from "@/lib/garden-layout";
 
 export interface GardenDeadZone {
   width: number;
@@ -37,6 +37,11 @@ export interface GardenSceneProps {
   placementMode: "organic" | "shelf";
   theme: GardenThemeColors;
   reducedMotion?: boolean;
+  /** Threaded through to `lineUpCreatures` so the shelf's per-cell breathing
+   *  room responds to the user's "how packed?" setting. Organic mode ignores
+   *  this — pagination capacity is the right place for the same knob in that
+   *  view, and it's owned by `ReadyShell` (not the engine). */
+  density?: GardenDensity;
 }
 
 export interface GardenEngineProps extends GardenSceneProps {

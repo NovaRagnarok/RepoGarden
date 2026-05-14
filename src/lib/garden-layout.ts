@@ -147,10 +147,22 @@ export const spriteBodyFootprintsOverlap = (
 // before the next group of creatures starts.
 const DIVIDER_HEIGHT = 2;
 
+/** Density preset — passed through from the user's TUI config so the same
+ *  "how packed?" knob steers both the garden's per-page slot capacity and
+ *  the shelf's per-cell breathing room. `comfortable` is the historical
+ *  default; `cozy` is roomier (fewer creatures fit per page / per shelf
+ *  row), `dense` is tighter. */
+export type GardenDensity = "cozy" | "comfortable" | "dense";
+
 // Shelf cells get extra breathing room on top of the shared SLOT_PAD_*
 // constants the organic placer uses — soldiers shouldn't bump elbows.
-const SHELF_EXTRA_PAD_X = 3;
-const SHELF_EXTRA_PAD_Y = 1;
+// The values below are per-density; `comfortable` matches the pre-density
+// constants so the default visual is unchanged.
+const SHELF_EXTRA_PAD: Record<GardenDensity, { x: number; y: number }> = {
+  cozy: { x: 5, y: 2 },
+  comfortable: { x: 3, y: 1 },
+  dense: { x: 1, y: 0 }
+};
 
 // "Soldier" layout: creatures keep their organic shape and natural size but
 // march into a uniform grid. Same row → same baseline (feet aligned), uniform
@@ -166,7 +178,8 @@ export const lineUpCreatures = (
   canvasW: number,
   canvasH: number,
   deadZone?: { width: number; height: number },
-  topRightDeadZone?: { width: number; height: number }
+  topRightDeadZone?: { width: number; height: number },
+  density: GardenDensity = "comfortable"
 ): ShelfLayout => {
   if (tiles.length === 0) return { placements: [], dividers: [], overflows: [] };
 
@@ -174,9 +187,9 @@ export const lineUpCreatures = (
   const maxNameW = Math.max(...tiles.map((t) => t.creature.scan.name.length));
   const maxCharH = Math.max(...tiles.map((t) => t.charH));
 
-  const slotW =
-    Math.max(maxSpriteW + 2, maxNameW) + SLOT_PAD_X + SHELF_EXTRA_PAD_X;
-  const rowH = maxCharH + NAME_GAP_ROWS + NAME_H + SLOT_PAD_Y + SHELF_EXTRA_PAD_Y;
+  const pad = SHELF_EXTRA_PAD[density];
+  const slotW = Math.max(maxSpriteW + 2, maxNameW) + SLOT_PAD_X + pad.x;
+  const rowH = maxCharH + NAME_GAP_ROWS + NAME_H + SLOT_PAD_Y + pad.y;
 
   const usableW = Math.max(slotW, canvasW - 1);
   const cols = Math.max(1, Math.floor(usableW / slotW));
@@ -344,12 +357,19 @@ export const lineUpCreatures = (
 // Per-page slot dimensions used by paginateCreatures. These intentionally
 // sit well above the placer's hard minimums (sprite 2..5w, 2..3h) so a page
 // reads as roomy rather than barely-fits — pagination's whole job is to
-// uncrowd the scene, not to repack at the densest legal level. Tuned by
-// eye on wide terminals where the lower 10×7 slot was still landing 15-20
-// creatures on a page; 14×9 brings that down to ~8-10 with comfortable
-// margins between sprites.
-const PAGE_SLOT_W = 14;
-const PAGE_SLOT_H = 9;
+// uncrowd the scene, not to repack at the densest legal level.
+//
+// `comfortable` (14×9) was the pre-density default — on wide terminals it
+// lands ~8-10 creatures per page with breathing room. `cozy` (17×11) shows
+// fewer per page for users who want the scene to feel sparse. `dense`
+// (11×7) packs ~50% more before pagination kicks in — handy when you
+// like seeing all the creatures at once but still want pages, not the
+// uncapped placer fallback.
+const PAGE_SLOT_DIMS: Record<GardenDensity, { w: number; h: number }> = {
+  cozy: { w: 17, h: 11 },
+  comfortable: { w: 14, h: 9 },
+  dense: { w: 11, h: 7 }
+};
 
 const slotsBlockedByZone = (
   zoneWidth: number,
@@ -365,33 +385,36 @@ const slotsBlockedByZone = (
 };
 
 /** Mirror of the placer's "fit creatures into the canvas without overlap"
- *  capacity formula, using PAGE_SLOT_* in place of the placer's hard minimums
- *  so a page leaves room to breathe. Dead-zone discounts are conservative —
- *  any slot the zone clips gets dropped, even if a sliver remains usable. */
+ *  capacity formula, using PAGE_SLOT_DIMS[density] in place of the placer's
+ *  hard minimums so a page leaves room to breathe. Dead-zone discounts are
+ *  conservative — any slot the zone clips gets dropped, even if a sliver
+ *  remains usable. */
 export const gardenPageCapacity = (
   canvasW: number,
   canvasH: number,
   deadZone?: { width: number; height: number },
-  topRightDeadZone?: { width: number; height: number }
+  topRightDeadZone?: { width: number; height: number },
+  density: GardenDensity = "comfortable"
 ): number => {
-  const usableW = Math.max(PAGE_SLOT_W, canvasW - 1);
+  const slot = PAGE_SLOT_DIMS[density];
+  const usableW = Math.max(slot.w, canvasW - 1);
   // Match placeCreatures: reserve the name strip at the bottom so capacity
   // math agrees with what the placer actually accepts. Without this match
   // pagination would pack the last row tight and the placer would reject
   // those slots, forcing overlap-packing — the exact thing pagination is
   // here to prevent.
   const nameReserve = NAME_GAP_ROWS + NAME_H;
-  const usableH = Math.max(PAGE_SLOT_H, canvasH - SKY_ROWS - GROUND_ROWS - nameReserve);
-  const cols = Math.max(1, Math.floor(usableW / PAGE_SLOT_W));
-  const rows = Math.max(1, Math.floor(usableH / PAGE_SLOT_H));
+  const usableH = Math.max(slot.h, canvasH - SKY_ROWS - GROUND_ROWS - nameReserve);
+  const cols = Math.max(1, Math.floor(usableW / slot.w));
+  const rows = Math.max(1, Math.floor(usableH / slot.h));
   const grid = cols * rows;
   let blocked = 0;
   if (deadZone) {
     blocked += slotsBlockedByZone(
       deadZone.width,
       deadZone.height + nameReserve,
-      PAGE_SLOT_W,
-      PAGE_SLOT_H,
+      slot.w,
+      slot.h,
       cols,
       rows
     );
@@ -400,8 +423,8 @@ export const gardenPageCapacity = (
     blocked += slotsBlockedByZone(
       topRightDeadZone.width,
       topRightDeadZone.height,
-      PAGE_SLOT_W,
-      PAGE_SLOT_H,
+      slot.w,
+      slot.h,
       cols,
       rows
     );

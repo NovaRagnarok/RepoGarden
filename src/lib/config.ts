@@ -7,6 +7,12 @@ const configFile = join(configDir, "tui.json");
 
 export type ReadyView = "garden" | "shelf" | "journal";
 
+/** How tightly creatures pack into a page (garden) or shelf row.
+ *  `comfortable` is the historical default — generous slot padding,
+ *  fewer creatures per page. `cozy` adds more breathing room; `dense`
+ *  trims pads so more creatures fit on screen before pagination kicks in. */
+export type GardenDensity = "cozy" | "comfortable" | "dense";
+
 export interface ObserverConfig {
   enabled: boolean;
   /** Cap on per-repo watch handles. Beyond this, per-repo commit
@@ -27,6 +33,16 @@ export interface TuiConfig {
    *  fs.watch. Env REPOGARDEN_DISABLE_OBSERVER=1 disables it for a
    *  single run regardless of the persisted flag. */
   observer: ObserverConfig;
+  /** Master pagination toggle for the garden view. When false the
+   *  whole creature list lands on one page; the placer falls back to
+   *  its graceful-degradation path (slot reuse, overlap-packing) when
+   *  the canvas can't physically fit everyone. Shelf/journal are
+   *  unaffected — they don't paginate today. */
+  gardenPaginate: boolean;
+  /** Per-page slot density. Smaller pads → more creatures fit before
+   *  pagination kicks in. Threaded into the shelf placer too so the
+   *  setting reads consistently across both views. */
+  gardenDensity: GardenDensity;
 }
 
 const DEFAULT_CONFIG: TuiConfig = {
@@ -35,8 +51,13 @@ const DEFAULT_CONFIG: TuiConfig = {
   view: "garden",
   reducedMotion: false,
   usageBarDisabled: false,
-  observer: { enabled: true }
+  observer: { enabled: true },
+  gardenPaginate: true,
+  gardenDensity: "comfortable"
 };
+
+const isGardenDensity = (value: unknown): value is GardenDensity =>
+  value === "cozy" || value === "comfortable" || value === "dense";
 
 const isReadyView = (value: unknown): value is ReadyView =>
   value === "garden" || value === "shelf" || value === "journal";
@@ -62,7 +83,14 @@ export const loadConfig = (): TuiConfig => {
         typeof parsed.usageBarDisabled === "boolean"
           ? parsed.usageBarDisabled
           : DEFAULT_CONFIG.usageBarDisabled,
-      observer: parseObserver(parsed.observer)
+      observer: parseObserver(parsed.observer),
+      gardenPaginate:
+        typeof parsed.gardenPaginate === "boolean"
+          ? parsed.gardenPaginate
+          : DEFAULT_CONFIG.gardenPaginate,
+      gardenDensity: isGardenDensity(parsed.gardenDensity)
+        ? parsed.gardenDensity
+        : DEFAULT_CONFIG.gardenDensity
     };
   } catch {
     return DEFAULT_CONFIG;

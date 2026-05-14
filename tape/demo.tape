@@ -35,19 +35,40 @@ Sleep 3500ms
 Enter
 Sleep 3500ms
 
+# Initial garden — quick beat so the swarm is established before we
+# switch to the view that actually explains them.
 Down
-Sleep 500ms
-Down
-Sleep 500ms
+Sleep 600ms
 Down
 Sleep 800ms
 
+# Shelf is where the four vibe groups (awake / happy / stuck / sleepy)
+# read as distinct labelled rows. Dwell long enough for a viewer to
+# clock all four group headers.
+Type "g"
+Sleep 5s
+
+# Walk down a few creatures so the focus card cycles through different
+# vibes — colour + glyph in the card change with each step.
+Down
+Sleep 700ms
+Down
+Sleep 700ms
+Down
+Sleep 1200ms
+
+# Workbench peek — one creature opened so the GIF shows the per-repo
+# detail mode (portrait, notes, recent commits) before we return.
+Enter
+Sleep 3500ms
+Escape
+Sleep 1000ms
+
+# Journal pass so the third view is visible.
 Type "g"
 Sleep 2500ms
 
-Type "g"
-Sleep 2500ms
-
+# Back to garden to finish on the swarm.
 Type "g"
 Sleep 2s
 

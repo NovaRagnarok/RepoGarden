@@ -268,7 +268,14 @@ const buildScene = (props: GardenSceneProps): GardenScene => {
     : undefined;
   const layout =
     props.placementMode === "shelf"
-      ? lineUpCreatures(tiles, props.innerWidth, props.canvasH, props.deadZone, placerZone)
+      ? lineUpCreatures(
+          tiles,
+          props.innerWidth,
+          props.canvasH,
+          props.deadZone,
+          placerZone,
+          props.density
+        )
       : {
           placements: placeCreatures(
             tiles,

@@ -4,6 +4,37 @@ All notable changes to RepoGarden land here. Format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-05-14
+
+### Changed
+
+- **Vibe vocabulary renamed** for clarity: `noisy → awake` (recent local changes — the optimum/most-engaged state) and `blocked → stuck` (user-flagged blocker). `happy` (clean + in sync) and `sleepy` (long quiet) unchanged. Shelf display order flipped so `awake` sits at the top — the shelf reads top-down as "most engaged → least." Existing journals and scan snapshots written under the old vocabulary keep rendering correctly: `loadScanSnapshot` migrates `"noisy"`/`"blocked"` on read, and `event-summary.ts` normalises legacy `from`/`to` payloads before looking up the transition verb.
+- **`fakeName` mixes casing styles** alongside word count. Output is now ~50% kebab (`plum-thistle`), ~20% PascalCase (`PlumThistle`), ~20% camelCase (`plumThistle`), ~10% capitalised-kebab (`Plum-thistle`). Reads more like the spectrum of real repo names instead of a visibly templated set. Composition stays grammatical (noun alone, adj+noun, adj+adj+noun) and the 20/60/20 word-count split is unchanged.
+
+### Fixed
+
+- **Wandering creatures no longer overlap a dragged neighbour once it settles.** `resolvePushPlacements` now initialises its simulation from each creature's *rest* position (anchor + persistent/manual offset, with the transient wander bob stripped), so a drag past a wanderer mid-cycle doesn't get certified clear only to collide once the wander envelope returns to zero. `syncVisualPlacements` also gained a Chebyshev-ring nearest-clear-cell search that fires before the bare-anchor fallback, so a wanderer whose anchor was claimed by a manual offset gets nudged out of the way instead of silently landing on top.
+- **Shelf vibes no longer bleed into each other when one bucket overflows.** `lineUpCreatures` was rewritten with proportional vertical allocation: each vibe gets `ceil(count / cols)` rows trimmed against the canvas budget, with a min of 1 row per rendered shelf. Tiles beyond the budget collapse into a single `+N more` indicator painted in the shelf's accent colour. Pre-fix, a happy bucket of 30 repos on a tight canvas would wrap past its strip and crash into the next vibe's divider; the bug also masked a `nudgeRow` interaction where dead-zone hops shifted tiles vertically but not the divider plan.
+- **Shelf centring drops to left-align when it would clip the focus card.** Partial rows are still centred by default, but the row offset zeroes out when the centred slot's right edge would intersect the bottom-right dead zone. Slots that still collide fold into the same `+N more` tally rather than getting hopped into the next vibe's rows.
+
+### Added
+
+- **Pagination toggle + density setting.** Two new persistent settings in `~/.repogarden/tui.json`:
+  - `gardenPaginate` (default `true`) — when off, the whole creature list lands on one page and the placer's graceful-degradation handles dense packing. For users who like seeing every repo at once instead of paging through.
+  - `gardenDensity` (`"cozy" | "comfortable" | "dense"`, default `"comfortable"`) — controls per-page slot dims in garden mode and per-cell breathing room in shelf mode. `comfortable` matches the pre-0.5.0 visuals exactly; `cozy` is roomier (fewer per page / row), `dense` is tighter (~50% more before pagination kicks in). Threaded through `gardenPageCapacity` and `lineUpCreatures`.
+  - Settings UI: `p` toggles pagination, `g` cycles density. Both render their current state next to `m`/`u`/`o` in the preferences panel.
+- **Mask wordlists expanded** with new texture / sound / scent adjectives (`muffled`, `whispery`, `loamy`, `piney`, `peachy`, `sage`, …) and time-of-day / water creature / textile nouns (`gloaming`, `dawnling`, `pollywog`, `eft`, `bobbin`, `darning`, …). `ADJECTIVES` 140 → 206, `NOUNS` 145 → 225. Duplicate `"ember"` deduped from `NOUNS` (it sat in both the lantern group and the kindling group).
+- **Demo roster doubled** from 16 to 32 names (`acorn-rs`, `sprout-db`, `mothbot`, `reed-cli`, `driftlog`, `pebble-ci`, `clover-api`, `ripple-cms`, `nestwatch`, `twig-deploy`, `garden-lint`, `puddle-map`, `wrenpress`, `loamkit`, `lichen-sync`, `dawnqueue`). `buildDemoNameMap` now won't hit the `-2` cycle suffix until 33+ creatures, and the settings preview garden fills the shelf with a more populated cast. `DEMO_BRANCHES` 10 → 16, `DEMO_SUBJECTS` 16 → 32, `DEMO_AUTHORS` 6 → 10 to keep per-id hashing variety proportional.
+
+### Internal
+
+- New `restPlacementFor` helper in `src/garden/model.ts` (anchor + `effectivePersistentOffset`, transient `currentOffset` deliberately excluded). New `findNearestClearPlacement` walks Chebyshev rings outward from a base placement, bounded by canvas dimensions. `resolvePushPlacements` initialises its `placements` map via `restPlacementFor` rather than `visualPlacements.get(...)` so push decisions don't rely on transient wander bob.
+- New `ShelfOverflow` type in `src/lib/garden-layout.ts`; `ShelfLayout.overflows` carries `{ vibe, canvasRow, canvasCol, slotW, hidden }` per shelf that truncated. `GardenScene` plumbs the array through to `renderGardenFrame`, which paints each `+N more` marker in `dividerLabelColor(vibe)` and clips the label to `slotW`. `placeCreatures` (organic mode) returns `overflows: []` for type compatibility.
+- New `migrateLegacyVibe` helper in `src/lib/events.ts` runs in `normalizeSnapEntry` to coerce `"noisy" → "awake"` and `"blocked" → "stuck"` at snapshot read time. New `normaliseLegacyVibe` in `src/lib/event-summary.ts` runs before the `vibeTransitionVerb` switch so historical `vibe-changed` events still hit the right verb (`got busy`, `back in flow`, etc.).
+- `Vibe` type is now `"awake" | "happy" | "stuck" | "sleepy"`. `VIBE_ORDER` is `["awake", "happy", "stuck", "sleepy"]`. The canonical creature sort in `src/lib/creature.ts` and the post-save resort in `cli.tsx` mirror that order. `VIBE_WANDER` / `VIBE_WIGGLE` keys, `dividerLabelColor`, `vibeBadgeVariant`, and the per-screen colour ternaries in `ReadyShell.tsx` / `JournalView.tsx` / `SettingsScreen.tsx` were updated in lockstep. `JournalView` keeps the colour mapping permissive against unknown future vibe strings via the `vibeTarget` typed signal alone.
+- New `GardenDensity` type exported from `src/lib/garden-layout.ts`; consumed by `gardenPageCapacity`, `lineUpCreatures`, `GardenSceneProps.density`, and the new settings flow. Per-density tables: `SHELF_EXTRA_PAD` and `PAGE_SLOT_DIMS`. `comfortable` matches the pre-0.5.0 constants so the default visual is unchanged.
+- New tests: `loadScanSnapshot migrates legacy noisy/blocked vibe strings on read` (events) writes a snapshot file directly with the pre-rename vocab and asserts the loader normalises. `vibe-changed with legacy noisy/blocked payloads still renders a transition verb` (event-summary) exercises the call-site normaliser. `lineUpCreatures emits a +N more overflow indicator` and `lineUpCreatures keeps shelves from overlapping each other vertically` cover the proportional-allocation invariants. `fakeName covers each casing style across many ids` samples 1000 names and asserts each style bucket lands. `gardenPageCapacity returns more creatures per page at dense than at cozy`, `gardenPageCapacity default density matches explicit comfortable`, and `lineUpCreatures dense density fits more creatures per shelf row than cozy` cover the new density knob. Test count: 345 → 356.
+
 ## [0.4.0] — 2026-05-13
 
 ### Fixed

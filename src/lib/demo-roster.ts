@@ -114,17 +114,15 @@ export const DEMO_AUTHORS: readonly string[] = [
   "leo-p"
 ];
 
+// Balanced for the demo screenshot/GIF: each vibe gets equal probability so
+// the shelf view shows four roughly-same-sized groups under their dividers.
+// Real-world distributions are usually happy-heavy, but the demo's job is to
+// show the *vocabulary* (awake / happy / stuck / sleepy), not to look like a
+// statistically typical user.
 const DEMO_VIBES: readonly Vibe[] = [
-  "happy",
-  "happy",
-  "happy",
-  "happy",
-  "happy",
   "awake",
-  "awake",
-  "awake",
+  "happy",
   "stuck",
-  "sleepy",
   "sleepy"
 ];
 
@@ -194,6 +192,24 @@ export const demoAuthorFor = (id: string): string =>
 export const demoVibeFor = (id: string): Vibe =>
   pickFrom(DEMO_VIBES, hashString(`demo-vibe:${id}`), "v");
 
+// Per-index "size archetype" for the demo roster. Real repos span roughly
+// 3 → 5000 commits; the demo used to bunch around 40–240 which the size
+// cohort normalised into almost-identical sprite footprints. The wider
+// spread below feeds `creatureActivityMass` (commit count is the dominant
+// log term) so sprites visibly range from "tiny acorn" to "chunky tile."
+const DEMO_SIZE_ARCHETYPES: readonly number[] = [
+  4, 11, 22, 38, 65, 110, 175, 280, 440, 680, 1050, 1700, 3200
+];
+
+// Density of the 30-day recentCommitDays vector. Pairs with the size
+// archetype so a "big" repo also shows a lot of recent activity and a
+// "tiny" repo barely has any — that's what the activity scalar would
+// look like for the same repos in the wild. The last entry pairs with
+// the 3200-commit "boss" archetype — a commit every day for the past 30.
+const DEMO_RECENT_DENSITY: readonly number[] = [
+  12, 9, 7, 5, 4, 3, 3, 2, 2, 2, 2, 2, 1
+];
+
 /** Build a complete synthetic creature roster for the settings preview. */
 export const buildDemoCreatures = (): RepoCreature[] =>
   DEMO_NAMES.map((name, idx) => {
@@ -202,12 +218,18 @@ export const buildDemoCreatures = (): RepoCreature[] =>
     const branch = demoBranchFor(id);
     const subject = demoSubjectFor(id);
     const author = demoAuthorFor(id);
-    // Distribute ages so the vibe summary looks varied: 0-2d for happy/noisy,
-    // 14+ for sleepy, ~5d for blocked. Deterministic per index.
+    // Distribute ages so the vibe summary looks varied: 0-2d for happy/awake,
+    // 14+ for sleepy, ~5d for stuck. Deterministic per index.
     const daysSinceCommit =
       vibe === "sleepy" ? 14 + (idx % 8) : vibe === "stuck" ? 5 + (idx % 3) : idx % 3;
     const now = Date.now();
     const lastCommitAt = new Date(now - daysSinceCommit * 24 * 60 * 60 * 1000).toISOString();
+    // Cycle the archetype list at an offset coprime with its length so the
+    // size sequence doesn't visibly align with vibe groupings.
+    const archetypeIdx = (idx * 5) % DEMO_SIZE_ARCHETYPES.length;
+    const baseCommits = DEMO_SIZE_ARCHETYPES[archetypeIdx] as number;
+    const commitCount = baseCommits + ((idx * 3) % 7);
+    const recentEvery = DEMO_RECENT_DENSITY[archetypeIdx] as number;
     return {
       id,
       scan: {
@@ -222,8 +244,10 @@ export const buildDemoCreatures = (): RepoCreature[] =>
         lastCommitSha: hashString(id).toString(16).slice(0, 7),
         lastCommitAt,
         primaryLanguage: ["TypeScript", "Rust", "Go", "Python", "Ruby"][idx % 5],
-        commitCount: 40 + (idx * 17) % 200,
-        recentCommitDays: Array.from({ length: 30 }, (_, d) => (d + idx) % 4 === 0 ? 1 : 0)
+        commitCount,
+        recentCommitDays: Array.from({ length: 30 }, (_, d) =>
+          (d + idx) % recentEvery === 0 ? 1 : 0
+        )
       },
       memory: {
         lastVisitedAt: lastCommitAt,

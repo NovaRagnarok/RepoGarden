@@ -11,6 +11,7 @@ import type {
   GardenTopRightDeadZone,
   GardenThemeColors
 } from "@/garden/types";
+import type { GardenDensity } from "@/lib/garden-layout";
 import type { RepoCreature } from "@/lib/creature";
 
 export interface GardenViewProps {
@@ -29,6 +30,7 @@ export interface GardenViewProps {
   deadZone?: GardenDeadZone;
   topRightDeadZone?: GardenTopRightDeadZone;
   placementMode?: "organic" | "shelf";
+  density?: GardenDensity;
 }
 
 const toGardenTheme = (colors: GardenThemeColors): GardenThemeColors => colors;
@@ -45,7 +47,8 @@ const GardenViewInner = ({
   onCreaturePlacementChange,
   deadZone,
   topRightDeadZone,
-  placementMode = "organic"
+  placementMode = "organic",
+  density = "comfortable"
 }: GardenViewProps) => {
   const theme = useTheme();
   const { reduced: reducedMotion } = useMotion();
@@ -69,6 +72,7 @@ const GardenViewInner = ({
       deadZone,
       topRightDeadZone,
       placementMode,
+      density,
       reducedMotion,
       theme: toGardenTheme({
         foreground: theme.colors.foreground,
@@ -96,6 +100,7 @@ const GardenViewInner = ({
     deadZone,
     topRightDeadZone,
     placementMode,
+    density,
     reducedMotion,
     theme.colors.foreground,
     theme.colors.background,
