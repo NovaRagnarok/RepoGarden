@@ -264,7 +264,24 @@ export const buildDemoCreatures = (): RepoCreature[] =>
                 ? "something is in the way"
                 : "resting for a while",
         daysSinceCommit,
-        activity: computeActivity(daysSinceCommit)
+        activity: computeActivity(daysSinceCommit),
+        mood:
+          vibe === "stuck"
+            ? "confused"
+            : vibe === "awake"
+              ? "excited"
+              : vibe === "sleepy"
+                ? "lonely"
+                : "content",
+        confidence: vibe === "happy" ? 0.5 : 0.65,
+        moodReason:
+          vibe === "stuck"
+            ? "blocker noted"
+            : vibe === "awake"
+              ? "lots of recent activity"
+              : vibe === "sleepy"
+                ? "quiet for a while"
+                : "nothing remarkable"
       }
     };
   });

@@ -5,6 +5,7 @@ import type { RepoCreature } from "../lib/creature";
 import type { JournalEvent } from "../lib/events";
 import type { NotesState } from "../lib/notes";
 import {
+  buildPortraitChips,
   buildPortraitClipboardText,
   buildPortraitModel,
   buildPortraitNoteSummaries,
@@ -97,6 +98,9 @@ const creature = (overrides: Partial<RepoCreature> = {}): RepoCreature => ({
     reason: "blocker: build is failing on auth tests",
     daysSinceCommit: 1,
     activity: 1,
+    mood: "confused",
+    confidence: 0.85,
+    moodReason: "blocker: build is failing on auth tests",
   },
   ...overrides,
 });
@@ -185,4 +189,83 @@ test("buildPortraitClipboardText produces a useful shareable briefing", () => {
   assert.match(text, /path: \/work\/alpha/);
   assert.match(text, /next actions:/);
   assert.match(text, /clear the active blocker/);
+});
+
+// ---------------------------------------------------------------------------
+// mood chip
+// ---------------------------------------------------------------------------
+
+test("buildPortraitChips surfaces a confident, non-content mood as a chip", () => {
+  const chips = buildPortraitChips(
+    creature({
+      vibe: {
+        vibe: "stuck",
+        reason: "blocker: build is failing on auth tests",
+        daysSinceCommit: 1,
+        activity: 1,
+        mood: "confused",
+        confidence: 0.85,
+        moodReason: "blocker noted",
+      },
+    }),
+    NOW
+  );
+  const mood = chips.find((chip) => chip.key === "mood");
+  assert.ok(mood, "expected a mood chip");
+  assert.equal(mood?.label, "confused");
+  assert.equal(mood?.severity, "error");
+});
+
+test("buildPortraitChips omits low-confidence moods", () => {
+  const chips = buildPortraitChips(
+    creature({
+      vibe: {
+        vibe: "happy",
+        reason: "clean.",
+        daysSinceCommit: 1,
+        activity: 1,
+        mood: "curious",
+        confidence: 0.45,
+        moodReason: "only 2 commits so far",
+      },
+    }),
+    NOW
+  );
+  assert.equal(chips.find((chip) => chip.key === "mood"), undefined);
+});
+
+test("buildPortraitChips omits the lonely chip on a sleepy creature (redundant)", () => {
+  const chips = buildPortraitChips(
+    creature({
+      vibe: {
+        vibe: "sleepy",
+        reason: "quiet for 90 days.",
+        daysSinceCommit: 90,
+        activity: 0,
+        mood: "lonely",
+        confidence: 0.7,
+        moodReason: "90 days quiet, no recent visit",
+      },
+    }),
+    NOW
+  );
+  assert.equal(chips.find((chip) => chip.key === "mood"), undefined);
+});
+
+test("buildPortraitChips omits the content mood (the no-signal default)", () => {
+  const chips = buildPortraitChips(
+    creature({
+      vibe: {
+        vibe: "happy",
+        reason: "clean.",
+        daysSinceCommit: 1,
+        activity: 1,
+        mood: "content",
+        confidence: 0.9,
+        moodReason: "nothing remarkable",
+      },
+    }),
+    NOW
+  );
+  assert.equal(chips.find((chip) => chip.key === "mood"), undefined);
 });

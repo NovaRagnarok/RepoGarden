@@ -10,8 +10,29 @@ import type { ProjectMemory } from "@/lib/memory";
 // and `event-summary.ts` for the read-time migration of pre-rename data.
 export type Vibe = "awake" | "happy" | "stuck" | "sleepy";
 
+// Mood is an advisory descriptor layered on top of Vibe. Vibe answers
+// "which shelf does this creature stand on?"; Mood answers "what does it
+// feel like right now?". Nothing branches on Mood — it's renderer-only —
+// so adding new moods later is purely additive.
+export type Mood =
+  | "curious"   // young repo, still being explored
+  | "excited"   // recent burst of commits above its own baseline
+  | "proud"     // stacked unpushed commits, has shipped good work locally
+  | "anxious"   // behind remote — needs pull or attention
+  | "confused"  // user has written a currentBlocker
+  | "lonely"    // long idle and no recent visit
+  | "content";  // default — nothing remarkable is happening
+
 const SLEEPY_DAYS = 14;
 const STALE_DAYS = 60;
+const LONELY_DAYS = 60;
+const LONELY_VISIT_DAYS = 30;
+const CURIOUS_MAX_COMMITS = 3;
+const PROUD_AHEAD_THRESHOLD = 5;
+const BURST_WINDOW_DAYS = 7;
+const BURST_BASELINE_DAYS = 23;
+const BURST_MIN_COMMITS = 3;
+const BURST_RATIO = 2;
 
 /**
  * Half-life (in days) for the per-repo activity decay. A 7-day half-life
@@ -35,6 +56,16 @@ export interface VibeResult {
   /** Continuous 0–1 activity scalar derived from `daysSinceCommit` via
    *  exponential decay; 1 = fresh, 0 = never committed / very stale. */
   activity: number;
+  /** Advisory mood descriptor. Layered on top of `vibe`; nothing branches
+   *  on it. Renderers may surface it when `confidence >= 0.5` and the
+   *  mood is not `content`. */
+  mood: Mood;
+  /** Confidence in the mood, 0..1. Roughly: how strongly the winning
+   *  signal stood out. `content` always carries 0.5. */
+  confidence: number;
+  /** Human-readable phrase backing the mood, in the same register as
+   *  `reason` (e.g. "6 unpushed commits", "60 days quiet, no recent visit"). */
+  moodReason: string;
 }
 
 /**
@@ -47,6 +78,136 @@ export const computeActivity = (daysSinceCommit: number | undefined): number => 
   return Math.pow(0.5, daysSinceCommit / ACTIVITY_HALF_LIFE_DAYS);
 };
 
+// Precedence used to break score ties when two candidate moods score
+// equally. Earlier entries win. Matches the discrete priority already
+// expressed in inferVibe (blocker beats everything else).
+const MOOD_PRECEDENCE: readonly Mood[] = [
+  "confused",
+  "anxious",
+  "excited",
+  "proud",
+  "curious",
+  "lonely",
+  "content"
+] as const;
+
+interface MoodCandidate {
+  mood: Mood;
+  score: number;
+  reason: string;
+}
+
+const inferMood = (
+  repo: ScannedRepo,
+  memory: ProjectMemory | undefined,
+  daysSinceCommit: number | undefined,
+  now: Date
+): { mood: Mood; confidence: number; reason: string } => {
+  const candidates: MoodCandidate[] = [];
+
+  const blocker = memory?.currentBlocker?.trim();
+  if (blocker) {
+    candidates.push({
+      mood: "confused",
+      score: 0.85,
+      reason: `blocker: ${blocker.split("\n")[0].slice(0, 80)}`
+    });
+  }
+
+  const behind = repo.behind ?? 0;
+  if (behind >= 1) {
+    candidates.push({
+      mood: "anxious",
+      // Bump score for larger gaps; capped at 0.85.
+      score: Math.min(0.85, 0.55 + Math.log10(behind + 1) * 0.2),
+      reason: `${behind} commit${behind === 1 ? "" : "s"} behind remote`
+    });
+  }
+
+  const ahead = repo.ahead ?? 0;
+  if (ahead >= PROUD_AHEAD_THRESHOLD) {
+    candidates.push({
+      mood: "proud",
+      score: Math.min(0.8, 0.5 + Math.log10(ahead) * 0.2),
+      reason: `${ahead} unpushed commits stacked up`
+    });
+  }
+
+  const days = repo.recentCommitDays;
+  if (days && days.length >= BURST_WINDOW_DAYS + 1) {
+    const window = days.slice(-BURST_WINDOW_DAYS).reduce((a, b) => a + b, 0);
+    const baselineSlice = days.slice(-(BURST_WINDOW_DAYS + BURST_BASELINE_DAYS), -BURST_WINDOW_DAYS);
+    const baselineMean = baselineSlice.length > 0
+      ? baselineSlice.reduce((a, b) => a + b, 0) / baselineSlice.length
+      : 0;
+    const windowMean = window / BURST_WINDOW_DAYS;
+    // Either the burst beats baseline by BURST_RATIO, or there's no
+    // baseline at all (new repo finding its rhythm) and the burst clears
+    // BURST_MIN_COMMITS.
+    const burstingOverBaseline = baselineMean > 0 && windowMean >= baselineMean * BURST_RATIO;
+    const burstingFromCold = baselineMean === 0 && window >= BURST_MIN_COMMITS;
+    if (window >= BURST_MIN_COMMITS && (burstingOverBaseline || burstingFromCold)) {
+      candidates.push({
+        mood: "excited",
+        score: Math.min(0.85, 0.6 + Math.log10(window) * 0.1),
+        reason: `${window} commits in the last ${BURST_WINDOW_DAYS} days`
+      });
+    }
+  }
+
+  const commitCount = repo.commitCount;
+  if (
+    commitCount !== undefined &&
+    commitCount > 0 &&
+    commitCount <= CURIOUS_MAX_COMMITS &&
+    daysSinceCommit !== undefined &&
+    daysSinceCommit <= SLEEPY_DAYS
+  ) {
+    candidates.push({
+      mood: "curious",
+      score: 0.45,
+      reason: `only ${commitCount} commit${commitCount === 1 ? "" : "s"} so far`
+    });
+  }
+
+  if (daysSinceCommit !== undefined && daysSinceCommit >= LONELY_DAYS) {
+    const lastVisited = memory?.lastVisitedAt;
+    let daysSinceVisit: number | undefined;
+    if (lastVisited) {
+      const parsed = new Date(lastVisited).getTime();
+      if (Number.isFinite(parsed)) {
+        daysSinceVisit = Math.max(0, Math.floor((now.getTime() - parsed) / 86_400_000));
+      }
+    }
+    const lonelyByAbsence = daysSinceVisit === undefined;
+    const lonelyByVisit = daysSinceVisit !== undefined && daysSinceVisit >= LONELY_VISIT_DAYS;
+    if (lonelyByAbsence || lonelyByVisit) {
+      candidates.push({
+        mood: "lonely",
+        score: 0.55,
+        reason: lonelyByAbsence
+          ? `${daysSinceCommit} days quiet, no recent visit`
+          : `${daysSinceCommit} days quiet, last visited ${daysSinceVisit}d ago`
+      });
+    }
+  }
+
+  if (candidates.length === 0) {
+    return { mood: "content", confidence: 0.5, reason: "nothing remarkable" };
+  }
+
+  candidates.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return MOOD_PRECEDENCE.indexOf(a.mood) - MOOD_PRECEDENCE.indexOf(b.mood);
+  });
+  const winner = candidates[0];
+  return {
+    mood: winner.mood,
+    confidence: Math.max(0.3, Math.min(1, winner.score)),
+    reason: winner.reason
+  };
+};
+
 export const inferVibe = ({ repo, memory, now = new Date() }: VibeContext): VibeResult => {
   let daysSinceCommit: number | undefined;
   if (repo.lastCommitAt) {
@@ -56,10 +217,22 @@ export const inferVibe = ({ repo, memory, now = new Date() }: VibeContext): Vibe
     );
   }
   const activity = computeActivity(daysSinceCommit);
+  const moodInfo = inferMood(repo, memory, daysSinceCommit, now);
+  const moodFields = {
+    mood: moodInfo.mood,
+    confidence: moodInfo.confidence,
+    moodReason: moodInfo.reason
+  };
 
   const blocker = memory?.currentBlocker?.trim();
   if (blocker) {
-    return { vibe: "stuck", reason: `blocker: ${blocker}`, daysSinceCommit, activity };
+    return {
+      vibe: "stuck",
+      reason: `blocker: ${blocker}`,
+      daysSinceCommit,
+      activity,
+      ...moodFields
+    };
   }
 
   if (daysSinceCommit !== undefined && daysSinceCommit >= SLEEPY_DAYS) {
@@ -70,7 +243,8 @@ export const inferVibe = ({ repo, memory, now = new Date() }: VibeContext): Vibe
           ? `idle for ${daysSinceCommit} days — almost cobwebs.`
           : `quiet for ${daysSinceCommit} days.`,
       daysSinceCommit,
-      activity
+      activity,
+      ...moodFields
     };
   }
 
@@ -78,14 +252,15 @@ export const inferVibe = ({ repo, memory, now = new Date() }: VibeContext): Vibe
     const parts: string[] = [];
     if (repo.isDirty) parts.push("uncommitted changes");
     if ((repo.ahead ?? 0) > 0) parts.push(`${repo.ahead} unpushed commit${repo.ahead === 1 ? "" : "s"}`);
-    return { vibe: "awake", reason: parts.join(" · "), daysSinceCommit, activity };
+    return { vibe: "awake", reason: parts.join(" · "), daysSinceCommit, activity, ...moodFields };
   }
 
   return {
     vibe: "happy",
     reason: daysSinceCommit !== undefined ? `last commit ${daysSinceCommit}d ago, clean.` : "clean.",
     daysSinceCommit,
-    activity
+    activity,
+    ...moodFields
   };
 };
 

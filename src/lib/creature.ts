@@ -100,6 +100,7 @@ const reconcileWithSnapshot = (
         vibe: creature.vibe.vibe,
         branch: creature.scan.branch,
         latestCommitSha: creature.scan.lastCommitSha,
+        mood: creature.vibe.mood,
       };
     }
     saveScanSnapshot(newSnap);
@@ -109,10 +110,18 @@ const reconcileWithSnapshot = (
 
   // Normal reconcile: diff against snapshot.
   const nextSnap: Record<string, SnapEntry> = {};
+  // Confidence floor and per-repo cool-off for mood-changed events.
+  // The cool-off prevents same-day mood flickers (a single push flipping a
+  // repo proud→content→proud) from spamming the journal — mood signals
+  // are noisier than vibe by design.
+  const MOOD_EMIT_CONFIDENCE = 0.7;
+  const MOOD_EMIT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+  const nowMs = new Date(now).getTime();
 
   for (const creature of creatures) {
     const { scan } = creature;
     const prev = snapshot[creature.id];
+    let nextMoodAt: string | undefined;
 
     if (!prev) {
       // New repo — not seen before.
@@ -133,6 +142,44 @@ const reconcileWithSnapshot = (
           kind: "vibe-changed",
           payload: { from: prev.vibe, to: creature.vibe.vibe, reason: creature.vibe.reason },
         });
+      }
+
+      // Mood change. Only emits when:
+      //   - we have a previous mood to compare against (no event the first
+      //     time a snapshot upgrade adds the field — that would otherwise
+      //     light up the journal for every repo at once);
+      //   - the mood actually differs;
+      //   - the *current* mood is confident enough to be worth journaling;
+      //   - the per-repo cool-off has elapsed since the last mood event.
+      // Snapshot always tracks current mood; only `moodAt` is gated by
+      // emission, so a flicker that gets suppressed is still "remembered".
+      const currMood = creature.vibe.mood;
+      const prevMood = prev.mood;
+      const prevMoodAtMs = prev.moodAt ? new Date(prev.moodAt).getTime() : 0;
+      const cooldownElapsed =
+        !Number.isFinite(prevMoodAtMs) ||
+        prevMoodAtMs === 0 ||
+        nowMs - prevMoodAtMs >= MOOD_EMIT_COOLDOWN_MS;
+      if (
+        prevMood !== undefined &&
+        prevMood !== currMood &&
+        creature.vibe.confidence >= MOOD_EMIT_CONFIDENCE &&
+        cooldownElapsed
+      ) {
+        appendEvent({
+          ts: now,
+          repoId: scan.id,
+          repoName: scan.name,
+          kind: "mood-changed",
+          payload: {
+            from: prevMood,
+            to: currMood,
+            reason: creature.vibe.moodReason,
+          },
+        });
+        nextMoodAt = now;
+      } else {
+        nextMoodAt = prev.moodAt;
       }
 
       // Branch switch
@@ -179,6 +226,8 @@ const reconcileWithSnapshot = (
       vibe: creature.vibe.vibe,
       branch: creature.scan.branch,
       latestCommitSha: creature.scan.lastCommitSha,
+      mood: creature.vibe.mood,
+      moodAt: nextMoodAt,
     };
   }
 

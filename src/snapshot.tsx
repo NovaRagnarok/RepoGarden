@@ -44,7 +44,7 @@ const sampleCreatures: RepoCreature[] = [
       ]
     },
     memory: {},
-    vibe: { vibe: "awake", reason: "uncommitted changes · 2 unpushed commits", daysSinceCommit: 2, activity: computeActivity(2) }
+    vibe: { vibe: "awake", reason: "uncommitted changes · 2 unpushed commits", daysSinceCommit: 2, activity: computeActivity(2), mood: "content", confidence: 0.5, moodReason: "nothing remarkable" }
   },
   {
     id: "cc",
@@ -59,7 +59,7 @@ const sampleCreatures: RepoCreature[] = [
       primaryLanguage: "Rust"
     },
     memory: {},
-    vibe: { vibe: "sleepy", reason: "quiet for 30 days.", daysSinceCommit: 30, activity: computeActivity(30) }
+    vibe: { vibe: "sleepy", reason: "quiet for 30 days.", daysSinceCommit: 30, activity: computeActivity(30), mood: "content", confidence: 0.5, moodReason: "nothing remarkable" }
   },
   {
     id: "th",
@@ -73,7 +73,7 @@ const sampleCreatures: RepoCreature[] = [
       primaryLanguage: "Python"
     },
     memory: { currentBlocker: "worker queue red on staging" },
-    vibe: { vibe: "stuck", reason: "blocker: worker queue red on staging", daysSinceCommit: 5, activity: computeActivity(5) }
+    vibe: { vibe: "stuck", reason: "blocker: worker queue red on staging", daysSinceCommit: 5, activity: computeActivity(5), mood: "confused", confidence: 0.85, moodReason: "blocker: worker queue red on staging" }
   },
   {
     id: "gn",
@@ -87,7 +87,7 @@ const sampleCreatures: RepoCreature[] = [
       primaryLanguage: "Markdown"
     },
     memory: {},
-    vibe: { vibe: "happy", reason: "last commit 1d ago, clean.", daysSinceCommit: 1, activity: computeActivity(1) }
+    vibe: { vibe: "happy", reason: "last commit 1d ago, clean.", daysSinceCommit: 1, activity: computeActivity(1), mood: "content", confidence: 0.5, moodReason: "nothing remarkable" }
   }
 ];
 
