@@ -666,6 +666,28 @@ if (hasHelpFlag(cliArgs)) {
   process.exit(0);
 }
 
+// Headless export subcommands. These never enter the TUI, so they bypass
+// the alt-screen / mouse / focus plumbing below entirely. process.exit fires
+// before any of the TTY plumbing runs, so a normal `repogarden` invocation
+// is unaffected.
+if (cliArgs[0] === "export-gif" || cliArgs[0] === "export-text") {
+  const sub = cliArgs[0];
+  const rest = cliArgs.slice(1);
+  try {
+    // Dynamic import keeps gifenc out of the main bundle's startup path when
+    // the user just runs `repogarden`.
+    const mod = await import("@/lib/gif/cli");
+    const exit = sub === "export-gif"
+      ? await mod.runExportGifCli(rest)
+      : await mod.runExportTextCli(rest);
+    process.exit(exit);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`${sub} failed: ${message}\n`);
+    process.exit(1);
+  }
+}
+
 if (process.stdout.isTTY) {
   const originalWrite = process.stdout.write.bind(process.stdout);
   // `write` has two overloads (with/without encoding); both forward callbacks

@@ -4,6 +4,10 @@ All notable changes to RepoGarden land here. Format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Added
+
+- **Share the habitat.** Two new keys in garden / shelf views: `x` exports an animated GIF of the current habitat page to `~/Downloads/repogarden-<ts>.gif`, `t` copies a single plain-UTF-8 frame of the habitat to the system clipboard (wrapped in Markdown code fences with a right-aligned project-URL footer, ready to paste into Discord / Slack / a README). GIF uses native pixel-art rendering — quadrant glyphs unpack into 2×2 sub-pixel blocks, letters render through a bundled hand-designed pixel font (Tamzen 8x16 Bold, MIT), eyes and wander are pinned off (eyes always open, no drift) so labels stay anchored over their static placement and don't clip canvas edges; the body wiggle still animates. Encoder is `gifenc` (pure JS, ~10 KB), no external tools needed. Default output is 1920×1088 at 24 frames / 3 seconds, ~400 KB. Matching CLI subcommands: `repogarden export-gif` and `repogarden export-text`, both accepting `--root`, `--out`, `--scale`, `--seconds`, `--theme`, `--width`, `--height`, `--page`. `export-text` also has `--max-chars <n>` (and `--discord` as an alias for `--max-chars 1999`) which bisects canvas size to fit a paste budget. Pagination uses a labels-aware capacity (`safeGardenCapacity`) that mirrors the placer's slot math, so every exported frame holds a guaranteed-no-overlap subset of creatures.
+
 ## [0.5.0] — 2026-05-14
 
 ### Changed
@@ -34,7 +38,6 @@ All notable changes to RepoGarden land here. Format follows [Keep a Changelog](h
 - `Vibe` type is now `"awake" | "happy" | "stuck" | "sleepy"`. `VIBE_ORDER` is `["awake", "happy", "stuck", "sleepy"]`. The canonical creature sort in `src/lib/creature.ts` and the post-save resort in `cli.tsx` mirror that order. `VIBE_WANDER` / `VIBE_WIGGLE` keys, `dividerLabelColor`, `vibeBadgeVariant`, and the per-screen colour ternaries in `ReadyShell.tsx` / `JournalView.tsx` / `SettingsScreen.tsx` were updated in lockstep. `JournalView` keeps the colour mapping permissive against unknown future vibe strings via the `vibeTarget` typed signal alone.
 - New `GardenDensity` type exported from `src/lib/garden-layout.ts`; consumed by `gardenPageCapacity`, `lineUpCreatures`, `GardenSceneProps.density`, and the new settings flow. Per-density tables: `SHELF_EXTRA_PAD` and `PAGE_SLOT_DIMS`. `comfortable` matches the pre-0.5.0 constants so the default visual is unchanged.
 - New tests: `loadScanSnapshot migrates legacy noisy/blocked vibe strings on read` (events) writes a snapshot file directly with the pre-rename vocab and asserts the loader normalises. `vibe-changed with legacy noisy/blocked payloads still renders a transition verb` (event-summary) exercises the call-site normaliser. `lineUpCreatures emits a +N more overflow indicator` and `lineUpCreatures keeps shelves from overlapping each other vertically` cover the proportional-allocation invariants. `fakeName covers each casing style across many ids` samples 1000 names and asserts each style bucket lands. `gardenPageCapacity returns more creatures per page at dense than at cozy`, `gardenPageCapacity default density matches explicit comfortable`, and `lineUpCreatures dense density fits more creatures per shelf row than cozy` cover the new density knob. Test count: 345 → 356.
-
 ## [0.4.0] — 2026-05-13
 
 ### Fixed

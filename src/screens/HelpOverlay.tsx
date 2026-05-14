@@ -23,6 +23,8 @@ const shortcuts: Shortcut[] = [
   { key: "o", description: "open folder", category: "garden" },
   { key: "h", description: "hide / unhide", category: "garden" },
   { key: "c", description: "toggle focus card", category: "garden" },
+  { key: "x", description: "export habitat as animated GIF (~/Downloads)", category: "garden" },
+  { key: "t / T", description: "copy habitat as text — small (≤2000 chars, Discord-ready) / big (full canvas)", category: "garden" },
   { key: "r", description: "rescan roots", category: "garden" },
   { key: "p", description: "edit scan paths", category: "garden" },
   { key: "f / F", description: "journal: type filter", category: "garden" },
@@ -70,6 +72,7 @@ export const HelpOverlay = ({ onClose }: HelpOverlayProps) => {
 
   const compactRows = [
     "garden  ↑↓ pick · ↵ open · / filter · g view · h hide · [/] page",
+    "share  x gif · t small text · T big text",
     "journal  jk events · f/F type · t/T time · d details",
     "workbench  1-6 section · n notes · ctrl+1/2 mode",
     "notes  ctrl+n new · ctrl+p palette · ctrl+s save",

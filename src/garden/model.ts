@@ -125,6 +125,41 @@ export const blinkClosedAt = (profile: BlinkProfile, now: number): boolean => {
   return t < profile.durationMs;
 };
 
+/** Pin a model into "export shape" — same model, but with the bits that
+ *  read poorly in a captured snapshot turned off:
+ *
+ *  1. Eyes stay open (closed-eye overlay and blink window both disabled).
+ *  2. Wander is frozen (every creature's drift radius is zeroed, and any
+ *     accumulated offset cleared) so labels stay over their static placement
+ *     and don't drift off-canvas across frames.
+ *
+ *  Wiggle (the body's 2-frame bob) is left running on purpose — it makes the
+ *  GIF feel alive without moving creatures out of their slots. The mutation
+ *  is local to this model and doesn't affect any other live engine. Call
+ *  *after* `createGardenModel` (and, ideally, after one `stepGardenModel`
+ *  to ensure wander states are initialised). */
+export const pinForExport = (model: GardenModel): void => {
+  for (const sprite of model.scene.sprites.values()) {
+    sprite.eyesClosed = false;
+    sprite.blink = {
+      intervalMs: Number.POSITIVE_INFINITY,
+      durationMs: 0,
+      phaseMs: 0
+    };
+  }
+  for (const state of model.wander.values()) {
+    state.profile = {
+      ...state.profile,
+      radiusX: 0,
+      radiusY: 0
+    };
+    state.currentOffset = { x: 0, y: 0 };
+    state.persistentOffset = { x: 0, y: 0 };
+    state.outpoint = { x: 0, y: 0 };
+    state.manualOffset = undefined;
+  }
+};
+
 const visualPlacementAtOffset = (
   placement: Placement,
   offsetX: number,
@@ -231,7 +266,7 @@ const findNearestClearPlacement = (
   return null;
 };
 
-const buildTiles = (props: GardenSceneProps): SizedTile[] => {
+export const buildTiles = (props: GardenSceneProps): SizedTile[] => {
   const { creatures, innerWidth, canvasH } = props;
   if (creatures.length === 0) return [];
   const aspect = innerWidth / Math.max(1, canvasH - SKY_ROWS - GROUND_ROWS);
@@ -366,7 +401,7 @@ const buildWanderProfile = (vibe: Vibe, activity: number): WanderProfile => {
   };
   const idle = skew(cfg.idleMin, cfg.idleMax, true);
   const wander = skew(cfg.wanderMin, cfg.wanderMax, true);
-  // Drift radius scales with activity too — sleepy/blocked repos barely
+  // Drift radius scales with activity too — sleepy/stuck repos barely
   // wander even within their own short range. Floor at 25% so a stale
   // creature still nudges occasionally instead of going stone-still.
   const radiusScale = 0.25 + 0.75 * a;

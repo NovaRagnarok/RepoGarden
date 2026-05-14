@@ -30,12 +30,30 @@ export const writeToSystemClipboard = (text: string): boolean => {
     }
   };
 
+  // Windows `clip.exe` / `clip` interprets piped stdin as the system code
+  // page (typically CP1252), which mangles multi-byte UTF-8 like our
+  // block-drawing glyphs (▌▐█▄▀). Send UTF-16 LE with a BOM — both binaries
+  // detect the BOM and round-trip the text correctly to the Windows
+  // clipboard, which is natively UTF-16.
+  const tryWindowsClip = (cmd: string): boolean => {
+    try {
+      const utf16 = Buffer.concat([
+        Buffer.from([0xff, 0xfe]),
+        Buffer.from(text, "utf16le")
+      ]);
+      const result = spawnSync(cmd, [], { input: utf16 });
+      return result.status === 0;
+    } catch {
+      return false;
+    }
+  };
+
   const isWSL =
     process.platform === "linux" &&
     (process.env.WSL_DISTRO_NAME !== undefined || process.env.WSL_INTEROP !== undefined);
 
   if (isWSL) {
-    if (tryNative("clip.exe")) return true;
+    if (tryWindowsClip("clip.exe")) return true;
   } else if (process.platform === "darwin") {
     if (tryNative("pbcopy")) return true;
   } else if (process.platform === "linux") {
@@ -43,7 +61,7 @@ export const writeToSystemClipboard = (text: string): boolean => {
     if (tryNative("xclip", ["-selection", "clipboard"])) return true;
     if (tryNative("xsel", ["--clipboard", "--input"])) return true;
   } else if (process.platform === "win32") {
-    if (tryNative("clip")) return true;
+    if (tryWindowsClip("clip")) return true;
   }
 
   // OSC 52 fallback. ESC ] 52 ; c ; <base64> BEL.
