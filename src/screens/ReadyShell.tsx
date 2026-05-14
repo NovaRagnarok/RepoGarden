@@ -1501,7 +1501,10 @@ export const ReadyShell = ({
         <Box paddingTop={1} flexDirection="row" justifyContent="space-between" flexWrap="wrap">
           {rootsLabel ? (
             <Text dimColor color={theme.colors.mutedForeground} wrap="truncate-end">
-              roots: {rootsLabel.split(" · ").map(tildify).join(" · ")}
+              roots: {rootsLabel
+                .split(" · ")
+                .map((root) => privacy.maskPath(tildify(root), `root:${root}`))
+                .join(" · ")}
             </Text>
           ) : (
             <Box />
@@ -1566,7 +1569,7 @@ export const ReadyShell = ({
             labelWidth={Math.max(12, Math.min(28, Math.floor(columns / 3)))}
             items={scanProgressByRoot.map<MultiProgressItem>((entry) => ({
               id: entry.root,
-              label: tildify(entry.root),
+              label: privacy.maskPath(tildify(entry.root), `root:${entry.root}`),
               value: entry.done,
               total: entry.total,
               status:

@@ -4,6 +4,10 @@ All notable changes to RepoGarden land here. Format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Fixed
+
+- **Mask mode now redacts the scan-root paths** shown under the garden and in the multi-root scan progress UI. Pre-fix, hitting `m` to mask names left the configured base directories visible in plaintext, leaking the same path information the per-repo masking was hiding.
+
 ## [0.4.0] — 2026-05-13
 
 ### Fixed
