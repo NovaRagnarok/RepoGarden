@@ -96,6 +96,7 @@ const creature = (overrides: Partial<RepoCreature> = {}): RepoCreature => ({
     vibe: "blocked",
     reason: "blocker: build is failing on auth tests",
     daysSinceCommit: 1,
+    activity: 1,
   },
   ...overrides,
 });

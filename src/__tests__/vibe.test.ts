@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { inferVibe, vibeGlyph } from "../lib/vibe";
+import { ACTIVITY_HALF_LIFE_DAYS, computeActivity, inferVibe, vibeGlyph } from "../lib/vibe";
 import type { ScannedRepo } from "../lib/scanner";
 
 const baseRepo = (overrides: Partial<ScannedRepo> = {}): ScannedRepo => ({
@@ -71,4 +71,54 @@ test("empty whitespace blocker does not trigger blocked", () => {
     now: NOW
   });
   assert.notEqual(result.vibe, "blocked");
+});
+
+// ---------------------------------------------------------------------------
+// activity scalar
+// ---------------------------------------------------------------------------
+
+test("computeActivity returns 1 for a fresh commit", () => {
+  assert.equal(computeActivity(0), 1);
+});
+
+test("computeActivity returns 0.5 at the half-life", () => {
+  assert.equal(computeActivity(ACTIVITY_HALF_LIFE_DAYS), 0.5);
+});
+
+test("computeActivity decays roughly exponentially", () => {
+  const single = computeActivity(ACTIVITY_HALF_LIFE_DAYS);
+  const double = computeActivity(ACTIVITY_HALF_LIFE_DAYS * 2);
+  // Each half-life cuts activity in half.
+  assert.ok(Math.abs(double - single * 0.5) < 1e-9, `expected ${single * 0.5}, got ${double}`);
+});
+
+test("computeActivity returns 0 for a never-committed repo", () => {
+  assert.equal(computeActivity(undefined), 0);
+});
+
+test("computeActivity clamps future-dated commits to 1", () => {
+  assert.equal(computeActivity(-5), 1);
+});
+
+test("inferVibe surfaces activity alongside the vibe", () => {
+  const recent = new Date(NOW.getTime() - 1 * 86_400_000).toISOString();
+  const fresh = inferVibe({ repo: baseRepo({ lastCommitAt: recent }), now: NOW });
+  assert.ok(fresh.activity > 0.85, `expected high activity, got ${fresh.activity}`);
+
+  const stale = new Date(NOW.getTime() - 30 * 86_400_000).toISOString();
+  const old = inferVibe({ repo: baseRepo({ lastCommitAt: stale }), now: NOW });
+  assert.ok(old.activity < 0.1, `expected low activity, got ${old.activity}`);
+});
+
+test("inferVibe gives a blocked repo activity from its commit recency, not zero", () => {
+  // A repo can be both blocked and freshly committed — the activity scalar
+  // should reflect the latter so its sprite still bustles a bit.
+  const recent = new Date(NOW.getTime() - 1 * 86_400_000).toISOString();
+  const result = inferVibe({
+    repo: baseRepo({ lastCommitAt: recent }),
+    memory: { currentBlocker: "build red" },
+    now: NOW
+  });
+  assert.equal(result.vibe, "blocked");
+  assert.ok(result.activity > 0.85, `expected high activity, got ${result.activity}`);
 });

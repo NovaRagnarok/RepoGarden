@@ -15,6 +15,7 @@ import { SettingsScreen } from "@/screens/SettingsScreen";
 import { WorkbenchScreen } from "@/screens/WorkbenchScreen";
 import { HelpOverlay } from "@/screens/HelpOverlay";
 import type { RepoCreature } from "@/lib/creature";
+import { computeActivity } from "@/lib/vibe";
 import { themeById, defaultThemeId } from "@/themes";
 
 const sampleCreatures: RepoCreature[] = [
@@ -43,7 +44,7 @@ const sampleCreatures: RepoCreature[] = [
       ]
     },
     memory: {},
-    vibe: { vibe: "noisy", reason: "uncommitted changes · 2 unpushed commits", daysSinceCommit: 2 }
+    vibe: { vibe: "noisy", reason: "uncommitted changes · 2 unpushed commits", daysSinceCommit: 2, activity: computeActivity(2) }
   },
   {
     id: "cc",
@@ -58,7 +59,7 @@ const sampleCreatures: RepoCreature[] = [
       primaryLanguage: "Rust"
     },
     memory: {},
-    vibe: { vibe: "sleepy", reason: "quiet for 30 days.", daysSinceCommit: 30 }
+    vibe: { vibe: "sleepy", reason: "quiet for 30 days.", daysSinceCommit: 30, activity: computeActivity(30) }
   },
   {
     id: "th",
@@ -72,7 +73,7 @@ const sampleCreatures: RepoCreature[] = [
       primaryLanguage: "Python"
     },
     memory: { currentBlocker: "worker queue red on staging" },
-    vibe: { vibe: "blocked", reason: "blocker: worker queue red on staging", daysSinceCommit: 5 }
+    vibe: { vibe: "blocked", reason: "blocker: worker queue red on staging", daysSinceCommit: 5, activity: computeActivity(5) }
   },
   {
     id: "gn",
@@ -86,7 +87,7 @@ const sampleCreatures: RepoCreature[] = [
       primaryLanguage: "Markdown"
     },
     memory: {},
-    vibe: { vibe: "happy", reason: "last commit 1d ago, clean.", daysSinceCommit: 1 }
+    vibe: { vibe: "happy", reason: "last commit 1d ago, clean.", daysSinceCommit: 1, activity: computeActivity(1) }
   }
 ];
 

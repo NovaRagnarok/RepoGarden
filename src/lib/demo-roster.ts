@@ -10,7 +10,7 @@
 
 import type { RepoCreature } from "@/lib/creature";
 import { hashString } from "@/lib/sprite";
-import type { Vibe } from "@/lib/vibe";
+import { computeActivity, type Vibe } from "@/lib/vibe";
 
 export const DEMO_NAMES: readonly string[] = [
   "pocket-cron",
@@ -197,7 +197,8 @@ export const buildDemoCreatures = (): RepoCreature[] =>
               : vibe === "blocked"
                 ? "something is in the way"
                 : "resting for a while",
-        daysSinceCommit
+        daysSinceCommit,
+        activity: computeActivity(daysSinceCommit)
       }
     };
   });

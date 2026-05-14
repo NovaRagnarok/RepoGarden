@@ -32,7 +32,7 @@ const makeProps = (): GardenSceneProps => ({
         isDirty: false
       } as any,
       memory: {} as any,
-      vibe: { vibe: "happy", reason: "clean" } as any
+      vibe: { vibe: "happy", reason: "clean", activity: 1 } as any
     }
   ],
   focusIndex: 0,
@@ -74,7 +74,7 @@ const makePlacement = (
         isDirty: false
       } as any,
       memory: {} as any,
-      vibe: { vibe: "happy", reason: "clean" } as any
+      vibe: { vibe: "happy", reason: "clean", activity: 1 } as any
     },
     index,
     charW: spriteCols,
@@ -302,7 +302,7 @@ test("garden-to-shelf layout changes tween creature placements instead of hard-s
         id: "alpha",
         scan: { id: "alpha", path: "/tmp/alpha", name: "alpha", isDirty: false } as any,
         memory: {} as any,
-        vibe: { vibe: "happy", reason: "clean" } as any
+        vibe: { vibe: "happy", reason: "clean", activity: 1 } as any
       },
       {
         id: "beta",
@@ -516,13 +516,13 @@ test("syncGardenModel rejects wander positions that would overlap another creatu
         id: "alpha",
         scan: { id: "alpha", path: "/tmp/alpha", name: "alpha", isDirty: false } as any,
         memory: {} as any,
-        vibe: { vibe: "happy", reason: "clean" } as any
+        vibe: { vibe: "happy", reason: "clean", activity: 1 } as any
       },
       {
         id: "beta",
         scan: { id: "beta", path: "/tmp/beta", name: "beta", isDirty: false } as any,
         memory: {} as any,
-        vibe: { vibe: "happy", reason: "clean" } as any
+        vibe: { vibe: "happy", reason: "clean", activity: 1 } as any
       }
     ],
     focusIndex: -1,
@@ -544,6 +544,7 @@ test("syncGardenModel rejects wander positions that would overlap another creatu
     wanderDurationMs: 0,
     outpoint: { x: 0, y: 0 },
     currentOffset: { x: 0, y: 0 },
+    profile: { idleMin: 1000, idleMax: 2000, wanderMin: 500, wanderMax: 1000, radiusX: 1, radiusY: 1 },
     persistentOffset: {
       x: betaAnchor.x - alphaAnchor.x,
       y: betaAnchor.charY - alphaAnchor.charY
@@ -584,6 +585,7 @@ test("syncGardenModel rejects wander positions that would move into the overlay 
     wanderDurationMs: 0,
     outpoint: { x: 0, y: 0 },
     currentOffset: { x: 0, y: 0 },
+    profile: { idleMin: 1000, idleMax: 2000, wanderMin: 500, wanderMax: 1000, radiusX: 1, radiusY: 1 },
     persistentOffset: { x: 20, y: 8 }
   });
 
@@ -615,7 +617,7 @@ test("organic garden applies persisted manual creature placement offsets", () =>
         id: "alpha",
         scan: { id: "alpha", path: "/tmp/alpha", name: "alpha", isDirty: false } as any,
         memory: { gardenPlacement: { offsetX: 2, offsetY: 1 } },
-        vibe: { vibe: "happy", reason: "clean" } as any
+        vibe: { vibe: "happy", reason: "clean", activity: 1 } as any
       }
     ],
     innerWidth: 40,
@@ -632,6 +634,66 @@ test("organic garden applies persisted manual creature placement offsets", () =>
   );
 });
 
+test("wiggle cadence is faster for active repos than inert ones in the same vibe bucket", () => {
+  const buildModel = (activity: number) =>
+    createGardenModel(
+      {
+        ...makeProps(),
+        creatures: [
+          {
+            id: "alpha",
+            scan: { id: "alpha", path: "/tmp/alpha", name: "alpha", isDirty: false } as any,
+            memory: {} as any,
+            vibe: { vibe: "happy", reason: "clean", activity } as any
+          }
+        ]
+      },
+      0
+    );
+  const fresh = buildModel(1);
+  const inert = buildModel(0);
+  const freshHalf = fresh.scene.sprites.get("alpha")?.wiggle.halfCycleMs ?? 0;
+  const inertHalf = inert.scene.sprites.get("alpha")?.wiggle.halfCycleMs ?? 0;
+  assert.ok(
+    freshHalf < inertHalf,
+    `expected active wiggle (${freshHalf}ms) to be faster than inert (${inertHalf}ms)`
+  );
+});
+
+test("wander idle gap is shorter for active repos than inert ones in the same vibe bucket", () => {
+  const buildModel = (activity: number) => {
+    const model = createGardenModel(
+      {
+        ...makeProps(),
+        focusIndex: -1,
+        creatures: [
+          {
+            id: "alpha",
+            scan: { id: "alpha", path: "/tmp/alpha", name: "alpha", isDirty: false } as any,
+            memory: {} as any,
+            vibe: { vibe: "happy", reason: "clean", activity } as any
+          }
+        ]
+      },
+      0
+    );
+    // First step initializes the wander state and bakes its profile.
+    stepGardenModel(model, 0);
+    return model.wander.get("alpha")?.profile;
+  };
+  const fresh = buildModel(1);
+  const inert = buildModel(0);
+  assert.ok(fresh && inert, "missing wander profiles");
+  assert.ok(
+    fresh.idleMax < inert.idleMin,
+    `expected active idle range (≤${fresh.idleMax}) to sit below inert range (≥${inert.idleMin})`
+  );
+  assert.ok(
+    fresh.radiusX > inert.radiusX,
+    `expected active radius (${fresh.radiusX}) to exceed inert radius (${inert.radiusX})`
+  );
+});
+
 test("syncGardenModel: wanderer cannot land on a neighbour's manual-offset position", () => {
   // Regression: pre-fix, manually-offset creatures were excluded from
   // anchorFootprints and resolved in scene order. A wanderer iterated
@@ -645,13 +707,13 @@ test("syncGardenModel: wanderer cannot land on a neighbour's manual-offset posit
         id: "alpha",
         scan: { id: "alpha", path: "/tmp/alpha", name: "alpha", isDirty: false } as any,
         memory: {} as any,
-        vibe: { vibe: "happy", reason: "clean" } as any
+        vibe: { vibe: "happy", reason: "clean", activity: 1 } as any
       },
       {
         id: "beta",
         scan: { id: "beta", path: "/tmp/beta", name: "beta", isDirty: false } as any,
         memory: { gardenPlacement: { offsetX: 6, offsetY: 0 } },
-        vibe: { vibe: "happy", reason: "clean" } as any
+        vibe: { vibe: "happy", reason: "clean", activity: 1 } as any
       }
     ],
     innerWidth: 40,
@@ -674,6 +736,7 @@ test("syncGardenModel: wanderer cannot land on a neighbour's manual-offset posit
     wanderDurationMs: 0,
     outpoint: { x: 0, y: 0 },
     currentOffset: { x: 0, y: 0 },
+    profile: { idleMin: 1000, idleMax: 2000, wanderMin: 500, wanderMax: 1000, radiusX: 1, radiusY: 1 },
     persistentOffset: {
       x: betaVisualX - alphaAnchor.x,
       y: betaVisualY - alphaAnchor.charY
@@ -700,7 +763,7 @@ test("shelf mode ignores persisted manual creature placement offsets", () => {
         id: "alpha",
         scan: { id: "alpha", path: "/tmp/alpha", name: "alpha", isDirty: false } as any,
         memory: { gardenPlacement: { offsetX: 5, offsetY: 2 } },
-        vibe: { vibe: "happy", reason: "clean" } as any
+        vibe: { vibe: "happy", reason: "clean", activity: 1 } as any
       }
     ],
     innerWidth: 40,

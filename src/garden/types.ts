@@ -92,6 +92,23 @@ export interface GardenScene {
   sceneSeed: number;
 }
 
+/**
+ * Per-creature wander timing, baked once when the wander state is
+ * created so activity (a continuous 0–1 scalar) can pull idle gaps
+ * within the vibe-bucket's range without re-resolving the bucket on
+ * every tick. Active repos sit at the short end of the idle range,
+ * sleepy ones at the long end; radius is also scaled down for inert
+ * creatures so they barely drift.
+ */
+export interface WanderProfile {
+  idleMin: number;
+  idleMax: number;
+  wanderMin: number;
+  wanderMax: number;
+  radiusX: number;
+  radiusY: number;
+}
+
 export interface GardenWanderState {
   kind: "round-trip" | "relocate";
   phase: "idle" | "wandering";
@@ -102,6 +119,8 @@ export interface GardenWanderState {
   currentOffset: { x: number; y: number };
   persistentOffset: { x: number; y: number };
   manualOffset?: { x: number; y: number };
+  /** Activity-baked timing. Replaces direct VIBE_WANDER reads on tick. */
+  profile: WanderProfile;
 }
 
 export interface GardenLayoutTransition {

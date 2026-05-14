@@ -32,6 +32,7 @@ import type {
   GardenSceneProps,
   GardenSpriteInfo,
   GardenWanderState,
+  WanderProfile,
   WiggleProfile
 } from "@/garden/types";
 
@@ -73,10 +74,21 @@ const LAYOUT_TRANSITION_MS = 1400;
 const easeInOutCubic = (t: number): number =>
   t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 
-const buildWiggleProfile = (identity: string, vibe: Vibe): WiggleProfile => {
+const buildWiggleProfile = (
+  identity: string,
+  vibe: Vibe,
+  activity: number
+): WiggleProfile => {
   const { min, max } = VIBE_WIGGLE[vibe];
   const rng = mulberry32(hashString(`wiggle:${identity}:${vibe}`));
-  const halfCycleMs = Math.round(min + rng() * (max - min));
+  // Activity drives where on the vibe-bucket's cadence range this repo
+  // sits: a fresh-commit repo wiggles at the fast end of its bucket, a
+  // long-quiet one at the slow end. ±10% jitter keeps adjacent
+  // identical-activity creatures slightly out of phase visually.
+  const a = clamp(activity, 0, 1);
+  const center = max - (max - min) * a;
+  const jitter = (rng() * 2 - 1) * (max - min) * 0.1;
+  const halfCycleMs = Math.round(clamp(center + jitter, min, max));
   return {
     halfCycleMs,
     phaseMs: Math.round(rng() * halfCycleMs * 2)
@@ -224,7 +236,11 @@ const buildScene = (props: GardenSceneProps): GardenScene => {
       name: creature.scan.name,
       vibeGlyph: vibeGlyph(creature.vibe.vibe),
       vibeColor,
-      wiggle: buildWiggleProfile(creature.scan.path || creature.id, creature.vibe.vibe)
+      wiggle: buildWiggleProfile(
+        creature.scan.path || creature.id,
+        creature.vibe.vibe,
+        creature.vibe.activity
+      )
     });
   }
   return {
@@ -235,17 +251,51 @@ const buildScene = (props: GardenSceneProps): GardenScene => {
   };
 };
 
-const createWanderState = (vibe: Vibe, now: number): GardenWanderState => {
+const buildWanderProfile = (vibe: Vibe, activity: number): WanderProfile => {
   const cfg = VIBE_WANDER[vibe];
+  const a = clamp(activity, 0, 1);
+  // Pull the *centre* of each range toward min when active, toward max
+  // when inert. Keep a small ±25% spread either side of that centre so
+  // pickInRange still varies tick-to-tick (otherwise every idle gap
+  // would be identical and the swarm would breathe in lockstep).
+  const skew = (min: number, max: number, lowEndWhenActive: boolean): { min: number; max: number } => {
+    const span = max - min;
+    const bias = lowEndWhenActive ? a : 1 - a;
+    const centre = min + span * (1 - bias);
+    const half = span * 0.25;
+    return {
+      min: Math.max(min, Math.round(centre - half)),
+      max: Math.min(max, Math.round(centre + half))
+    };
+  };
+  const idle = skew(cfg.idleMin, cfg.idleMax, true);
+  const wander = skew(cfg.wanderMin, cfg.wanderMax, true);
+  // Drift radius scales with activity too — sleepy/blocked repos barely
+  // wander even within their own short range. Floor at 25% so a stale
+  // creature still nudges occasionally instead of going stone-still.
+  const radiusScale = 0.25 + 0.75 * a;
+  return {
+    idleMin: idle.min,
+    idleMax: idle.max,
+    wanderMin: wander.min,
+    wanderMax: wander.max,
+    radiusX: cfg.radiusX * radiusScale,
+    radiusY: cfg.radiusY * radiusScale
+  };
+};
+
+const createWanderState = (vibe: Vibe, activity: number, now: number): GardenWanderState => {
+  const profile = buildWanderProfile(vibe, activity);
   return {
     kind: "round-trip",
     phase: "idle",
-    idleUntil: now + pickInRange(cfg.idleMin, cfg.idleMax),
+    idleUntil: now + pickInRange(profile.idleMin, profile.idleMax),
     wanderStartedAt: 0,
     wanderDurationMs: 0,
     outpoint: { x: 0, y: 0 },
     currentOffset: { x: 0, y: 0 },
-    persistentOffset: { x: 0, y: 0 }
+    persistentOffset: { x: 0, y: 0 },
+    profile
   };
 };
 
@@ -271,7 +321,7 @@ const ensureWanderState = (
   const creature = placement.tile.creature;
   let state = model.wander.get(creature.id);
   if (!state) {
-    state = createWanderState(creature.vibe.vibe, now);
+    state = createWanderState(creature.vibe.vibe, creature.vibe.activity, now);
     state.manualOffset = memoryManualOffset(placement, model.props.placementMode);
     model.wander.set(creature.id, state);
   }
@@ -297,13 +347,12 @@ const hasNonZeroManualOffset = (
   return offset !== undefined && (offset.x !== 0 || offset.y !== 0);
 };
 
-const pickOutpoint = (vibe: Vibe): { x: number; y: number } => {
-  const cfg = VIBE_WANDER[vibe];
+const pickOutpoint = (profile: WanderProfile): { x: number; y: number } => {
   const angle = Math.random() * Math.PI * 2;
   const radius = 0.6 + Math.random() * 0.4;
   return {
-    x: Math.cos(angle) * cfg.radiusX * radius,
-    y: Math.sin(angle) * cfg.radiusY * radius
+    x: Math.cos(angle) * profile.radiusX * radius,
+    y: Math.sin(angle) * profile.radiusY * radius
   };
 };
 
@@ -758,10 +807,7 @@ export const commitManualGardenPlacement = (
     if (!anchorPlacement) continue;
     const state = ensureWanderState(model, anchorPlacement, now);
     state.phase = "idle";
-    state.idleUntil = now + pickInRange(
-      VIBE_WANDER[anchorPlacement.tile.creature.vibe.vibe].idleMin,
-      VIBE_WANDER[anchorPlacement.tile.creature.vibe.vibe].idleMax
-    );
+    state.idleUntil = now + pickInRange(state.profile.idleMin, state.profile.idleMax);
     state.currentOffset = { x: 0, y: 0 };
     state.manualOffset = {
       x: change.offsetX,
@@ -793,10 +839,7 @@ export const stepGardenModel = (
       state.currentOffset = { x: 0, y: 0 };
       if (state.phase === "wandering") {
         state.phase = "idle";
-        state.idleUntil = now + pickInRange(
-          VIBE_WANDER[placement.tile.creature.vibe.vibe].idleMin,
-          VIBE_WANDER[placement.tile.creature.vibe.vibe].idleMax
-        );
+        state.idleUntil = now + pickInRange(state.profile.idleMin, state.profile.idleMax);
       }
     }
     model.nextShiftAt = scheduleNextShiftAt(now);
@@ -824,10 +867,7 @@ export const stepGardenModel = (
     if (isFocused) {
       const state = ensureWanderState(model, placement, now);
       state.phase = "idle";
-      state.idleUntil = now + pickInRange(
-        VIBE_WANDER[creature.vibe.vibe].idleMin,
-        VIBE_WANDER[creature.vibe.vibe].idleMax
-      );
+      state.idleUntil = now + pickInRange(state.profile.idleMin, state.profile.idleMax);
       state.currentOffset = { x: 0, y: 0 };
       continue;
     }
@@ -835,21 +875,20 @@ export const stepGardenModel = (
     const state = ensureWanderState(model, placement, now);
 
     if (state.phase === "idle" && now >= state.idleUntil) {
-      const cfg = VIBE_WANDER[creature.vibe.vibe];
       state.kind = pickWanderKind(creature.vibe.vibe);
       state.phase = "wandering";
       state.wanderStartedAt = now;
       state.wanderDurationMs =
-        pickInRange(cfg.wanderMin, cfg.wanderMax) * (state.kind === "relocate" ? 1.4 : 1);
-      state.outpoint = pickOutpoint(creature.vibe.vibe);
+        pickInRange(state.profile.wanderMin, state.profile.wanderMax) *
+        (state.kind === "relocate" ? 1.4 : 1);
+      state.outpoint = pickOutpoint(state.profile);
     }
 
     if (state.phase === "wandering") {
       const t = (now - state.wanderStartedAt) / Math.max(1, state.wanderDurationMs);
       if (t >= 1) {
         state.phase = "idle";
-        state.idleUntil =
-          now + pickInRange(VIBE_WANDER[creature.vibe.vibe].idleMin, VIBE_WANDER[creature.vibe.vibe].idleMax);
+        state.idleUntil = now + pickInRange(state.profile.idleMin, state.profile.idleMax);
         if (state.kind === "relocate" && !state.manualOffset) {
           const visual = visualPlacementAtOffset(
             placement,
