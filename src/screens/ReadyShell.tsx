@@ -390,7 +390,7 @@ export const ReadyShell = ({
         setFilter("");
         return;
       }
-      if ((input === "q" || key.escape) && onQuit) {
+      if (input === "q" && onQuit) {
         onQuit();
         return;
       }
@@ -565,7 +565,7 @@ export const ReadyShell = ({
       setFilter("");
       return;
     }
-    if ((input === "q" || key.escape) && onQuit) {
+    if (input === "q" && onQuit) {
       onQuit();
     }
   });
