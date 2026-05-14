@@ -14,6 +14,7 @@ import { Sparkline } from "@/components/ui/sparkline";
 import { TextArea, type TextAreaCursorState, type TextAreaSelectionRequest } from "@/components/ui/text-area";
 import { TextInput } from "@/components/ui/text-input";
 import { useTheme } from "@/components/ui/theme-provider";
+import { useToasts } from "@/components/ui/toast-host";
 import { UsageBar, UsageBarPlaceholder } from "@/components/UsageBar";
 import { ResizePrompt } from "@/components/ResizePrompt";
 import { useInput } from "@/hooks/use-input";
@@ -98,6 +99,17 @@ export const WorkbenchScreen = ({
   const isCompact = responsive.tier === "compact";
   const focusManager = useFocusManager();
   const usage = useUsage(undefined, { disabled: usageBarDisabled });
+  const { push: pushToast } = useToasts();
+
+  // Char-delta threshold: edits smaller than this don't get a "+N chars" hint.
+  // Matches the audit-#5 spec — small typo-edits would otherwise spam the toast
+  // host. Skipping the hint (not the toast itself) keeps the save acknowledged
+  // without surfacing trivia.
+  const CHARS_DELTA_HINT_THRESHOLD = 20;
+  const formatCharsDelta = (delta: number): string => {
+    if (Math.abs(delta) < CHARS_DELTA_HINT_THRESHOLD) return "";
+    return delta > 0 ? ` · +${delta} chars` : ` · ${delta} chars`;
+  };
 
   const [notes, setNotes] = useState<NotesState>(() => loadNotes(creature.id));
   const activeId = notes.index.active;
@@ -222,11 +234,15 @@ export const WorkbenchScreen = ({
   useEffect(() => {
     if ((notes.bodies[activeId] ?? "") === editor) return;
     const timer = setTimeout(() => {
+      const oldBody = notes.bodies[activeId] ?? "";
+      const delta = editor.length - oldBody.length;
       const saved = saveNoteBody(creature.id, notes, activeId, editor, creature.scan.name);
       setNotes(saved);
+      const name = notes.index.notes[activeId]?.name ?? "note";
+      pushToast(`saved · note "${name}"${formatCharsDelta(delta)}`, "info");
     }, 1000);
     return () => clearTimeout(timer);
-  }, [editor, notes, activeId, creature.id]);
+  }, [editor, notes, activeId, creature.id, pushToast]);
 
   // Mirror the "blocker"-named note into the legacy ProjectMemory field so
   // the garden's vibe layer (inferVibe) keeps reading the creature as
@@ -239,8 +255,18 @@ export const WorkbenchScreen = ({
     const blocker = deriveBlockerFromNotes(notes);
     const current = loadMemory(creature.id);
     if ((current.currentBlocker ?? undefined) === blocker) return;
+    const prevBlocker = current.currentBlocker?.trim() ?? "";
+    const nextBlocker = blocker?.trim() ?? "";
     saveMemory(creature.id, { ...current, currentBlocker: blocker }, creature.scan.name);
-  }, [notes, creature.id]);
+    // Only toast on the empty↔nonempty transitions so a typo-edit inside an
+    // existing blocker note doesn't fire a "set" toast on every keystroke
+    // pause. Mirrors saveMemory's own event-emit logic.
+    if (!prevBlocker && nextBlocker) {
+      pushToast("blocker set · stuck", "success");
+    } else if (prevBlocker && !nextBlocker) {
+      pushToast("blocker cleared", "success");
+    }
+  }, [notes, creature.id, pushToast]);
 
   const persistCurrentEditor = (state: NotesState): NotesState => {
     if ((state.bodies[activeId] ?? "") === editor) return state;
@@ -779,9 +805,16 @@ export const WorkbenchScreen = ({
     if (workbenchMode !== "notes") return;
 
     if (key.ctrl && (key.return || input === "s")) {
+      const oldBody = notes.bodies[activeId] ?? "";
+      const wasDirty = oldBody !== editor;
+      const delta = editor.length - oldBody.length;
       const saved = persistCurrentEditor(notes);
       setNotes(saved);
       setUiMode({ kind: "status", message: "saved", variant: "success" });
+      if (wasDirty) {
+        const name = notes.index.notes[activeId]?.name ?? "note";
+        pushToast(`saved · note "${name}"${formatCharsDelta(delta)}`, "info");
+      }
       return;
     }
 
@@ -829,11 +862,13 @@ export const WorkbenchScreen = ({
           (notes.bodies[activeId] ?? "") === editor
             ? notes
             : { ...notes, bodies: { ...notes.bodies, [activeId]: editor } };
+        const clearedName = notes.index.notes[activeId]?.name ?? "note";
         setEditor("");
         requestEditorSelection({ line: 0, col: 0 }, { line: 0, col: 0 });
         const saved = saveNoteBody(creature.id, stateWithEditor, activeId, "", creature.scan.name);
         setNotes(saved);
         setUiMode({ kind: "status", message: "cleared", variant: "success" });
+        pushToast(`cleared · note "${clearedName}"`, "info");
       } else {
         setUiMode({ kind: "confirm-clear" });
       }
@@ -842,6 +877,7 @@ export const WorkbenchScreen = ({
 
     if (key.ctrl && input === "d") {
       if (uiMode.kind === "confirm-delete") {
+        const deletedName = notes.index.notes[activeId]?.name ?? "note";
         const next = deleteNote(creature.id, notes, activeId, creature.scan.name);
         setNotes(next);
         // deleteNote resets active; pull the new active's body in immediately
@@ -850,6 +886,7 @@ export const WorkbenchScreen = ({
         setEditor(next.bodies[next.index.active] ?? "");
         lastActiveIdRef.current = next.index.active;
         setUiMode({ kind: "status", message: "deleted", variant: "success" });
+        pushToast(`deleted · note "${deletedName}"`, "info");
       } else {
         setUiMode({ kind: "confirm-delete" });
       }
@@ -1042,12 +1079,14 @@ export const WorkbenchScreen = ({
   const handleNamingSubmit = (rawName: string) => {
     if (uiMode.kind !== "naming") return;
     if (uiMode.target === "create") {
-      const { state: next } = createNote(creature.id, persistCurrentEditor(notes), rawName, creature.scan.name);
+      const { state: next, id: newId } = createNote(creature.id, persistCurrentEditor(notes), rawName, creature.scan.name);
       setNotes(next);
       setEditor("");
       lastActiveIdRef.current = next.index.active;
       setPendingName("");
       setUiMode({ kind: "status", message: "new note", variant: "success" });
+      const newName = next.index.notes[newId]?.name ?? "note";
+      pushToast(`created · note "${newName}"`, "info");
       return;
     }
     // rename: ignore empty submission (renameNote already short-circuits, but
@@ -1059,10 +1098,15 @@ export const WorkbenchScreen = ({
       setUiMode({ kind: "status", message: "rename cancelled", variant: "warning" });
       return;
     }
+    const fromName = notes.index.notes[targetId]?.name ?? "note";
     const renamed = renameNote(creature.id, persistCurrentEditor(notes), targetId, trimmed, creature.scan.name);
     setNotes(renamed);
     setPendingName("");
     setUiMode({ kind: "status", message: "renamed", variant: "success" });
+    const toName = renamed.index.notes[targetId]?.name ?? trimmed;
+    if (toName !== fromName) {
+      pushToast(`renamed · "${fromName}" → "${toName}"`, "info");
+    }
   };
 
   const containerHeight = responsive.contentHeight;

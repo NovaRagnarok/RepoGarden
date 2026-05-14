@@ -25,6 +25,8 @@ import {
 } from "../lib/notes";
 import { inferVibe } from "../lib/vibe";
 import { loadMemory } from "../lib/memory";
+import { buildCreature } from "../lib/creature";
+import type { ScannedRepo } from "../lib/scanner";
 
 const withFakeHome = (run: () => void) => {
   const fake = mkdtempSync(join(tmpdir(), "repogarden-home-notes-"));
@@ -463,5 +465,68 @@ test("deleteNote emits note-deleted when repoName is provided", () => {
     assert.equal(events.length, 1);
     assert.equal(events[0].kind, "note-deleted");
     assert.equal(events[0].payload.name, "scratch");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Audit #5: blocker → vibe propagation after a workbench edit
+// ---------------------------------------------------------------------------
+
+const makeScan = (id: string): ScannedRepo => ({
+  id,
+  path: `/tmp/${id}`,
+  name: id,
+  isDirty: false,
+  // A recent commit so the baseline vibe is "happy" — confirms the blocker
+  // is what flips us to "stuck" and rules out the sleepy fallback.
+  lastCommitAt: new Date().toISOString(),
+});
+
+test("workbench blocker note flips a creature's vibe to stuck via buildCreature", () => {
+  withFakeHome(() => {
+    const scan = makeScan("audit5-set");
+    // Baseline: no blocker, no memory file → creature reads as happy.
+    const before = buildCreature(scan);
+    assert.equal(before.vibe.vibe, "happy");
+
+    // Simulate the workbench flow: create a note named "blocker" with a body,
+    // then mirror it into ProjectMemory exactly the way WorkbenchScreen's sync
+    // effect does. cli.tsx's handleSaveMemory then calls buildCreature, which
+    // re-reads memory from disk — we replay that step here.
+    const initial = loadNotes(scan.id);
+    const { state: withBlockerNote } = createNote(scan.id, initial, "blocker");
+    const blockerId = withBlockerNote.index.active;
+    const filled = saveNoteBody(scan.id, withBlockerNote, blockerId, "auth flow", scan.name);
+    const derived = deriveBlockerFromNotes(filled);
+    saveMemory(scan.id, { ...loadMemory(scan.id), currentBlocker: derived }, scan.name);
+
+    const after = buildCreature(scan);
+    assert.equal(after.vibe.vibe, "stuck");
+    assert.match(after.vibe.reason, /auth flow/);
+  });
+});
+
+test("clearing a workbench blocker note flips the vibe back off stuck", () => {
+  withFakeHome(() => {
+    const scan = makeScan("audit5-clear");
+    // Seed a blocker so the creature starts stuck.
+    saveMemory(scan.id, { currentBlocker: "needs reproducer" }, scan.name);
+    const stuck = buildCreature(scan);
+    assert.equal(stuck.vibe.vibe, "stuck");
+
+    // Simulate emptying the blocker note in the workbench: deriveBlockerFromNotes
+    // returns undefined for an empty body, and the sync effect writes that back.
+    const state = loadNotes(scan.id);
+    const blockerId = state.index.order.find(
+      (id) => state.index.notes[id].name === "blocker"
+    );
+    assert.ok(blockerId, "blocker note should exist after migration");
+    const emptied = saveNoteBody(scan.id, state, blockerId, "", scan.name);
+    const derived = deriveBlockerFromNotes(emptied);
+    saveMemory(scan.id, { ...loadMemory(scan.id), currentBlocker: derived }, scan.name);
+
+    const cleared = buildCreature(scan);
+    assert.notEqual(cleared.vibe.vibe, "stuck");
+    assert.equal(loadMemory(scan.id).currentBlocker, undefined);
   });
 });
