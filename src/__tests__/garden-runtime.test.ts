@@ -777,7 +777,7 @@ test("renderGardenFrame holds sleepy creatures at frame B so the body bob doesn'
   const expectedX: number = placement.x + info.eyeCells.frameB.left.cx;
   const expectedY: number = placement.charY + info.eyeCells.frameB.left.cy;
   for (let i = 0; i < 8; i += 1) {
-    const now = (info.wiggle.halfCycleMs * i) / 2;
+    const now: number = (info.wiggle.halfCycleMs * i) / 2;
     const frame = renderGardenFrame(model, now);
     const cell = frame.cells[expectedY * frame.width + expectedX];
     assert.equal(

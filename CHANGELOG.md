@@ -4,6 +4,8 @@ All notable changes to RepoGarden land here. Format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-05-13
+
 ### Fixed
 
 - **Journal vibe-change entries read as transitions, not status snapshots.** Each `from → to` pair now picks a verb that describes the change (`back in flow`, `hit a blocker`, `wound down`, `settled`, `back at it`, `stirred`, …) instead of falling through to the destination state. Pre-fix, `blocked → happy` rendered as `happy: clean`, which read like a status line. The reason text gets a small cleanup pass too: the redundant `blocker:` prefix is stripped when the verb already says it, and trailing periods are dropped before the em-dash join.
