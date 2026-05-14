@@ -39,6 +39,41 @@ let pending = "";
 
 const SGR_RE = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/;
 
+// Length of a partial SGR-mouse prefix we should hold back across chunk
+// boundaries. The longest reasonable in-flight prefix is `\x1b[<` plus three
+// decimal fields with `;` separators but no terminator — bounded above to
+// avoid pathological buffering on adversarial input.
+const MAX_PARTIAL_PREFIX = 24;
+
+/**
+ * If `combined` ends with a partial SGR-mouse prefix (i.e. something that
+ * could still become a complete `\x1b[<…M/m` once more bytes arrive), return
+ * the byte index where that prefix begins. Otherwise return -1.
+ *
+ * The partial-prefix states we care about — any of which, if forwarded to
+ * Ink's keyboard parser as-is, would leak a stray Esc (the leading `\x1b`):
+ *   `\x1b`                       — lone escape; could be the start of a seq
+ *   `\x1b[`                      — CSI introducer
+ *   `\x1b[<`                     — SGR-mouse introducer
+ *   `\x1b[<\d+`                  — cb only
+ *   `\x1b[<\d+;\d*`              — cb + partial col
+ *   `\x1b[<\d+;\d+;\d*`          — cb + col + partial row (no terminator yet)
+ */
+const partialMousePrefixStart = (combined: string): number => {
+  // Cap the scan window so we never walk arbitrarily far back.
+  const scanStart = Math.max(0, combined.length - MAX_PARTIAL_PREFIX);
+  const escIdx = combined.indexOf("\x1b", scanStart);
+  if (escIdx < 0) return -1;
+  const tail = combined.slice(escIdx);
+  // Anything strictly shorter than a complete sequence and consistent with an
+  // in-flight SGR-mouse prefix gets held back. Regex describes the shape of
+  // every partial that could still complete on the next chunk.
+  if (/^\x1b(?:\[(?:<(?:\d+(?:;\d*(?:;\d*)?)?)?)?)?$/.test(tail)) {
+    return escIdx;
+  }
+  return -1;
+};
+
 const decodeButton = (cb: number): MouseEvent["button"] => {
   if (cb & 64) return cb & 1 ? "wheel-down" : "wheel-up";
   const base = cb & 3;
@@ -73,10 +108,13 @@ export const parseStdinChunk = (chunk: string): string => {
     const match = SGR_RE.exec(combined);
     if (!match) {
       // Watch for a half-finished sequence at the tail and hold it until the
-      // next chunk arrives. Bail out cheaply for chunks that don't contain
-      // `\x1b[<` at all.
-      const tailIdx = combined.lastIndexOf("\x1b[<");
-      if (tailIdx >= 0 && tailIdx > combined.length - 16) {
+      // next chunk arrives. A trailing `\x1b`, `\x1b[`, `\x1b[<`, or a partial
+      // `\x1b[<…` without its `M`/`m` terminator must NOT be forwarded —
+      // otherwise the leading `\x1b` leaks into Ink's keyboard parser as a
+      // stray Esc keystroke (back-out + filter-clear on every mouse click
+      // whose sequence happens to straddle a stdin chunk boundary).
+      const tailIdx = partialMousePrefixStart(combined);
+      if (tailIdx >= 0) {
         kept += combined.slice(0, tailIdx);
         pending = combined.slice(tailIdx);
       } else {

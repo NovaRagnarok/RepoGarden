@@ -109,12 +109,51 @@ test("parseStdinChunk decodes left-button motion as drag, not move", () => {
   assert.equal(events[0].kind, "drag");
 });
 
-test("parseStdinChunk handles trailing escape with no follow-up by holding it", () => {
+test("parseStdinChunk holds a trailing lone escape, then releases on a non-mouse follow-up", () => {
+  // A trailing `\x1b` could be the start of an SGR-mouse sequence completed in
+  // the next chunk. Forwarding it eagerly is what made mouse clicks register
+  // as Esc keystrokes in Ink (issue #17). Hold it; release as soon as the next
+  // chunk arrives carrying anything that isn't a partial mouse continuation.
   const events = captureEvents(() => {
-    // Lone escape (e.g. user pressed Esc) is NOT the start of a mouse
-    // sequence — it must pass through so Ink can see it.
-    const out = parseStdinChunk("\x1b");
-    assert.equal(out, "\x1b");
+    const a = parseStdinChunk("\x1b");
+    assert.equal(a, "");
+    // Real Esc keypress followed by an unrelated keystroke: both should flow
+    // through to Ink in order.
+    const b = parseStdinChunk("q");
+    assert.equal(b, "\x1bq");
   });
   assert.equal(events.length, 0);
+});
+
+test("parseStdinChunk holds partial SGR prefixes across chunk boundaries", () => {
+  // Reproduce the issue-#17 leak: an SGR mouse press split at every awkward
+  // boundary must (a) emit exactly one mouse event once both chunks are fed
+  // and (b) never leak the leading `\x1b` into the keyboard stream as Esc.
+  const boundaries: Array<[string, string]> = [
+    ["\x1b", "[<0;42;7M"],
+    ["\x1b[", "<0;42;7M"],
+    ["\x1b[<", "0;42;7M"],
+    ["\x1b[<0", ";42;7M"],
+    ["\x1b[<0;", "42;7M"],
+    ["\x1b[<0;42", ";7M"],
+    ["\x1b[<0;42;", "7M"],
+    ["\x1b[<0;42;7", "M"]
+  ];
+  for (const [first, second] of boundaries) {
+    const events = captureEvents(() => {
+      const a = parseStdinChunk(first);
+      // Critically: the first half must NEVER pass the leading `\x1b` through
+      // — that's what Ink interprets as Esc.
+      assert.equal(a, "", `first chunk leaked for boundary "${first}|${second}"`);
+      const b = parseStdinChunk(second);
+      assert.equal(b, "", `second chunk leaked for boundary "${first}|${second}"`);
+    });
+    assert.equal(events.length, 1, `event count for boundary "${first}|${second}"`);
+    assert.deepEqual(events[0], {
+      kind: "press",
+      button: "left",
+      col: 42,
+      row: 7
+    });
+  }
 });
