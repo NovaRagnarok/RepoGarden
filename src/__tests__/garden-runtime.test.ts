@@ -96,7 +96,9 @@ const makeSprite = (placement: Placement): GardenSpriteInfo => ({
   name: placement.tile.creature.scan.name,
   vibeGlyph: "·",
   vibeColor: "#888888",
-  wiggle: { halfCycleMs: 1000, phaseMs: 0 }
+  wiggle: { halfCycleMs: 1000, phaseMs: 0 },
+  eyeCells: { left: { cx: 0, cy: 0 }, right: { cx: 0, cy: 0 } },
+  eyesClosed: false
 });
 
 const emptySprite = (placement: Placement): GardenSpriteInfo => ({
@@ -631,6 +633,72 @@ test("organic garden applies persisted manual creature placement offsets", () =>
   assert.deepEqual(
     { x: visual.x, charY: visual.charY },
     { x: anchor.x + 2, charY: anchor.charY + 1 }
+  );
+});
+
+test("renderGardenFrame overlays `_` at the eye cells for sleepy creatures", () => {
+  const model = createGardenModel(
+    {
+      ...makeProps(),
+      focusIndex: -1,
+      creatures: [
+        {
+          id: "alpha",
+          scan: { id: "alpha", path: "/tmp/alpha", name: "alpha", isDirty: false } as any,
+          memory: {} as any,
+          vibe: { vibe: "sleepy", reason: "quiet for 30 days.", daysSinceCommit: 30, activity: 0.05 } as any
+        }
+      ]
+    },
+    0
+  );
+  const info = model.scene.sprites.get("alpha");
+  assert.ok(info, "missing sprite info");
+  assert.equal(info.eyesClosed, true, "sleepy creature should have eyesClosed=true");
+  const placement = model.scene.placements[0];
+  const frame = renderGardenFrame(model, 0);
+  const cellAt = (x: number, y: number) =>
+    frame.cells[y * frame.width + x]?.char;
+  // Each eye cell renders `_` instead of the body's quadrant block char.
+  assert.equal(
+    cellAt(placement.x + info.eyeCells.left.cx, placement.charY + info.eyeCells.left.cy),
+    "_",
+    "expected `_` at the left eye cell"
+  );
+  assert.equal(
+    cellAt(placement.x + info.eyeCells.right.cx, placement.charY + info.eyeCells.right.cy),
+    "_",
+    "expected `_` at the right eye cell"
+  );
+});
+
+test("renderGardenFrame keeps open-eye creatures using the quadrant block char", () => {
+  const model = createGardenModel(
+    {
+      ...makeProps(),
+      focusIndex: -1,
+      creatures: [
+        {
+          id: "alpha",
+          scan: { id: "alpha", path: "/tmp/alpha", name: "alpha", isDirty: false } as any,
+          memory: {} as any,
+          vibe: { vibe: "happy", reason: "clean.", activity: 1 } as any
+        }
+      ]
+    },
+    0
+  );
+  const info = model.scene.sprites.get("alpha");
+  assert.ok(info, "missing sprite info");
+  assert.equal(info.eyesClosed, false, "happy creature should have eyesClosed=false");
+  const placement = model.scene.placements[0];
+  const frame = renderGardenFrame(model, 0);
+  const cellAt = (x: number, y: number) =>
+    frame.cells[y * frame.width + x]?.char;
+  assert.notEqual(
+    cellAt(placement.x + info.eyeCells.left.cx, placement.charY + info.eyeCells.left.cy),
+    "_",
+    "open-eye creature should not have `_` at the eye cell"
   );
 });
 

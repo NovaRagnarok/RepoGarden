@@ -138,6 +138,12 @@ export const renderGardenFrame = (
       !reducedMotion && wiggleFrameAt(info.wiggle, now) === 1
         ? info.frameB
         : info.frameA;
+    const closedEye = info.eyesClosed
+      ? new Set([
+          `${info.eyeCells.left.cx}:${info.eyeCells.left.cy}`,
+          `${info.eyeCells.right.cx}:${info.eyeCells.right.cy}`
+        ])
+      : null;
     for (let cy = 0; cy < info.charH; cy += 1) {
       for (let cx = 0; cx < info.charW; cx += 1) {
         const sy = cy * SUB_PER_CELL;
@@ -147,8 +153,14 @@ export const renderGardenFrame = (
         const bl = spriteFrame[sy + 1]?.[sx] === 1;
         const br = spriteFrame[sy + 1]?.[sx + 1] === 1;
         if (!(tl || tr || bl || br)) continue;
+        // Closed-eye overlay: replace the quadrant char at each eye cell
+        // with `_`. Body grid stays untouched so silhouette is stable.
+        const char =
+          closedEye && closedEye.has(`${cx}:${cy}`)
+            ? "_"
+            : quadrantChar(tl, tr, bl, br);
         setCell(frame, visual.x + cx, visual.charY + cy, {
-          char: quadrantChar(tl, tr, bl, br),
+          char,
           fg: info.body
         });
       }

@@ -396,51 +396,18 @@ const countZeros = (matrix: SubMatrix): number => {
   return n;
 };
 
-test("eyesClosed sprite carves more zero sub-pixels (the slit) than the open variant", () => {
-  // Multiple identities: the slit is one extra zero per eye = 2 extra
-  // zeros minimum. Same RNG seed, same body shape, only the eye carving
-  // differs.
+test("generateCreatureFrames reports eye cell coordinates inside sprite bounds", () => {
+  // Sleepy-eye overlay paints `_` at these cell positions; the renderer
+  // assumes they are valid (0..charW-1, 0..charH-1) coordinates.
   for (let i = 0; i < 8; i += 1) {
-    const id = `/tmp/sleepy-${i}`;
-    const open = generateCreature(id, 6, 4, false);
-    const closed = generateCreature(id, 6, 4, true);
-    const openZeros = countZeros(open);
-    const closedZeros = countZeros(closed);
-    assert.ok(
-      closedZeros > openZeros,
-      `creature ${i}: expected closed (${closedZeros}) to carve more zeros than open (${openZeros})`
-    );
-  }
-});
-
-test("eyesClosed sprite preserves the open sprite's outer body footprint", () => {
-  // The slit lives inside the body — the overall bounding box of the
-  // body cells should not change. Otherwise we'd silently shrink/grow
-  // the sprite when vibe flips.
-  const id = "/tmp/sleepy-footprint";
-  const open = generateCreature(id, 6, 4, false);
-  const closed = generateCreature(id, 6, 4, true);
-
-  const bounds = (m: SubMatrix) => {
-    let minY = Infinity, maxY = -Infinity, minX = Infinity, maxX = -Infinity;
-    for (let y = 0; y < m.length; y += 1) {
-      for (let x = 0; x < m[y].length; x += 1) {
-        if (m[y][x] === 1) {
-          if (y < minY) minY = y;
-          if (y > maxY) maxY = y;
-          if (x < minX) minX = x;
-          if (x > maxX) maxX = x;
-        }
-      }
+    const id = `/tmp/eye-cells-${i}`;
+    const { eyeCells } = generateCreatureFrames(id, 6, 4);
+    for (const eye of [eyeCells.left, eyeCells.right]) {
+      assert.ok(eye.cx >= 0 && eye.cx < 6, `creature ${i} eye cx=${eye.cx} out of range`);
+      assert.ok(eye.cy >= 0 && eye.cy < 4, `creature ${i} eye cy=${eye.cy} out of range`);
     }
-    return { minY, maxY, minX, maxX };
-  };
-
-  assert.deepEqual(bounds(open), bounds(closed));
-});
-
-test("generateCreatureFrames with eyesClosed produces both animation frames carved", () => {
-  const { frameA, frameB } = generateCreatureFrames("/tmp/sleepy-anim", 6, 4, true);
-  assert.ok(countZeros(frameA) >= 4, "frameA should carve at least 4 zero sub-pixels (2 slits)");
-  assert.ok(countZeros(frameB) >= 4, "frameB should carve at least 4 zero sub-pixels (2 slits)");
+    // Eyes sit on the same row, distinct columns.
+    assert.equal(eyeCells.left.cy, eyeCells.right.cy, `creature ${i} eyes on different rows`);
+    assert.notEqual(eyeCells.left.cx, eyeCells.right.cx, `creature ${i} eyes share a cell`);
+  }
 });

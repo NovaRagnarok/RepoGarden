@@ -83,6 +83,13 @@ export interface GardenSpriteInfo {
   vibeGlyph: string;
   vibeColor: string;
   wiggle: WiggleProfile;
+  /** Character-cell coordinates of the sprite's two eyes (left, right).
+   *  Renderers can overlay a closed-eye glyph at these cells without
+   *  altering the underlying body grid. */
+  eyeCells: { left: { cx: number; cy: number }; right: { cx: number; cy: number } };
+  /** When true, the renderer paints `_` over each eye cell instead of
+   *  the quadrant char derived from the body grid. */
+  eyesClosed: boolean;
 }
 
 export interface GardenScene {
