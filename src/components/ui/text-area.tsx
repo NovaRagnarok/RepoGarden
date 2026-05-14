@@ -12,12 +12,15 @@ import {
   applyForwardDelete,
   clampPosition,
   getEditorLines,
+  graphemeLength,
   indentLines,
   indentationForNextLine,
   joinEditorLines,
   normalizeEditorInput,
   outdentLines,
   positionsEqual,
+  sliceGraphemes,
+  splitGraphemes,
   stripEditorControlChars,
 } from "@/lib/editor-buffer";
 import {
@@ -134,19 +137,25 @@ const DEFAULT_INDENT = "  ";
  * trailing whitespace, then skip the run of non-whitespace before it. The
  * pattern matches what Ctrl+W and Alt+Backspace already do for deletion and
  * is the standard "previous word boundary" most editors use.
+ *
+ * Iterates over grapheme clusters (`Position.col` is grapheme-indexed) so
+ * an emoji inside a "word" counts as one cell — never lands the boundary
+ * mid-surrogate.
  */
 const findPrevWordCol = (line: string, fromCol: number): number => {
-  let c = Math.max(0, Math.min(line.length, fromCol));
-  while (c > 0 && /\s/.test(line[c - 1] ?? "")) c--;
-  while (c > 0 && !/\s/.test(line[c - 1] ?? "")) c--;
+  const graphemes = splitGraphemes(line);
+  let c = Math.max(0, Math.min(graphemes.length, fromCol));
+  while (c > 0 && /\s/.test(graphemes[c - 1] ?? "")) c--;
+  while (c > 0 && !/\s/.test(graphemes[c - 1] ?? "")) c--;
   return c;
 };
 
 /** Mirror of `findPrevWordCol`, walking right to the end of the next word. */
 const findNextWordCol = (line: string, fromCol: number): number => {
-  let c = Math.max(0, Math.min(line.length, fromCol));
-  while (c < line.length && /\s/.test(line[c] ?? "")) c++;
-  while (c < line.length && !/\s/.test(line[c] ?? "")) c++;
+  const graphemes = splitGraphemes(line);
+  let c = Math.max(0, Math.min(graphemes.length, fromCol));
+  while (c < graphemes.length && /\s/.test(graphemes[c] ?? "")) c++;
+  while (c < graphemes.length && !/\s/.test(graphemes[c] ?? "")) c++;
   return c;
 };
 
@@ -591,7 +600,7 @@ export const TextArea = ({
       // Ctrl+End — jump cursor to the very end of the buffer.
       if (key.ctrl && key.end) {
         const lastLine = Math.max(0, lines.length - 1);
-        moveCursor({ line: lastLine, col: (lines[lastLine] ?? "").length });
+        moveCursor({ line: lastLine, col: graphemeLength(lines[lastLine] ?? "") });
         return;
       }
 
@@ -626,7 +635,7 @@ export const TextArea = ({
         const { row } = cursorToVisual(visualLines, safeCursor.line, safeCursor.col);
         const vl = visualLines[row];
         if (vl) {
-          moveCursor({ line: vl.logicalLine, col: vl.start + vl.text.length });
+          moveCursor({ line: vl.logicalLine, col: vl.start + graphemeLength(vl.text) });
         }
         return;
       }
@@ -642,7 +651,7 @@ export const TextArea = ({
         const currentLine = lines[safeCursor.line] ?? "";
         if (safeCursor.col === 0) return;
         beforeMutation(true);
-        const newLine = currentLine.slice(safeCursor.col);
+        const newLine = sliceGraphemes(currentLine, safeCursor.col);
         const newLines = [
           ...lines.slice(0, safeCursor.line),
           newLine,
@@ -668,9 +677,9 @@ export const TextArea = ({
         if (safeCursor.col === 0) {
           if (safeCursor.line === 0) return;
           const prevLine = lines[safeCursor.line - 1] ?? "";
-          const cut = findPrevWordCol(prevLine, prevLine.length);
+          const cut = findPrevWordCol(prevLine, graphemeLength(prevLine));
           beforeMutation(true);
-          const mergedLine = prevLine.slice(0, cut) + currentLine;
+          const mergedLine = sliceGraphemes(prevLine, 0, cut) + currentLine;
           const newLines = [
             ...lines.slice(0, safeCursor.line - 1),
             mergedLine,
@@ -682,7 +691,7 @@ export const TextArea = ({
         }
         const cut = findPrevWordCol(currentLine, safeCursor.col);
         beforeMutation(true);
-        const newLine = currentLine.slice(0, cut) + currentLine.slice(safeCursor.col);
+        const newLine = sliceGraphemes(currentLine, 0, cut) + sliceGraphemes(currentLine, safeCursor.col);
         const newLines = [
           ...lines.slice(0, safeCursor.line),
           newLine,
@@ -701,7 +710,7 @@ export const TextArea = ({
           return;
         }
         const currentLine = lines[safeCursor.line] ?? "";
-        if (safeCursor.col >= currentLine.length) {
+        if (safeCursor.col >= graphemeLength(currentLine)) {
           if (safeCursor.line >= lines.length - 1) return;
           const nextLine = lines[safeCursor.line + 1] ?? "";
           beforeMutation(true);
@@ -717,7 +726,7 @@ export const TextArea = ({
         }
         const cut = findNextWordCol(currentLine, safeCursor.col);
         beforeMutation(true);
-        const newLine = currentLine.slice(0, safeCursor.col) + currentLine.slice(cut);
+        const newLine = sliceGraphemes(currentLine, 0, safeCursor.col) + sliceGraphemes(currentLine, cut);
         const newLines = [
           ...lines.slice(0, safeCursor.line),
           newLine,
@@ -759,7 +768,7 @@ export const TextArea = ({
         }
         beforeMutation(true);
         const currentLine = lines[safeCursor.line] ?? "";
-        const before = currentLine.slice(0, safeCursor.col);
+        const before = sliceGraphemes(currentLine, 0, safeCursor.col);
         const continuationIndent = indentationForNextLine(before);
         const result = replaceRange(
           lines,
@@ -804,7 +813,7 @@ export const TextArea = ({
           range ? (anchor ?? null) : null
         );
         if (!step.changed) return;
-        beforeMutation(range !== null || safeCursor.col >= currentLine.length);
+        beforeMutation(range !== null || safeCursor.col >= graphemeLength(currentLine));
         applyTextEdit({
           value: step.value,
           cursorLine: step.cursorLine,
@@ -828,7 +837,7 @@ export const TextArea = ({
         if (safeCursor.col === 0) {
           if (safeCursor.line === 0) return;
           nextLine = safeCursor.line - 1;
-          nextCol = (lines[nextLine] ?? "").length;
+          nextCol = graphemeLength(lines[nextLine] ?? "");
         } else {
           nextCol = findPrevWordCol(lines[safeCursor.line] ?? "", safeCursor.col);
         }
@@ -844,7 +853,7 @@ export const TextArea = ({
         } else if (safeCursor.line > 0) {
           const prevLine = lines[safeCursor.line - 1] ?? "";
           nextLine = safeCursor.line - 1;
-          nextCol = prevLine.length;
+          nextCol = graphemeLength(prevLine);
         } else {
           return;
         }
@@ -857,7 +866,7 @@ export const TextArea = ({
         const currentLine = lines[safeCursor.line] ?? "";
         let nextLine = safeCursor.line;
         let nextCol = safeCursor.col;
-        if (safeCursor.col >= currentLine.length) {
+        if (safeCursor.col >= graphemeLength(currentLine)) {
           if (safeCursor.line >= lines.length - 1) return;
           nextLine = safeCursor.line + 1;
           nextCol = 0;
@@ -872,7 +881,7 @@ export const TextArea = ({
         const currentLine = lines[safeCursor.line] ?? "";
         let nextLine = safeCursor.line;
         let nextCol = safeCursor.col;
-        if (safeCursor.col < currentLine.length) {
+        if (safeCursor.col < graphemeLength(currentLine)) {
           nextCol = safeCursor.col + 1;
         } else if (safeCursor.line < lines.length - 1) {
           nextLine = safeCursor.line + 1;
@@ -1118,6 +1127,11 @@ export const TextArea = ({
         }
 
         // Selection bounds within this visual row, if the selection overlaps it.
+        // Render-side column math runs in grapheme units so a 4-byte emoji
+        // or ZWJ family counts as one cell — matching `Position.col` and
+        // `cursorToVisual`. We compute the length once per row and slice by
+        // grapheme indices when building the styled segments.
+        const vlLen = graphemeLength(vl.text);
         let rowSelStart: number | null = null;
         let rowSelEnd: number | null = null;
         if (selVisualStart && selVisualEnd) {
@@ -1128,9 +1142,9 @@ export const TextArea = ({
             rowSelStart =
               absoluteVisualRow === selVisualStart.row ? selVisualStart.col : 0;
             rowSelEnd =
-              absoluteVisualRow === selVisualEnd.row ? selVisualEnd.col : vl.text.length;
-            rowSelStart = clampSplit(rowSelStart, vl.text.length);
-            rowSelEnd = clampSplit(rowSelEnd, vl.text.length);
+              absoluteVisualRow === selVisualEnd.row ? selVisualEnd.col : vlLen;
+            rowSelStart = clampSplit(rowSelStart, vlLen);
+            rowSelEnd = clampSplit(rowSelEnd, vlLen);
             if (rowSelEnd < rowSelStart) {
               const tmp = rowSelStart;
               rowSelStart = rowSelEnd;
@@ -1140,21 +1154,21 @@ export const TextArea = ({
         }
 
         const isActiveRow = isInteractive && absoluteVisualRow === cursorVisual.row;
-        const cursorColOnRow = isActiveRow ? clampSplit(cursorVisual.col, vl.text.length) : null;
+        const cursorColOnRow = isActiveRow ? clampSplit(cursorVisual.col, vlLen) : null;
 
         // Build styled segments. The cursor is rendered as the actual character
         // at its position with backgroundColor + color — NOT a separate
         // inserted block — so row width stays stable.
         type CharStyle = "normal" | "selected" | "cursor";
-        const splits = new Set<number>([0, vl.text.length]);
+        const splits = new Set<number>([0, vlLen]);
         if (rowSelStart !== null) splits.add(rowSelStart);
         if (rowSelEnd !== null) splits.add(rowSelEnd);
-        if (cursorColOnRow !== null && cursorColOnRow < vl.text.length) {
+        if (cursorColOnRow !== null && cursorColOnRow < vlLen) {
           splits.add(cursorColOnRow);
           splits.add(cursorColOnRow + 1);
         }
         const sortedSplits = [...splits]
-          .map((split) => clampSplit(split, vl.text.length))
+          .map((split) => clampSplit(split, vlLen))
           .sort((a, b) => a - b);
         const segments: Array<{ text: string; style: CharStyle }> = [];
         for (let i = 0; i < sortedSplits.length - 1; i++) {
@@ -1164,7 +1178,7 @@ export const TextArea = ({
           let style: CharStyle = "normal";
           if (
             cursorColOnRow !== null &&
-            cursorColOnRow < vl.text.length &&
+            cursorColOnRow < vlLen &&
             segStart === cursorColOnRow
           ) {
             style = "cursor";
@@ -1176,14 +1190,14 @@ export const TextArea = ({
           ) {
             style = "selected";
           }
-          segments.push({ text: vl.text.slice(segStart, segEnd), style });
+          segments.push({ text: sliceGraphemes(vl.text, segStart, segEnd), style });
         }
 
         // Cursor sitting one column past the end of the line: emit an extra
         // one-col cursor span containing a space, since there's no character
         // there to style in place.
         const cursorPastEnd =
-          isActiveRow && cursorColOnRow !== null && cursorColOnRow >= vl.text.length;
+          isActiveRow && cursorColOnRow !== null && cursorColOnRow >= vlLen;
 
         // Empty, non-active rows would otherwise collapse to zero terminal rows.
         const isBlankRow = segments.length === 0 && !cursorPastEnd;
