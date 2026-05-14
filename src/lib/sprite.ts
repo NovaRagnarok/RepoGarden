@@ -263,11 +263,37 @@ const createState = (charW: number, charH: number, rng: () => number): Generator
   const centerLeft = halfW - 1;
   const centerRight = halfW;
   const { top, bottom, bobStyle } = randomBodyWindow(charW, charH, rng);
-  const eyeRow = Math.round(clamp(top + 1 + Math.floor(rng() * Math.max(1, Math.min(3, bottom - top))), top + 1, bottom - 1));
+  // Cap eyeRow so the cell *directly below* the eye cell still fits
+  // inside the sprite. The closed-eye face panel paints with bg=body
+  // and a glyph at the bottom of the cell; if the cell below is empty,
+  // the panel reads as a dangling dark bar instead of a closed eyelid
+  // resting on the face. Cell row of eye must be ≤ charH − 2.
+  const maxEyeRow = (charH - 2) * 2 + 1;
+  const eyeRow = Math.round(
+    clamp(
+      top + 1 + Math.floor(rng() * Math.max(1, Math.min(3, bottom - top))),
+      top + 1,
+      Math.min(bottom - 1, maxEyeRow)
+    )
+  );
   const maxEyeOffset = Math.max(1, Math.min(centerLeft - 1, Math.floor(charW * 0.24)));
-  const eyeOffset = 1 + Math.floor(rng() * maxEyeOffset);
-  const eyeLeft = centerLeft - eyeOffset;
-  const eyeRight = centerRight + eyeOffset;
+  let eyeOffset = 1 + Math.floor(rng() * maxEyeOffset);
+  let eyeLeft = centerLeft - eyeOffset;
+  let eyeRight = centerRight + eyeOffset;
+  // Eye cells must be at least one cell apart so the closed-eye glyphs
+  // don't render in adjacent cells (they'd read as a single connected
+  // bar instead of two distinct eyes). Bump `eyeOffset` outward until
+  // the cell distance is ≥ 2, capped by `centerLeft − 1` so eyeLeft
+  // stays at least 1 sub-pixel inside the body.
+  const cellOf = (subPos: number) => Math.floor(subPos / 2);
+  while (
+    cellOf(eyeRight) - cellOf(eyeLeft) < 2 &&
+    eyeOffset < centerLeft - 1
+  ) {
+    eyeOffset += 1;
+    eyeLeft = centerLeft - eyeOffset;
+    eyeRight = centerRight + eyeOffset;
+  }
 
   return {
     charW,
