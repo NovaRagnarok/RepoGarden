@@ -373,15 +373,23 @@ export const SettingsScreen = ({
   const { columns, rows } = useTerminalSize();
   const responsive = getTerminalLayout(columns, rows);
   const mode = layoutMode(columns);
-  // Reserve ~15 rows for the chrome (header, tagline, preferences panel, theme
-  // panel borders, four-line footer hints).
-  const pageSize = Math.max(4, Math.min(themeCatalogue.length, rows - 15));
+  // Compact mode kicks in when the full stack (header + prefs + min themes +
+  // four-line footer) would overflow the container. Below that height we
+  // switch to a tab bar that shows one section at a time so the prefs panel
+  // doesn't get clipped off the bottom of the screen.
+  const compactMode = rows < 30;
+  // Compact mode renders only one section, so the chrome budget is smaller:
+  // header(4) + tab bar(1) + themes-chrome(5) + 2-line footer(3) ≈ 13 rows.
+  // Non-compact keeps the prefs panel + four-line footer: ~15 rows.
+  const reservedRows = compactMode ? 13 : 15;
+  const pageSize = Math.max(4, Math.min(themeCatalogue.length, rows - reservedRows));
   const containerHeight = Math.max(8, rows - 1);
   const startIndex = Math.max(
     0,
     themeCatalogue.findIndex((choice) => choice.id === currentThemeId)
   );
   const [focusIndex, setFocusIndex] = useState(startIndex === -1 ? 0 : startIndex);
+  const [compactSection, setCompactSection] = useState<"themes" | "prefs">("themes");
 
   const headerRef = useRef<DOMElement | null>(null);
   const motionPanelRef = useRef<DOMElement | null>(null);
@@ -391,8 +399,10 @@ export const SettingsScreen = ({
 
   // Side-by-side themes + preview when there's enough horizontal room. Need
   // ~32 cols for the preview to fit two mini sprites + swatches, plus ~28 for
-  // a usable themes panel + the gap + outer padding.
-  const sideBySide = mode !== "narrow" && columns >= 62;
+  // a usable themes panel + the gap + outer padding. Compact mode disables
+  // it — vertical room is tight enough that the preview can't share screen
+  // real-estate with the themes list.
+  const sideBySide = !compactMode && mode !== "narrow" && columns >= 62;
   const innerContentW = Math.max(10, columns - 2); // outer paddingX (1 each side)
   const previewWidth = sideBySide ? Math.max(30, Math.floor(innerContentW * 0.48)) : 0;
   const themesWidth = sideBySide
@@ -400,6 +410,10 @@ export const SettingsScreen = ({
     : innerContentW;
 
   useInput((input, key) => {
+    if (compactMode && key.tab) {
+      setCompactSection((current) => (current === "themes" ? "prefs" : "themes"));
+      return;
+    }
     if (key.upArrow) {
       setFocusIndex((current) => Math.max(0, current - 1));
       return;
@@ -461,8 +475,15 @@ export const SettingsScreen = ({
 
   const hitZones = useMemo(() => {
     type PrefKind = "motion" | "usage" | "observer" | "paginate" | "density";
-    const zones: Array<
-      | { kind: PrefKind; topRow: number; bottomRow: number; leftCol: number; rightCol: number }
+    type TabKind = "tab-themes" | "tab-prefs";
+    type Zone =
+      | {
+          kind: PrefKind | TabKind;
+          topRow: number;
+          bottomRow: number;
+          leftCol: number;
+          rightCol: number;
+        }
       | {
           kind: "theme";
           themeIndex: number;
@@ -470,43 +491,92 @@ export const SettingsScreen = ({
           bottomRow: number;
           leftCol: number;
           rightCol: number;
+        };
+    const zones: Zone[] = [];
+    if (headerHeight === 0) return zones;
+
+    const innerLeft = 2;
+    const innerRight = Math.max(innerLeft, innerLeft + innerContentW - 1);
+    const prefKinds: PrefKind[] = ["motion", "usage", "observer", "paginate", "density"];
+
+    if (compactMode) {
+      // Tab bar lives in a single row directly below the header. Labels are
+      // "[ themes ]" (10 chars) and "[ prefs ]" (9 chars) separated by a
+      // space, so the prefs label starts at innerLeft + 11.
+      const tabRow = 2 + headerHeight;
+      zones.push({
+        kind: "tab-themes",
+        topRow: tabRow,
+        bottomRow: tabRow,
+        leftCol: innerLeft,
+        rightCol: innerLeft + 9
+      });
+      zones.push({
+        kind: "tab-prefs",
+        topRow: tabRow,
+        bottomRow: tabRow,
+        leftCol: innerLeft + 11,
+        rightCol: innerLeft + 19
+      });
+
+      const sectionTop = tabRow + 1;
+      if (compactSection === "prefs") {
+        const contentTop = sectionTop + PANEL_CONTENT_TOP_OFFSET;
+        prefKinds.forEach((kind, i) => {
+          zones.push({
+            kind,
+            topRow: contentTop + i,
+            bottomRow: contentTop + i,
+            leftCol: innerLeft,
+            rightCol: innerRight
+          });
+        });
+      } else {
+        const contentTop = sectionTop + PANEL_CONTENT_TOP_OFFSET;
+        for (let i = 0; i < visible.length; i += 1) {
+          zones.push({
+            kind: "theme",
+            themeIndex: windowStart + i,
+            topRow: contentTop + i,
+            bottomRow: contentTop + i,
+            leftCol: innerLeft,
+            rightCol: innerLeft + themesWidth - 1
+          });
         }
-    > = [];
-    if (headerHeight === 0 || motionHeight === 0) return zones;
+      }
+      return zones;
+    }
+
+    if (motionHeight === 0) return zones;
 
     const prefsTop = 2 + headerHeight;
     const prefsContentTop = prefsTop + PANEL_CONTENT_TOP_OFFSET;
-    const prefsLeft = 2;
-    const prefsRight = Math.max(prefsLeft, prefsLeft + innerContentW - 1);
-    const prefKinds: PrefKind[] = ["motion", "usage", "observer", "paginate", "density"];
     prefKinds.forEach((kind, i) => {
-      const row = prefsContentTop + i;
       zones.push({
         kind,
-        topRow: row,
-        bottomRow: row,
-        leftCol: prefsLeft,
-        rightCol: prefsRight
+        topRow: prefsContentTop + i,
+        bottomRow: prefsContentTop + i,
+        leftCol: innerLeft,
+        rightCol: innerRight
       });
     });
 
     const themesPanelTop = prefsTop + motionHeight;
     const themesContentTop = themesPanelTop + PANEL_CONTENT_TOP_OFFSET;
-    const themesLeftCol = 2;
-    const themesRightCol = themesLeftCol + themesWidth - 1;
     for (let i = 0; i < visible.length; i += 1) {
-      const row = themesContentTop + i;
       zones.push({
         kind: "theme",
         themeIndex: windowStart + i,
-        topRow: row,
-        bottomRow: row,
-        leftCol: themesLeftCol,
-        rightCol: themesRightCol
+        topRow: themesContentTop + i,
+        bottomRow: themesContentTop + i,
+        leftCol: innerLeft,
+        rightCol: innerLeft + themesWidth - 1
       });
     }
     return zones;
   }, [
+    compactMode,
+    compactSection,
     headerHeight,
     motionHeight,
     visible.length,
@@ -516,15 +586,20 @@ export const SettingsScreen = ({
   ]);
 
   const themesScrollBounds = useMemo(() => {
-    if (headerHeight === 0 || motionHeight === 0) return null;
+    if (headerHeight === 0) return null;
+    if (compactMode) {
+      if (compactSection !== "themes") return null;
+      const top = 2 + headerHeight + 1;
+      const bottom =
+        top + PANEL_CONTENT_TOP_OFFSET + visible.length + PANEL_CONTENT_BOTTOM_OFFSET - 1;
+      return { top, bottom, left: 2, right: 2 + themesWidth - 1 };
+    }
+    if (motionHeight === 0) return null;
     const top = 2 + headerHeight + motionHeight;
-    const themesContentRows = visible.length;
     const bottom =
-      top + PANEL_CONTENT_TOP_OFFSET + themesContentRows + PANEL_CONTENT_BOTTOM_OFFSET - 1;
-    const left = 2;
-    const right = left + themesWidth - 1;
-    return { top, bottom, left, right };
-  }, [headerHeight, motionHeight, visible.length, themesWidth]);
+      top + PANEL_CONTENT_TOP_OFFSET + visible.length + PANEL_CONTENT_BOTTOM_OFFSET - 1;
+    return { top, bottom, left: 2, right: 2 + themesWidth - 1 };
+  }, [compactMode, compactSection, headerHeight, motionHeight, visible.length, themesWidth]);
 
   useMouse(
     useCallback(
@@ -588,6 +663,12 @@ export const SettingsScreen = ({
                 case "density":
                   onCycleGardenDensity?.();
                   break;
+                case "tab-themes":
+                  setCompactSection("themes");
+                  break;
+                case "tab-prefs":
+                  setCompactSection("prefs");
+                  break;
               }
             }
             return;
@@ -646,6 +727,85 @@ export const SettingsScreen = ({
     </Panel>
   );
 
+  const prefsPanelBody = (
+    <Panel title="preferences" paddingY={0}>
+      <PrefRow
+        hotkey="m"
+        label="reduced motion · quiets stars, wiggle, wander, transitions"
+        indicator={reducedMotion ? "● on" : "○ off"}
+        indicatorColor={
+          reducedMotion ? previewTheme.colors.success : previewTheme.colors.mutedForeground
+        }
+        labelColor={previewTheme.colors.foreground}
+      />
+      <PrefRow
+        hotkey="u"
+        label="usage bar · reads Claude/Codex CLI credentials locally"
+        indicator={usageBarDisabled ? "○ off" : "● on"}
+        indicatorColor={
+          usageBarDisabled
+            ? previewTheme.colors.mutedForeground
+            : previewTheme.colors.success
+        }
+        labelColor={previewTheme.colors.foreground}
+      />
+      <PrefRow
+        hotkey="o"
+        label="observer · live-watches .git for commits + new repos"
+        indicator={observerEnabled ? "● on" : "○ off"}
+        indicatorColor={
+          observerEnabled ? previewTheme.colors.success : previewTheme.colors.mutedForeground
+        }
+        labelColor={previewTheme.colors.foreground}
+      />
+      <PrefRow
+        hotkey="p"
+        label="pagination · off shows every creature on one screen"
+        indicator={gardenPaginate ? "● on" : "○ off"}
+        indicatorColor={
+          gardenPaginate ? previewTheme.colors.success : previewTheme.colors.mutedForeground
+        }
+        labelColor={previewTheme.colors.foreground}
+      />
+      <PrefRow
+        hotkey="g"
+        label="density · how packed garden + shelf feel"
+        indicator={gardenDensity}
+        indicatorColor={previewTheme.colors.success}
+        labelColor={previewTheme.colors.foreground}
+      />
+    </Panel>
+  );
+
+  const tabBar = compactMode ? (
+    <Box flexDirection="row">
+      <Text
+        bold={compactSection === "themes"}
+        color={
+          compactSection === "themes"
+            ? previewTheme.colors.primary
+            : previewTheme.colors.mutedForeground
+        }
+      >
+        [ themes ]
+      </Text>
+      <Text color={previewTheme.colors.mutedForeground}> </Text>
+      <Text
+        bold={compactSection === "prefs"}
+        color={
+          compactSection === "prefs"
+            ? previewTheme.colors.primary
+            : previewTheme.colors.mutedForeground
+        }
+      >
+        [ prefs ]
+      </Text>
+      <Text dimColor color={previewTheme.colors.mutedForeground}>
+        {"  ·  tab to switch"}
+      </Text>
+    </Box>
+  ) : null;
+
   return (
     <ThemeProvider theme={previewTheme} reducedMotion={reducedMotion}>
       <Box flexDirection="column" paddingX={1} paddingY={1} height={containerHeight} overflow="hidden">
@@ -672,75 +832,43 @@ export const SettingsScreen = ({
           </Box>
         </Box>
 
-        <Box ref={motionPanelRef} flexDirection="column">
-          <Panel title="preferences" paddingY={0}>
-            <PrefRow
-              hotkey="m"
-              label="reduced motion · quiets stars, wiggle, wander, transitions"
-              indicator={reducedMotion ? "● on" : "○ off"}
-              indicatorColor={
-                reducedMotion ? previewTheme.colors.success : previewTheme.colors.mutedForeground
-              }
-              labelColor={previewTheme.colors.foreground}
-            />
-            <PrefRow
-              hotkey="u"
-              label="usage bar · reads Claude/Codex CLI credentials locally"
-              indicator={usageBarDisabled ? "○ off" : "● on"}
-              indicatorColor={
-                usageBarDisabled
-                  ? previewTheme.colors.mutedForeground
-                  : previewTheme.colors.success
-              }
-              labelColor={previewTheme.colors.foreground}
-            />
-            <PrefRow
-              hotkey="o"
-              label="observer · live-watches .git for commits + new repos"
-              indicator={observerEnabled ? "● on" : "○ off"}
-              indicatorColor={
-                observerEnabled ? previewTheme.colors.success : previewTheme.colors.mutedForeground
-              }
-              labelColor={previewTheme.colors.foreground}
-            />
-            <PrefRow
-              hotkey="p"
-              label="pagination · off shows every creature on one screen"
-              indicator={gardenPaginate ? "● on" : "○ off"}
-              indicatorColor={
-                gardenPaginate ? previewTheme.colors.success : previewTheme.colors.mutedForeground
-              }
-              labelColor={previewTheme.colors.foreground}
-            />
-            <PrefRow
-              hotkey="g"
-              label="density · how packed garden + shelf feel"
-              indicator={gardenDensity}
-              indicatorColor={previewTheme.colors.success}
-              labelColor={previewTheme.colors.foreground}
-            />
-          </Panel>
-        </Box>
-
-        {sideBySide ? (
-          <Box flexDirection="row">
-            <Box width={themesWidth} flexDirection="column">
-              {themesPanelBody}
-            </Box>
-            <Box width={1} />
-            <Box width={previewWidth} flexDirection="column">
-              <SettingsPreview
-                theme={previewTheme}
-                themeLabel={focused?.label ?? "—"}
-                isAppliedTheme={previewIsApplied}
-                reducedMotion={reducedMotion}
-                width={previewWidth}
-                height={visible.length + PANEL_CHROME_TOTAL}
-              />
-            </Box>
-          </Box>
+        {compactMode ? (
+          <>
+            {tabBar}
+            {compactSection === "prefs" ? (
+              <Box ref={motionPanelRef} flexDirection="column">
+                {prefsPanelBody}
+              </Box>
+            ) : (
+              themesPanelBody
+            )}
+          </>
         ) : (
-          themesPanelBody
+          <>
+            <Box ref={motionPanelRef} flexDirection="column">
+              {prefsPanelBody}
+            </Box>
+            {sideBySide ? (
+              <Box flexDirection="row">
+                <Box width={themesWidth} flexDirection="column">
+                  {themesPanelBody}
+                </Box>
+                <Box width={1} />
+                <Box width={previewWidth} flexDirection="column">
+                  <SettingsPreview
+                    theme={previewTheme}
+                    themeLabel={focused?.label ?? "—"}
+                    isAppliedTheme={previewIsApplied}
+                    reducedMotion={reducedMotion}
+                    width={previewWidth}
+                    height={visible.length + PANEL_CHROME_TOTAL}
+                  />
+                </Box>
+              </Box>
+            ) : (
+              themesPanelBody
+            )}
+          </>
         )}
 
         <Box paddingTop={1} flexDirection="column">
@@ -748,18 +876,29 @@ export const SettingsScreen = ({
             showing {windowStart + 1}–{windowStart + visible.length} of {themeCatalogue.length}
             {focused ? `  ·  focused: ${focused.label}` : ""}
           </Text>
-          <Text dimColor color={previewTheme.colors.mutedForeground} wrap="truncate-end">
-            <Text bold>themes</Text>  ↑/↓ pick · enter or dbl-click apply · esc back
-          </Text>
-          <Text dimColor color={previewTheme.colors.mutedForeground} wrap="truncate-end">
-            <Text bold>prefs </Text>  click row to toggle · keys m u o p g
-          </Text>
-          <Box flexDirection="row" justifyContent="space-between">
-            <Text dimColor color={previewTheme.colors.mutedForeground} wrap="truncate-end">
-              <Text bold>mouse </Text>  scroll themes · click previews · double-click applies
-            </Text>
-            <Credit />
-          </Box>
+          {compactMode ? (
+            <Box flexDirection="row" justifyContent="space-between">
+              <Text dimColor color={previewTheme.colors.mutedForeground} wrap="truncate-end">
+                tab switch · ↑/↓ pick · enter apply · click row · esc back
+              </Text>
+              <Credit />
+            </Box>
+          ) : (
+            <>
+              <Text dimColor color={previewTheme.colors.mutedForeground} wrap="truncate-end">
+                <Text bold>themes</Text>  ↑/↓ pick · enter or dbl-click apply · esc back
+              </Text>
+              <Text dimColor color={previewTheme.colors.mutedForeground} wrap="truncate-end">
+                <Text bold>prefs </Text>  click row to toggle · keys m u o p g
+              </Text>
+              <Box flexDirection="row" justifyContent="space-between">
+                <Text dimColor color={previewTheme.colors.mutedForeground} wrap="truncate-end">
+                  <Text bold>mouse </Text>  scroll themes · click previews · double-click applies
+                </Text>
+                <Credit />
+              </Box>
+            </>
+          )}
         </Box>
       </Box>
     </ThemeProvider>
