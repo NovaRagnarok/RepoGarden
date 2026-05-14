@@ -4,14 +4,11 @@ All notable changes to RepoGarden land here. Format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
-### Fixed
-
-- **Mask mode now redacts the scan-root paths** shown under the garden and in the multi-root scan progress UI. Pre-fix, hitting `m` to mask names left the configured base directories visible in plaintext, leaking the same path information the per-repo masking was hiding.
-
 ## [0.4.0] — 2026-05-13
 
 ### Fixed
 
+- **Mask mode now redacts the scan-root paths** shown under the garden and in the multi-root scan progress UI. Pre-fix, hitting `m` to mask names left the configured base directories visible in plaintext, leaking the same path information the per-repo masking was hiding.
 - **Journal vibe-change entries read as transitions, not status snapshots.** Each `from → to` pair now picks a verb that describes the change (`back in flow`, `hit a blocker`, `wound down`, `settled`, `back at it`, `stirred`, …) instead of falling through to the destination state. Pre-fix, `blocked → happy` rendered as `happy: clean`, which read like a status line. The reason text gets a small cleanup pass too: the redundant `blocker:` prefix is stripped when the verb already says it, and trailing periods are dropped before the em-dash join.
 - **Garden creature labels no longer collide with neighbouring sprites.** Placement now sizes each grid slot to fit the *full* footprint (sprite body + rendered name label), and reserves room for the label row below each sprite. Pre-fix, two sprites whose bodies didn't overlap could still have their name labels painted over each other or into an adjacent sprite, and a long name on row N could clip into the sprite on row N+1.
 - **Wandering creatures no longer land on dragged neighbours.** `syncVisualPlacements` now resolves manually-offset creatures first so wanderers iterated before them check against the dragged neighbour's actual visual position, not an anchor footprint that excluded it.
@@ -30,6 +27,7 @@ All notable changes to RepoGarden land here. Format follows [Keep a Changelog](h
 - New `spriteFullFootprint` helper in `src/lib/garden-layout.ts` covers the rendered name label below each sprite; `placeCreatures` now sizes slots from `max(maxSpriteCols, maxLabelCols)` horizontally and `maxSpriteRows + NAME_GAP_ROWS + NAME_H` vertically. `syncVisualPlacements` in `src/garden/model.ts` resolves manually-offset placements first so wanderers see their actual visual positions. New `vibeTransitionVerb` + `trimVibeReason` helpers in `src/lib/event-summary.ts` cover all 12 from-to transitions with a defensive fallback for unknown vibe pairs. Test count: 318 → 345.
 - New module `src/lib/observer.ts` (per-handle debounce, watch budget cap at 150, error-tolerant per the `subscribeToEventsFile` pattern). New `observer` field on `TuiConfig` and `observerEnabled()` helper honoring the env override. cli.tsx adds one `useEffect` keyed on the *set* of repo paths so commit-driven state updates don't churn the watcher list.
 - New module `src/lib/git-pull.ts` (async `git pull --ff-only` with 60 s timeout, line-streaming `onLine` callback, and small sync sha helpers). New event-summary kind `pull`. New single-repo refresh helper `refreshOneCreature` in `src/lib/creature.ts` re-inspects one repo and re-runs `enrichScans` so the snapshot reconcile fires.
+- **Contributor workflow migrated from npm to pnpm** (pinned via `packageManager: "pnpm@10.32.1"`). `package-lock.json` removed; `pnpm-lock.yaml` is the lockfile. CI (`.github/workflows/ci.yml`) runs `pnpm install --frozen-lockfile` and pnpm scripts; the pack-smoke job still installs the produced tarball with `npm install -g` so the same path real users hit (`npm install -g @outsideheaven/repogarden`) stays exercised. `prepare` and `prepack` now inline the build command instead of calling `npm run build`, so neither lifecycle hook depends on a particular package manager being present. `chalk@^5.6.2` is now a declared direct dependency (was previously imported by `src/garden/diff.ts` but only available via npm's hoisted layout).
 
 ## [0.3.3] — 2026-05-13
 
