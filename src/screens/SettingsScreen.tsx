@@ -373,15 +373,21 @@ export const SettingsScreen = ({
   const { columns, rows } = useTerminalSize();
   const responsive = getTerminalLayout(columns, rows);
   const mode = layoutMode(columns);
-  // Compact mode kicks in when the full stack (header + prefs + min themes +
-  // four-line footer) would overflow the container. Below that height we
-  // switch to a tab bar that shows one section at a time so the prefs panel
-  // doesn't get clipped off the bottom of the screen.
-  const compactMode = rows < 30;
-  // Compact mode renders only one section, so the chrome budget is smaller:
-  // header(4) + tab bar(1) + themes-chrome(5) + 2-line footer(3) ≈ 13 rows.
-  // Non-compact keeps the prefs panel + four-line footer: ~15 rows.
-  const reservedRows = compactMode ? 13 : 15;
+  // Compact mode kicks in when the full stack (header + prefs + min 4 themes
+  // + four-line footer + padding) would overflow the container. Worst-case
+  // chrome cost (narrow header):
+  //   header(6) + prefs(10) + themes-chrome(5) + footer(5) + paddingY(2) = 28
+  // Plus min pageSize 4 + container off-by-one (1) = 33 rows. Below that we
+  // switch to a tab bar that shows one section at a time, so no option ever
+  // gets clipped.
+  const compactMode = rows < 33;
+  // reservedRows is the chrome cost that's subtracted from rows to derive
+  // pageSize. We use the worst-case (narrow) numbers so themes content never
+  // overflows the container — at wide widths this just leaves ~2 rows of
+  // margin, which is fine.
+  //   compact: header(6) + tab(1) + themes-chrome(5) + footer(3) + padding(2) + container off-by-one(1) = 18
+  //   non-compact: header(6) + prefs(10) + themes-chrome(5) + footer(5) + padding(2) + container off-by-one(1) = 29
+  const reservedRows = compactMode ? 18 : 29;
   const pageSize = Math.max(4, Math.min(themeCatalogue.length, rows - reservedRows));
   const containerHeight = Math.max(8, rows - 1);
   const startIndex = Math.max(
