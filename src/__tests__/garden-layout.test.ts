@@ -9,6 +9,7 @@ import {
   placeCreatures,
   spriteBodyFootprint,
   spriteBodyFootprintsOverlap,
+  spriteFullFootprint,
   stableCreatureIdsKey,
   type SizedTile
 } from "../lib/garden-layout";
@@ -234,6 +235,74 @@ test("placeCreatures adds rows before reusing slots when the canvas can still fi
   );
   assert.equal(placements.length, tiles.length);
   assert.equal(placementsOverlap(placements), false);
+});
+
+// Inter-creature overlap including the rendered name label, not just the
+// sprite body. Long names center under the sprite and can extend past
+// `spriteCols` on either side; without label-aware footprints the
+// neighbouring sprite's body cells get painted over.
+const placementsOverlapFull = (placements: ReturnType<typeof placeCreatures>): boolean => {
+  const footprints = placements.map((placement) => spriteFullFootprint(placement));
+  for (let i = 0; i < footprints.length; i += 1) {
+    for (let j = i + 1; j < footprints.length; j += 1) {
+      if (spriteBodyFootprintsOverlap(footprints[i], footprints[j])) return true;
+    }
+  }
+  return false;
+};
+
+test("placeCreatures does not let long names paint into neighbouring sprite bodies", () => {
+  // Names visibly longer than the sprite (label = name.length + 2 ≈ 14
+  // cells vs spriteCols=6). Pre-fix, the body-only overlap check passed
+  // but labels collided with the adjacent slot's body in row N and the
+  // sprite below in row N+1. Tile count + canvas chosen so the scene
+  // fits comfortably without forcing slot reuse.
+  const tiles = Array.from({ length: 6 }, (_, i) =>
+    makeTile(i, `long-repo-name-${i}`, 6, 4)
+  );
+  const placements = placeCreatures(
+    tiles,
+    100,
+    28,
+    stableCreatureIdsKey(tiles.map((tile) => tile.creature))
+  );
+  assert.equal(placements.length, tiles.length);
+  assert.equal(
+    placementsOverlapFull(placements),
+    false,
+    "label-aware footprints must not overlap"
+  );
+});
+
+test("placeCreatures handles 20 creatures on a roomy canvas without label-vs-body collisions", () => {
+  const tiles = Array.from({ length: 20 }, (_, i) => makeTile(i, `repo-${i}`, 4, 3));
+  const placements = placeCreatures(
+    tiles,
+    100,
+    30,
+    stableCreatureIdsKey(tiles.map((tile) => tile.creature))
+  );
+  assert.equal(placements.length, tiles.length);
+  assert.equal(placementsOverlap(placements), false);
+  assert.equal(
+    placementsOverlapFull(placements),
+    false,
+    "labels must not overlap adjacent sprite bodies when the canvas can fit everyone"
+  );
+});
+
+test("spriteFullFootprint extends the body to include the centred label row", () => {
+  const tile = makeTile(0, "hello-world", 6, 3); // label = 13 cells
+  const placement = { tile, x: 10, charY: 4 };
+  const body = spriteBodyFootprint(placement);
+  const full = spriteFullFootprint(placement);
+  // Body bounds unchanged on top/left/right when label is wider.
+  assert.equal(full.top, body.top);
+  // Full footprint extends down past the body to the name row.
+  assert.ok(full.bottom > body.bottom, "full footprint should reach the name row");
+  // 13-cell label centred under a 6-cell sprite extends past both edges.
+  assert.ok(full.left < body.left, "wide label should extend left of the sprite");
+  assert.ok(full.right > body.right, "wide label should extend right of the sprite");
 });
 
 test("stableCreatureIdsKey ignores creature order", () => {

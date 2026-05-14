@@ -632,6 +632,65 @@ test("organic garden applies persisted manual creature placement offsets", () =>
   );
 });
 
+test("syncGardenModel: wanderer cannot land on a neighbour's manual-offset position", () => {
+  // Regression: pre-fix, manually-offset creatures were excluded from
+  // anchorFootprints and resolved in scene order. A wanderer iterated
+  // before its dragged neighbour saw neither the neighbour's anchor
+  // nor its visual position, so the wanderer could land directly on top.
+  const props: GardenSceneProps = {
+    ...makeProps(),
+    focusIndex: -1,
+    creatures: [
+      {
+        id: "alpha",
+        scan: { id: "alpha", path: "/tmp/alpha", name: "alpha", isDirty: false } as any,
+        memory: {} as any,
+        vibe: { vibe: "happy", reason: "clean" } as any
+      },
+      {
+        id: "beta",
+        scan: { id: "beta", path: "/tmp/beta", name: "beta", isDirty: false } as any,
+        memory: { gardenPlacement: { offsetX: 6, offsetY: 0 } },
+        vibe: { vibe: "happy", reason: "clean" } as any
+      }
+    ],
+    innerWidth: 40,
+    canvasH: 14,
+    placementMode: "organic"
+  };
+  const model = createGardenModel(props, 0);
+  const alphaAnchor = model.scene.placements.find((p) => p.tile.creature.id === "alpha");
+  const betaAnchor = model.scene.placements.find((p) => p.tile.creature.id === "beta");
+  assert.ok(alphaAnchor && betaAnchor, "missing anchors");
+
+  // Force alpha to want beta's manual-offset spot.
+  const betaVisualX = betaAnchor.x + 6;
+  const betaVisualY = betaAnchor.charY;
+  model.wander.set("alpha", {
+    kind: "relocate",
+    phase: "idle",
+    idleUntil: Number.POSITIVE_INFINITY,
+    wanderStartedAt: 0,
+    wanderDurationMs: 0,
+    outpoint: { x: 0, y: 0 },
+    currentOffset: { x: 0, y: 0 },
+    persistentOffset: {
+      x: betaVisualX - alphaAnchor.x,
+      y: betaVisualY - alphaAnchor.charY
+    }
+  });
+
+  syncGardenModel(model, props, 0);
+  const alphaVisual = model.visualPlacements.get("alpha");
+  const betaVisual = model.visualPlacements.get("beta");
+  assert.ok(alphaVisual && betaVisual, "missing visual placements");
+  assert.equal(
+    overlaps(alphaVisual, betaVisual),
+    false,
+    "wanderer must not land on dragged neighbour's body"
+  );
+});
+
 test("shelf mode ignores persisted manual creature placement offsets", () => {
   const props: GardenSceneProps = {
     ...makeProps(),

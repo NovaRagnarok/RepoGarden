@@ -86,6 +86,37 @@ export const spriteBodyFootprint = (placement: {
   };
 };
 
+/**
+ * Footprint that includes the rendered name label below the sprite. The
+ * label is "<glyph> <space> <name>" (see `render.ts`), centred under the
+ * sprite, so for long names it spans further than the sprite body. The
+ * gap row between sprite and label is included in `bottom` so adjacent
+ * creatures don't paint each other's labels.
+ *
+ * Use this for inter-creature overlap checks. Slot-fit checks should
+ * keep using `spriteBodyFootprint` because slots only need to contain
+ * the sprite body — the canvas reserves dedicated rows for labels at
+ * the bottom (see `NAME_RESERVE` in `placeCreatures`).
+ */
+export const spriteFullFootprint = (placement: {
+  tile: SizedTile;
+  x: number;
+  charY: number;
+}): PlacementFootprint => {
+  const body = spriteBodyFootprint(placement);
+  const labelLen = placement.tile.creature.scan.name.length + 2;
+  const labelStart =
+    placement.x + Math.floor((placement.tile.spriteCols - labelLen) / 2);
+  const labelEnd = labelStart + labelLen - 1;
+  const nameRow = placement.charY + placement.tile.charRows + NAME_GAP_ROWS;
+  return {
+    top: body.top,
+    bottom: nameRow,
+    left: Math.min(body.left, labelStart),
+    right: Math.max(body.right, labelEnd)
+  };
+};
+
 export const spriteBodyFootprintsOverlap = (
   left: PlacementFootprint,
   right: PlacementFootprint
@@ -381,7 +412,10 @@ export const placeCreatures = (
     tile: SizedTile,
     slot: LayoutSlot
   ): { minX: number; maxX: number; minY: number; maxY: number } | null => {
-    const offsets = spriteBodyFootprint({ tile, x: 0, charY: 0 });
+    // Use the full footprint (sprite body + name label row) so the
+    // label fits within the slot — otherwise long names overflow into
+    // neighbouring slots' columns or rows and collide with their bodies.
+    const offsets = spriteFullFootprint({ tile, x: 0, charY: 0 });
     const minX = slot.x - offsets.left;
     const maxX = slot.x + slot.width - 1 - offsets.right;
     const minY = slot.y - offsets.top;
@@ -408,12 +442,21 @@ export const placeCreatures = (
       : [jittered, centered];
   };
 
-  // Minimum slot dimensions: fit the largest sprite body + the baseline slot
-  // pad so creatures cannot overlap even after jittering within a slot.
+  // Minimum slot dimensions: fit the largest *full* footprint (sprite body
+  // plus the centred name label one gap-row below) + the baseline slot pad
+  // so neither bodies nor labels overlap after jittering within a slot.
+  // Labels span `name.length + 2` cells (glyph + space + name) centred under
+  // the sprite, so for long names they're wider than the sprite body.
   const maxSpriteCols = Math.max(...tiles.map((t) => t.spriteCols));
   const maxSpriteRows = Math.max(...tiles.map((t) => t.charRows));
-  const minSlotW = maxSpriteCols + SLOT_PAD_X;
-  const minSlotH = maxSpriteRows + SLOT_PAD_Y;
+  const maxLabelCols = Math.max(
+    ...tiles.map((t) => t.creature.scan.name.length + 2)
+  );
+  const minSlotW = Math.max(maxSpriteCols, maxLabelCols) + SLOT_PAD_X;
+  // The label row inside the slot already provides visual separation
+  // between adjacent rows, so SLOT_PAD_Y isn't added a second time —
+  // doing so dropped grid capacity below what the canvas can fit.
+  const minSlotH = maxSpriteRows + NAME_GAP_ROWS + NAME_H;
 
   const usableW = Math.max(minSlotW, canvasW - 1);
   // Reserve enough rows at the bottom for the name strip beneath every
@@ -524,14 +567,16 @@ export const placeCreatures = (
     outer: for (const slotIndex of slotIndicesToTry) {
       const slot = slots[slotIndex];
       for (const candidate of buildSlotCandidates(tile, slot)) {
-        const footprint = spriteBodyFootprint(candidate);
-        if (!footprintFitsSlot(footprint, slot)) continue;
-        if (acceptedFootprints.some((accepted) => spriteBodyFootprintsOverlap(footprint, accepted))) {
+        const fullFootprint = spriteFullFootprint(candidate);
+        // Slot must contain the *full* footprint so the label doesn't
+        // overflow into a neighbouring slot's body.
+        if (!footprintFitsSlot(fullFootprint, slot)) continue;
+        if (acceptedFootprints.some((accepted) => spriteBodyFootprintsOverlap(fullFootprint, accepted))) {
           continue;
         }
         resolved = candidate;
         resolvedSlotIndex = slotIndex;
-        acceptedFootprints.push(footprint);
+        acceptedFootprints.push(fullFootprint);
         break outer;
       }
     }
@@ -545,7 +590,7 @@ export const placeCreatures = (
           x: fallbackSlot.x,
           charY: fallbackSlot.y
         };
-      acceptedFootprints.push(spriteBodyFootprint(resolved));
+      acceptedFootprints.push(spriteFullFootprint(resolved));
     }
 
     usedSlotIndices.add(resolvedSlotIndex);

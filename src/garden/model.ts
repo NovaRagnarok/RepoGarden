@@ -123,6 +123,11 @@ const canUsePlacement = (
   canvasW: number,
   canvasH: number
 ): boolean => {
+  // Body-only checks here — the drag/push solver already enforces no
+  // sprite-body overlap and the user controls manual positions. Treating
+  // label-row collisions as a hard reject here would make wanderers
+  // refuse positions the push solver had already validated, falling
+  // back to the anchor (which is worse than a touching label).
   const footprint = spriteBodyFootprint(candidate);
   if (footprintIntersectsDeadZone(footprint, deadZone, canvasW, canvasH)) return false;
   for (const accepted of acceptedFootprints) {
@@ -341,7 +346,18 @@ const syncVisualPlacements = (
     ? clamp((now - transition.startedAt) / Math.max(1, transition.durationMs), 0, 1)
     : 1;
   const eased = transition ? easeInOutCubic(progress) : 1;
-  for (const placement of model.scene.placements) {
+  // Two-pass resolution: creatures with manual offsets occupy fixed spots
+  // (the user dragged them there), so resolve them first and let
+  // wandering / anchored neighbors check against their actual visual
+  // positions. Without this, a wanderer iterated before a dragged
+  // neighbor doesn't see the neighbor in `acceptedFootprints` and the
+  // neighbor isn't in `anchorFootprints` (excluded by `filter` above),
+  // so the wanderer can land on top of the dragged creature.
+  const orderedPlacements = [
+    ...model.scene.placements.filter((p) => hasNonZeroManualOffset(model, p)),
+    ...model.scene.placements.filter((p) => !hasNonZeroManualOffset(model, p))
+  ];
+  for (const placement of orderedPlacements) {
     const creature = placement.tile.creature;
     const candidates: Placement[] = [];
     if (transition) {
