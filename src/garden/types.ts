@@ -83,11 +83,14 @@ export interface GardenSpriteInfo {
   vibeGlyph: string;
   vibeColor: string;
   wiggle: WiggleProfile;
-  /** Character-cell coordinates of the sprite's two eyes (left, right).
-   *  Renderers composite a face panel (bg=body) + eye glyph at these
-   *  cells, overriding whatever quadrant char the body grid would have
-   *  produced. */
-  eyeCells: { left: { cx: number; cy: number }; right: { cx: number; cy: number } };
+  /** Character-cell coordinates of the sprite's two eyes per animation
+   *  frame. `frameA` and `frameB` differ when the creature is body-
+   *  bobbing — the eye overlay tracks the bob so the closed-eye glyph
+   *  moves with the face instead of staying glued to a fixed cell. */
+  eyeCells: {
+    frameA: { left: { cx: number; cy: number }; right: { cx: number; cy: number } };
+    frameB: { left: { cx: number; cy: number }; right: { cx: number; cy: number } };
+  };
   /** When true, the eye glyph is locked to the closed form regardless
    *  of blink timing. */
   eyesClosed: boolean;

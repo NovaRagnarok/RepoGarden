@@ -463,6 +463,14 @@ export interface SpriteEyeCells {
   right: { cx: number; cy: number };
 }
 
+/** Per-frame eye cell positions. `frameA` and `frameB` differ only when
+ *  the creature is body-bobbing (frame A's body shifts up one sub-pixel)
+ *  AND the eye row's parity puts the shifted eye in a different cell. */
+export interface SpriteEyeFrames {
+  frameA: SpriteEyeCells;
+  frameB: SpriteEyeCells;
+}
+
 interface AnimatedLimb {
   stem: Pixel[]; // sub-pixels drawn in both frames; always adjacent to body
   tipA: Pixel;   // tip in frame A (resting pose), adjacent to stem
@@ -669,6 +677,10 @@ const extendFootDown = (grid: SubMatrix): SubMatrix => {
 
 interface CreatureBuildResult extends CreatureBuild {
   eyeCells: SpriteEyeCells;
+  /** Eye cells when the body has bobbed up one sub-pixel (frame A of a
+   *  bodyBob+bobbable creature). Identical to `eyeCells` when eyeRow
+   *  is odd — the shift doesn't cross a cell boundary in that case. */
+  shiftedEyeCells: SpriteEyeCells;
 }
 
 const buildCreature = (
@@ -701,7 +713,18 @@ const buildCreature = (
   // safe to apply when the style is chosen.
   const bobbable = state.bobStyle === "bodyBob" && minLimbY(limb) >= 1;
 
-  return { base: grid, limb, bobStyle: state.bobStyle, bobbable, eyeCells };
+  // bodyBob shifts the body up one sub-pixel in frame A. The closed-eye
+  // overlay paints at cell coordinates, so when the body bobs the
+  // overlay needs to bob with it — otherwise the eyelid stays glued to
+  // its original cell while the face slides away. Pre-compute the
+  // shifted eye cells here so the renderer can pick per frame without
+  // re-deriving body geometry.
+  const shiftedEyeCells: SpriteEyeCells = {
+    left: { cx: eyeCells.left.cx, cy: Math.floor((state.eyeRow - 1) / 2) },
+    right: { cx: eyeCells.right.cx, cy: Math.floor((state.eyeRow - 1) / 2) }
+  };
+
+  return { base: grid, limb, bobStyle: state.bobStyle, bobbable, eyeCells, shiftedEyeCells };
 };
 
 export const generateCreature = (
@@ -719,7 +742,11 @@ export const generateCreatureFrames = (
   identity: string,
   charW: number,
   charH: number
-): { frameA: SubMatrix; frameB: SubMatrix; eyeCells: SpriteEyeCells } => {
+): {
+  frameA: SubMatrix;
+  frameB: SubMatrix;
+  eyeCells: SpriteEyeFrames;
+} => {
   // Three mutually-exclusive idle styles per creature:
   //   - bodyBob: body lifts one sub-pixel in frame A; a leg pixel bridges
   //     the new gap to the foot. Limb stays in tipA both frames.
@@ -728,23 +755,32 @@ export const generateCreatureFrames = (
   //     tile floor. Limb stays in tipA both frames.
   //   - none (or unbobbable bodyBob): the limb tip swings between tipA
   //     and tipB as before.
-  const { base, limb, bobStyle, bobbable, eyeCells } = buildCreature(identity, charW, charH);
+  const { base, limb, bobStyle, bobbable, eyeCells, shiftedEyeCells } =
+    buildCreature(identity, charW, charH);
   const frameA = base.map((row) => [...row]);
   const frameB = base.map((row) => [...row]);
 
   if (bobStyle === "bodyBob" && bobbable) {
     drawLimbTip(frameA, limb.tipA);
     drawLimbTip(frameB, limb.tipA);
-    return { frameA: shiftBodyAndAddLeg(frameA), frameB, eyeCells };
+    return {
+      frameA: shiftBodyAndAddLeg(frameA),
+      frameB,
+      eyeCells: { frameA: shiftedEyeCells, frameB: eyeCells }
+    };
   }
   if (bobStyle === "legExtend") {
     drawLimbTip(frameA, limb.tipA);
     drawLimbTip(frameB, limb.tipA);
-    return { frameA: extendFootDown(frameA), frameB, eyeCells };
+    return {
+      frameA: extendFootDown(frameA),
+      frameB,
+      eyeCells: { frameA: eyeCells, frameB: eyeCells }
+    };
   }
   drawLimbTip(frameA, limb.tipA);
   drawLimbTip(frameB, limb.tipB);
-  return { frameA, frameB, eyeCells };
+  return { frameA, frameB, eyeCells: { frameA: eyeCells, frameB: eyeCells } };
 };
 
 const QUADRANT_CHARS: Record<number, string> = {

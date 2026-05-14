@@ -10,7 +10,8 @@ import {
   findCreatureAtCell,
   findCreatureDragHandleAtCell,
   stepGardenModel,
-  syncGardenModel
+  syncGardenModel,
+  wiggleFrameAt
 } from "../garden/model";
 import { renderGardenFrame } from "../garden/render";
 import type { GardenSceneProps, GardenSpriteInfo } from "../garden/types";
@@ -101,7 +102,10 @@ const makeSprite = (placement: Placement): GardenSpriteInfo => ({
   // hand-rolled tiny frames don't unintentionally trigger the
   // face-panel paint. Tests that *want* to exercise eyes pass real
   // GardenSpriteInfo built via createGardenModel.
-  eyeCells: { left: { cx: -1, cy: -1 }, right: { cx: -1, cy: -1 } },
+  eyeCells: {
+    frameA: { left: { cx: -1, cy: -1 }, right: { cx: -1, cy: -1 } },
+    frameB: { left: { cx: -1, cy: -1 }, right: { cx: -1, cy: -1 } }
+  },
   eyesClosed: false,
   blink: { intervalMs: 5000, durationMs: 140, phaseMs: 0 }
 });
@@ -643,6 +647,12 @@ test("organic garden applies persisted manual creature placement offsets", () =>
 
 const CLOSED_EYE_GLYPH = "▂";
 
+const activeEyesForFrame = (
+  info: GardenSpriteInfo,
+  now: number
+): GardenSpriteInfo["eyeCells"]["frameA"] =>
+  wiggleFrameAt(info.wiggle, now) === 1 ? info.eyeCells.frameB : info.eyeCells.frameA;
+
 test("renderGardenFrame paints sleepy eyes as a thick low bar on a body-coloured face panel", () => {
   const model = createGardenModel(
     {
@@ -666,10 +676,11 @@ test("renderGardenFrame paints sleepy eyes as a thick low bar on a body-coloured
   const frame = renderGardenFrame(model, 0);
   const cellAt = (x: number, y: number) =>
     frame.cells[y * frame.width + x];
-  const leftCell = cellAt(placement.x + info.eyeCells.left.cx, placement.charY + info.eyeCells.left.cy);
+  const eyes = activeEyesForFrame(info, 0);
+  const leftCell = cellAt(placement.x + eyes.left.cx, placement.charY + eyes.left.cy);
   assert.equal(leftCell?.char, CLOSED_EYE_GLYPH, "sleepy left eye should render `_`");
   assert.equal(leftCell?.bg, info.body, "sleepy eye cell should fill bg with body colour");
-  const rightCell = cellAt(placement.x + info.eyeCells.right.cx, placement.charY + info.eyeCells.right.cy);
+  const rightCell = cellAt(placement.x + eyes.right.cx, placement.charY + eyes.right.cy);
   assert.equal(rightCell?.char, CLOSED_EYE_GLYPH, "sleepy right eye should render `_`");
   assert.equal(rightCell?.bg, info.body, "sleepy eye cell should fill bg with body colour");
 });
@@ -701,7 +712,8 @@ test("renderGardenFrame paints awake eyes as `•` between blinks", () => {
   const frame = renderGardenFrame(model, now);
   const cellAt = (x: number, y: number) =>
     frame.cells[y * frame.width + x];
-  const leftCell = cellAt(placement.x + info.eyeCells.left.cx, placement.charY + info.eyeCells.left.cy);
+  const eyes = activeEyesForFrame(info, now);
+  const leftCell = cellAt(placement.x + eyes.left.cx, placement.charY + eyes.left.cy);
   // Awake eye keeps the original quadrant block char produced by the
   // sprite's body grid (no face-panel overlay). The cell should not
   // carry the closed glyph and should not have a body-coloured bg.
@@ -732,9 +744,10 @@ test("renderGardenFrame paints awake eyes closed during the blink window", () =>
   const now = info.blink.intervalMs - info.blink.phaseMs;
   const placement = model.scene.placements[0];
   const frame = renderGardenFrame(model, now);
+  const eyes = activeEyesForFrame(info, now);
   const leftCell = frame.cells[
-    (placement.charY + info.eyeCells.left.cy) * frame.width +
-      (placement.x + info.eyeCells.left.cx)
+    (placement.charY + eyes.left.cy) * frame.width +
+      (placement.x + eyes.left.cx)
   ];
   assert.equal(leftCell?.char, CLOSED_EYE_GLYPH, "awake creature should show closed glyph during blink");
 });
@@ -758,13 +771,15 @@ test("renderGardenFrame keeps sleepy eyes closed regardless of blink timing", ()
   const info = model.scene.sprites.get("alpha");
   if (!info) throw new Error("missing sprite info");
   const placement = model.scene.placements[0];
-  const eyeX: number = placement.x + info.eyeCells.left.cx;
-  const eyeY: number = placement.charY + info.eyeCells.left.cy;
-  // Sample across the blink interval; sleepy creatures should hold `_`
-  // for every now value.
+  // Sample across the blink interval; sleepy creatures should hold `▂`
+  // for every now value (potentially in different cells if the body
+  // bobs, but the glyph itself never opens).
   for (let frac = 0; frac < 1; frac += 0.2) {
     const now = info.blink.intervalMs * frac;
     const frame = renderGardenFrame(model, now);
+    const eyes = activeEyesForFrame(info, now);
+    const eyeX: number = placement.x + eyes.left.cx;
+    const eyeY: number = placement.charY + eyes.left.cy;
     const leftCell = frame.cells[eyeY * frame.width + eyeX];
     assert.equal(leftCell?.char, CLOSED_EYE_GLYPH, `sleepy eye opened at frac=${frac}`);
   }

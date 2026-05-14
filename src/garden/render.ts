@@ -138,10 +138,9 @@ export const renderGardenFrame = (
     const visual = model.visualPlacements.get(creature.id) ?? placement;
     const info = model.scene.sprites.get(creature.id);
     if (!info) continue;
-    const spriteFrame =
-      !reducedMotion && wiggleFrameAt(info.wiggle, now) === 1
-        ? info.frameB
-        : info.frameA;
+    const useFrameB = !reducedMotion && wiggleFrameAt(info.wiggle, now) === 1;
+    const spriteFrame = useFrameB ? info.frameB : info.frameA;
+    const activeEyeCells = useFrameB ? info.eyeCells.frameB : info.eyeCells.frameA;
     // Closed eyes only override the body-grid paint — open eyes keep
     // the original sub-pixel-derived quadrant char so the awake look
     // matches the pre-face-panel rendering. The face panel (bg=body
@@ -151,8 +150,8 @@ export const renderGardenFrame = (
       info.eyesClosed || (!reducedMotion && blinkClosedAt(info.blink, now));
     const eyeCellKeys = eyesShut
       ? new Set([
-          `${info.eyeCells.left.cx}:${info.eyeCells.left.cy}`,
-          `${info.eyeCells.right.cx}:${info.eyeCells.right.cy}`
+          `${activeEyeCells.left.cx}:${activeEyeCells.left.cy}`,
+          `${activeEyeCells.right.cx}:${activeEyeCells.right.cy}`
         ])
       : null;
     for (let cy = 0; cy < info.charH; cy += 1) {

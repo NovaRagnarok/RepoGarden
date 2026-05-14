@@ -400,17 +400,40 @@ const countZeros = (matrix: SubMatrix): number => {
 };
 
 test("generateCreatureFrames reports eye cell coordinates inside sprite bounds", () => {
-  // Sleepy-eye overlay paints `_` at these cell positions; the renderer
+  // Sleepy-eye overlay paints at these cell positions; the renderer
   // assumes they are valid (0..charW-1, 0..charH-1) coordinates.
   for (let i = 0; i < 8; i += 1) {
     const id = `/tmp/eye-cells-${i}`;
     const { eyeCells } = generateCreatureFrames(id, 6, 4);
-    for (const eye of [eyeCells.left, eyeCells.right]) {
-      assert.ok(eye.cx >= 0 && eye.cx < 6, `creature ${i} eye cx=${eye.cx} out of range`);
-      assert.ok(eye.cy >= 0 && eye.cy < 4, `creature ${i} eye cy=${eye.cy} out of range`);
+    for (const frame of [eyeCells.frameA, eyeCells.frameB]) {
+      for (const eye of [frame.left, frame.right]) {
+        assert.ok(eye.cx >= 0 && eye.cx < 6, `creature ${i} eye cx=${eye.cx} out of range`);
+        assert.ok(eye.cy >= 0 && eye.cy < 4, `creature ${i} eye cy=${eye.cy} out of range`);
+      }
+      // Eyes sit on the same row, distinct columns.
+      assert.equal(frame.left.cy, frame.right.cy, `creature ${i} eyes on different rows`);
+      assert.notEqual(frame.left.cx, frame.right.cx, `creature ${i} eyes share a cell`);
     }
-    // Eyes sit on the same row, distinct columns.
-    assert.equal(eyeCells.left.cy, eyeCells.right.cy, `creature ${i} eyes on different rows`);
-    assert.notEqual(eyeCells.left.cx, eyeCells.right.cx, `creature ${i} eyes share a cell`);
   }
+});
+
+test("generateCreatureFrames eye cells track the body bob across frames", () => {
+  // For body-bobbing creatures with even eyeRow, frame A's eye cell
+  // sits one row higher than frame B's so the closed-eye glyph moves
+  // with the bouncing body. Sample a wide range of seeds so we hit at
+  // least a few bobbers — counts will vary by RNG.
+  let bobbersWithFrameDiff = 0;
+  for (let i = 0; i < 80; i += 1) {
+    const { eyeCells } = generateCreatureFrames(`/tmp/bob-${i}`, 6, 4);
+    if (eyeCells.frameA.left.cy !== eyeCells.frameB.left.cy) {
+      bobbersWithFrameDiff += 1;
+      // The bob shift is exactly one row up.
+      assert.equal(eyeCells.frameA.left.cy, eyeCells.frameB.left.cy - 1);
+      assert.equal(eyeCells.frameA.right.cy, eyeCells.frameB.right.cy - 1);
+    }
+  }
+  assert.ok(
+    bobbersWithFrameDiff > 0,
+    "expected at least one body-bobbing creature in 80 samples to shift eye cells between frames"
+  );
 });
