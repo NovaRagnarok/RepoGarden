@@ -212,3 +212,159 @@ test("dirty-file preview marks sensitive filenames as skipped", async () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+// ---------------------------------------------------------------------------
+// Phase 0 (inspectRepoPreskeletonAsync): fs-only skeleton via .git reads
+// ---------------------------------------------------------------------------
+
+test("inspectRepoPreskeletonAsync returns branch + sha for a plain repo", async () => {
+  const { inspectRepoPreskeletonAsync } = await import("../lib/scanner");
+  const root = mkdtempSync(join(tmpdir(), "repogarden-pre-plain-"));
+  try {
+    const repo = join(root, "alpha");
+    initRepo(repo);
+    const result = await inspectRepoPreskeletonAsync(repo);
+    assert.equal(result.scanError, undefined);
+    assert.equal(result.branch, "main");
+    assert.ok(result.lastCommitSha && /^[0-9a-f]{40}$/.test(result.lastCommitSha));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("inspectRepoPreskeletonAsync flags a non-git directory", async () => {
+  const { inspectRepoPreskeletonAsync } = await import("../lib/scanner");
+  const root = mkdtempSync(join(tmpdir(), "repogarden-pre-nogit-"));
+  try {
+    const dir = join(root, "not-a-repo");
+    mkdirSync(dir, { recursive: true });
+    const result = await inspectRepoPreskeletonAsync(dir);
+    assert.equal(result.scanError, "not a git repo");
+    assert.equal(result.branch, undefined);
+    assert.equal(result.lastCommitSha, undefined);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("inspectRepoPreskeletonAsync resolves packed-refs when loose ref is absent", async () => {
+  const { inspectRepoPreskeletonAsync } = await import("../lib/scanner");
+  const root = mkdtempSync(join(tmpdir(), "repogarden-pre-packed-"));
+  try {
+    const repo = join(root, "alpha");
+    initRepo(repo);
+    // `git pack-refs --all --prune` writes refs to packed-refs and removes
+    // the loose ref files, mirroring what `git gc` produces on a repo with
+    // many refs. inspectRepoPreskeletonAsync should still find the sha.
+    spawnSync("git", ["pack-refs", "--all", "--prune"], { cwd: repo });
+    const result = await inspectRepoPreskeletonAsync(repo);
+    assert.equal(result.scanError, undefined);
+    assert.equal(result.branch, "main");
+    assert.ok(result.lastCommitSha && /^[0-9a-f]{40}$/.test(result.lastCommitSha));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("inspectRepoPreskeletonAsync reports detached HEAD without a branch", async () => {
+  const { inspectRepoPreskeletonAsync } = await import("../lib/scanner");
+  const root = mkdtempSync(join(tmpdir(), "repogarden-pre-detached-"));
+  try {
+    const repo = join(root, "alpha");
+    initRepo(repo);
+    // Resolve current HEAD and then check it out by sha — that detaches HEAD.
+    const sha = spawnSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" })
+      .stdout.trim();
+    spawnSync("git", ["checkout", "--quiet", sha], { cwd: repo });
+
+    const result = await inspectRepoPreskeletonAsync(repo);
+    assert.equal(result.scanError, undefined);
+    assert.equal(result.branch, undefined);
+    assert.equal(result.lastCommitSha, sha);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("scanRootsProgressive caches by HEAD sha and re-uses on a second run", async () => {
+  const { scanRootsProgressive } = await import("../lib/scanner");
+  const root = mkdtempSync(join(tmpdir(), "repogarden-scan-cache-"));
+  const cacheFile = join(root, "scan-cache.json");
+  try {
+    const repo = join(root, "alpha");
+    initRepo(repo);
+
+    // First run: cache miss. Should write the cache file as part of the scan.
+    const r1 = await scanRootsProgressive([root], {}, 4, { cacheFile });
+    assert.equal(r1.repos.length, 1);
+    assert.equal(r1.repos[0].isDirty, false);
+
+    // Now dirty the working tree without moving HEAD.
+    writeFileSync(join(repo, "scratch.txt"), "hello");
+
+    // Cached run: HEAD sha is unchanged, so the cache hit returns the prior
+    // (clean) scan and skips the git status call. This is the trade-off
+    // documented in scan-cache.ts — the 30s background refresh catches up
+    // dirty state shortly after launch.
+    const rCached = await scanRootsProgressive([root], {}, 4, { cacheFile });
+    assert.equal(rCached.repos[0].isDirty, false, "cache hit returned stale clean state");
+
+    // Disabled-cache run: actually re-spawns git, sees the dirty file.
+    const rFresh = await scanRootsProgressive([root], {}, 4, { cache: false });
+    assert.equal(rFresh.repos[0].isDirty, true, "no-cache scan saw the dirty state");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("scanRootsProgressive misses the cache after HEAD moves", async () => {
+  const { scanRootsProgressive } = await import("../lib/scanner");
+  const root = mkdtempSync(join(tmpdir(), "repogarden-scan-cache-bump-"));
+  const cacheFile = join(root, "scan-cache.json");
+  try {
+    const repo = join(root, "alpha");
+    initRepo(repo);
+
+    // Seed the cache.
+    const r1 = await scanRootsProgressive([root], {}, 4, { cacheFile });
+    const sha1 = r1.repos[0].lastCommitSha;
+    assert.ok(sha1);
+
+    // New commit moves HEAD.
+    commitFile(repo, "added.txt", "new content\n");
+
+    const r2 = await scanRootsProgressive([root], {}, 4, { cacheFile });
+    const sha2 = r2.repos[0].lastCommitSha;
+    assert.ok(sha2);
+    assert.notEqual(sha2, sha1, "second scan saw the new HEAD sha");
+    assert.equal(r2.repos[0].commitCount, 2, "second scan re-ran enrichment");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("inspectRepoPreskeletonAsync follows worktree gitdir pointer", async () => {
+  const { inspectRepoPreskeletonAsync } = await import("../lib/scanner");
+  const root = mkdtempSync(join(tmpdir(), "repogarden-pre-worktree-"));
+  try {
+    const primary = join(root, "alpha");
+    initRepo(primary);
+    // Create a worktree on a fresh branch — its `.git` is a FILE containing
+    // `gitdir: <path-to-actual-gitdir>`, not a directory. The preskeleton
+    // resolver has to follow that pointer.
+    const worktreePath = join(root, "alpha-wt");
+    const checkout = spawnSync(
+      "git",
+      ["worktree", "add", "--quiet", "-b", "feature", worktreePath],
+      { cwd: primary }
+    );
+    assert.equal(checkout.status, 0, `worktree add failed: ${checkout.stderr}`);
+
+    const result = await inspectRepoPreskeletonAsync(worktreePath);
+    assert.equal(result.scanError, undefined);
+    assert.equal(result.branch, "feature");
+    assert.ok(result.lastCommitSha && /^[0-9a-f]{40}$/.test(result.lastCommitSha));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
