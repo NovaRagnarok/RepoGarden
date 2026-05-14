@@ -122,3 +122,106 @@ test("inferVibe gives a stuck repo activity from its commit recency, not zero", 
   assert.equal(result.vibe, "stuck");
   assert.ok(result.activity > 0.85, `expected high activity, got ${result.activity}`);
 });
+
+// ---------------------------------------------------------------------------
+// mood + confidence
+// ---------------------------------------------------------------------------
+
+test("blocker memory drives a confused mood, regardless of git state", () => {
+  const recent = new Date(NOW.getTime() - 1 * 86_400_000).toISOString();
+  const result = inferVibe({
+    repo: baseRepo({ isDirty: true, ahead: 8, lastCommitAt: recent }),
+    memory: { currentBlocker: "build is red" },
+    now: NOW
+  });
+  assert.equal(result.mood, "confused");
+  assert.ok(result.confidence >= 0.5, `expected confident, got ${result.confidence}`);
+  assert.match(result.moodReason, /build is red/);
+});
+
+test("being behind remote reads as anxious", () => {
+  const recent = new Date(NOW.getTime() - 1 * 86_400_000).toISOString();
+  const result = inferVibe({
+    repo: baseRepo({ behind: 3, lastCommitAt: recent }),
+    now: NOW
+  });
+  assert.equal(result.mood, "anxious");
+  assert.match(result.moodReason, /3 commits behind/);
+});
+
+test("a recent burst of commits over a quiet baseline reads as excited", () => {
+  // 23 days of 0 commits + 7 days of 2 commits/day = clear burst.
+  const burstDays = [...Array(23).fill(0), 2, 2, 2, 2, 2, 2, 2];
+  const recent = new Date(NOW.getTime() - 1 * 86_400_000).toISOString();
+  const result = inferVibe({
+    repo: baseRepo({ lastCommitAt: recent, recentCommitDays: burstDays }),
+    now: NOW
+  });
+  assert.equal(result.mood, "excited");
+});
+
+test("a brand-new repo with a couple commits reads as curious", () => {
+  const recent = new Date(NOW.getTime() - 2 * 86_400_000).toISOString();
+  const result = inferVibe({
+    repo: baseRepo({ lastCommitAt: recent, commitCount: 2 }),
+    now: NOW
+  });
+  assert.equal(result.mood, "curious");
+  assert.match(result.moodReason, /2 commits/);
+});
+
+test("a long-quiet repo never visited reads as lonely", () => {
+  const old = new Date(NOW.getTime() - 90 * 86_400_000).toISOString();
+  const result = inferVibe({
+    repo: baseRepo({ lastCommitAt: old }),
+    now: NOW
+  });
+  assert.equal(result.vibe, "sleepy");
+  assert.equal(result.mood, "lonely");
+  assert.match(result.moodReason, /no recent visit/);
+});
+
+test("a long-quiet repo visited last week is not lonely", () => {
+  const old = new Date(NOW.getTime() - 90 * 86_400_000).toISOString();
+  const recentVisit = new Date(NOW.getTime() - 7 * 86_400_000).toISOString();
+  const result = inferVibe({
+    repo: baseRepo({ lastCommitAt: old }),
+    memory: { lastVisitedAt: recentVisit },
+    now: NOW
+  });
+  assert.notEqual(result.mood, "lonely");
+});
+
+test("a clean unremarkable repo reads as content with 0.5 confidence", () => {
+  const recent = new Date(NOW.getTime() - 1 * 86_400_000).toISOString();
+  const result = inferVibe({
+    repo: baseRepo({ lastCommitAt: recent, commitCount: 50 }),
+    now: NOW
+  });
+  assert.equal(result.mood, "content");
+  assert.equal(result.confidence, 0.5);
+});
+
+test("blocker beats other mood signals via precedence", () => {
+  // Behind remote AND blocker — confused should win because its base
+  // score is higher than anxious's.
+  const recent = new Date(NOW.getTime() - 1 * 86_400_000).toISOString();
+  const result = inferVibe({
+    repo: baseRepo({ behind: 5, lastCommitAt: recent }),
+    memory: { currentBlocker: "ci flaking" },
+    now: NOW
+  });
+  assert.equal(result.mood, "confused");
+});
+
+test("stacked unpushed commits read as proud", () => {
+  const recent = new Date(NOW.getTime() - 1 * 86_400_000).toISOString();
+  const result = inferVibe({
+    repo: baseRepo({ ahead: 7, lastCommitAt: recent, commitCount: 50 }),
+    now: NOW
+  });
+  // Vibe is still awake (ahead > 0), but the mood layer adds context.
+  assert.equal(result.vibe, "awake");
+  assert.equal(result.mood, "proud");
+  assert.match(result.moodReason, /7 unpushed/);
+});

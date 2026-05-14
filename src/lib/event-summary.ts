@@ -58,6 +58,33 @@ const trimVibeReason = (reason: string): string =>
     .replace(/[.\s]+$/, "")
     .trim();
 
+// Mood transitions are narrated separately from vibe shifts — moods are
+// softer, vibey adjectives, so the verbs read more like emotional weather
+// than status changes. Unknown moods fall through to a generic phrase.
+const moodTransitionVerb = (from: string, to: string): string => {
+  switch (`${from}->${to}`) {
+    case "content->excited": return "perked up";
+    case "content->anxious": return "got anxious";
+    case "content->confused": return "got tangled";
+    case "content->proud": return "stood tall";
+    case "content->curious": return "started exploring";
+    case "content->lonely": return "drifted off";
+    case "excited->content": return "calmed down";
+    case "anxious->content": return "relaxed";
+    case "confused->content": return "found its footing";
+    case "proud->content": return "settled back";
+    case "curious->content": return "found its rhythm";
+    case "lonely->content": return "came back";
+    case "anxious->confused": return "tangled up";
+    case "confused->anxious": return "still anxious";
+    case "excited->proud": return "kept going";
+    case "proud->excited": return "caught fire";
+    case "lonely->curious": return "perked up";
+    case "curious->lonely": return "lost interest";
+    default: return to ? `feels ${to}` : "mood shifted";
+  }
+};
+
 export const eventSummary = (
   event: JournalEvent,
   maxSubjectLen = 40
@@ -103,6 +130,14 @@ export const eventSummary = (
       const reason = trimVibeReason(clean(payload.reason));
       const verb = vibeTransitionVerb(from, to);
       return reason ? `${verb} — ${reason}` : verb;
+    }
+
+    case "mood-changed": {
+      const from = clean(payload.from);
+      const to = clean(payload.to);
+      const reason = clean(payload.reason).replace(/[.\s]+$/, "");
+      const verb = moodTransitionVerb(from, to);
+      return reason ? `${verb} — ${cap(reason, 60)}` : verb;
     }
 
     case "repo-added":

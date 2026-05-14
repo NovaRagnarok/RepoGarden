@@ -11,7 +11,7 @@ import {
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-import type { Vibe } from "./vibe";
+import type { Mood, Vibe } from "./vibe";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -26,6 +26,7 @@ export const JOURNAL_EVENT_KINDS = [
   "note-renamed",
   "note-deleted",
   "vibe-changed",
+  "mood-changed",
   "repo-added",
   "branch-switched",
   "pull",
@@ -436,9 +437,25 @@ export interface SnapEntry {
   vibe: Vibe;
   branch?: string;
   latestCommitSha?: string;
+  /** Last-seen mood for this repo. Optional so snapshots written before
+   *  the mood layer still round-trip. */
+  mood?: Mood;
+  /** ISO timestamp of the last emitted mood-changed event. Used as a
+   *  per-repo cool-off so transient mood flickers don't spam the
+   *  journal. */
+  moodAt?: string;
 }
 
 const VIBES = new Set<Vibe>(["happy", "sleepy", "awake", "stuck"]);
+const MOODS = new Set<Mood>([
+  "curious",
+  "excited",
+  "proud",
+  "anxious",
+  "confused",
+  "lonely",
+  "content",
+]);
 
 // Read-time migration for snapshots written before the vibe rename
 // (`noisy → awake`, `blocked → stuck`). Without this, journals from older
@@ -453,11 +470,15 @@ const normalizeSnapEntry = (raw: unknown): SnapEntry | null => {
   if (!isPlainObject(raw)) return null;
   const vibe = typeof raw.vibe === "string" ? migrateLegacyVibe(raw.vibe) : null;
   if (!vibe) return null;
+  const moodRaw = typeof raw.mood === "string" ? (raw.mood as Mood) : undefined;
+  const moodAtRaw = typeof raw.moodAt === "string" ? raw.moodAt : undefined;
   return {
     vibe,
     branch: typeof raw.branch === "string" ? cleanInlineString(raw.branch) : undefined,
     latestCommitSha:
       typeof raw.latestCommitSha === "string" ? cleanInlineString(raw.latestCommitSha) : undefined,
+    mood: moodRaw && MOODS.has(moodRaw) ? moodRaw : undefined,
+    moodAt: moodAtRaw && isFiniteIsoDate(moodAtRaw) ? moodAtRaw : undefined,
   };
 };
 

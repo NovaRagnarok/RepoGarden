@@ -579,6 +579,106 @@ test("enrichScans with preserveMissing preserves snapshot entries for absent rep
   });
 });
 
+// ---------------------------------------------------------------------------
+// Mood diff via snapshot
+// ---------------------------------------------------------------------------
+
+test("mood-changed emits when mood differs and confidence clears the threshold", () => {
+  withFakeHome(() => {
+    saveEventsMeta({ seeded: true, seededAt: new Date().toISOString() });
+    // Prior mood was content. Current scan has behind=10 which derives
+    // anxious with confidence ~0.76.
+    saveScanSnapshot({
+      "anx-repo": { vibe: "happy", mood: "content" },
+    });
+
+    const recent = new Date(Date.now() - 86_400_000).toISOString();
+    enrichScans([
+      {
+        id: "anx-repo",
+        path: "/tmp/anx",
+        name: "anx-repo",
+        isDirty: false,
+        behind: 10,
+        lastCommitAt: recent,
+      },
+    ]);
+
+    const events = readEvents({ repoId: "anx-repo", kinds: ["mood-changed"] });
+    assert.equal(events.length, 1);
+    assert.equal(events[0].payload["from"], "content");
+    assert.equal(events[0].payload["to"], "anxious");
+
+    // Snapshot persists the new mood AND a moodAt timestamp for cool-off.
+    const snap = loadScanSnapshot();
+    assert.equal(snap["anx-repo"].mood, "anxious");
+    assert.ok(snap["anx-repo"].moodAt, "expected moodAt to be persisted after emission");
+  });
+});
+
+test("mood-changed does NOT emit when prior mood is undefined (post-upgrade snapshot)", () => {
+  withFakeHome(() => {
+    saveEventsMeta({ seeded: true, seededAt: new Date().toISOString() });
+    // Old snapshot from before the mood layer landed — no mood field.
+    saveScanSnapshot({
+      "fresh-repo": { vibe: "awake" },
+    });
+
+    const recent = new Date(Date.now() - 86_400_000).toISOString();
+    enrichScans([
+      {
+        id: "fresh-repo",
+        path: "/tmp/fresh",
+        name: "fresh-repo",
+        isDirty: false,
+        behind: 10,
+        lastCommitAt: recent,
+      },
+    ]);
+
+    // No spam for repos that were already tracked before mood existed —
+    // we wait for the *next* genuine transition.
+    assert.equal(readEvents({ kinds: ["mood-changed"] }).length, 0);
+    // But the snapshot is updated so the next scan has a baseline.
+    assert.equal(loadScanSnapshot()["fresh-repo"].mood, "anxious");
+  });
+});
+
+test("mood-changed cool-off suppresses flickers within 24h", () => {
+  withFakeHome(() => {
+    saveEventsMeta({ seeded: true, seededAt: new Date().toISOString() });
+    // moodAt = an hour ago — well inside the 24h cool-off.
+    const recentMoodAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    saveScanSnapshot({
+      "flicker-repo": {
+        vibe: "happy",
+        mood: "anxious",
+        moodAt: recentMoodAt,
+      },
+    });
+
+    const recent = new Date(Date.now() - 86_400_000).toISOString();
+    enrichScans([
+      {
+        id: "flicker-repo",
+        path: "/tmp/flicker",
+        name: "flicker-repo",
+        isDirty: false,
+        lastCommitAt: recent,
+        commitCount: 50,
+      },
+    ]);
+
+    // The mood would transition anxious → content, but the cool-off
+    // suppresses the journal event. Snapshot still tracks current mood.
+    assert.equal(readEvents({ kinds: ["mood-changed"] }).length, 0);
+    const snap = loadScanSnapshot();
+    assert.equal(snap["flicker-repo"].mood, "content");
+    // moodAt stays at the prior emission's timestamp, not bumped to now.
+    assert.equal(snap["flicker-repo"].moodAt, recentMoodAt);
+  });
+});
+
 test("loadScanSnapshot migrates legacy noisy/blocked vibe strings on read", () => {
   withFakeHome((home) => {
     // Write a snapshot file directly with the pre-rename vocabulary so the

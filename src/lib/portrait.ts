@@ -374,6 +374,23 @@ export const computePortraitHealthScore = (
   return { score: finalScore, label: "critical", severity: "error", reasons };
 };
 
+// Confidence floor for surfacing a mood chip. Higher than the 0.5 used in
+// the clipboard text — we want the chip slot reserved for moods that
+// actually stand out, since chip rack real estate is scarce.
+const MOOD_CHIP_CONFIDENCE_THRESHOLD = 0.65;
+
+const moodChipSeverity = (mood: import("@/lib/vibe").Mood): PortraitChip["severity"] => {
+  switch (mood) {
+    case "confused": return "error";
+    case "anxious": return "warning";
+    case "excited": return "info";
+    case "proud": return "success";
+    case "curious": return "info";
+    case "lonely": return "muted";
+    case "content": return "muted";
+  }
+};
+
 export const buildPortraitChips = (
   creature: RepoCreature,
   now = new Date()
@@ -394,6 +411,15 @@ export const buildPortraitChips = (
   }
   if (creature.scan.lastCommitAt) {
     chips.push({ key: "last", label: `last ${relativeAgeLabel(creature.scan.lastCommitAt, now)}`, severity: "muted" });
+  }
+  const { vibe, mood, confidence } = creature.vibe;
+  const moodIsRedundant = mood === "lonely" && vibe === "sleepy";
+  if (
+    mood !== "content" &&
+    confidence >= MOOD_CHIP_CONFIDENCE_THRESHOLD &&
+    !moodIsRedundant
+  ) {
+    chips.push({ key: "mood", label: mood, severity: moodChipSeverity(mood) });
   }
   return chips;
 };
@@ -593,11 +619,20 @@ export const buildPortraitModel = (
 };
 
 export const buildPortraitClipboardText = (creature: RepoCreature, model: PortraitModel): string => {
+  const { vibe, mood, confidence, moodReason } = creature.vibe;
+  // Surface mood when we're confident enough and it adds information.
+  // `content` is the default no-signal mood; `lonely` is redundant copy
+  // when the sprite is already on the sleepy shelf.
+  const showMood =
+    confidence >= 0.5 &&
+    mood !== "content" &&
+    !(mood === "lonely" && vibe === "sleepy");
   const lines = [
     `${creature.scan.name} — ${model.score.label} (${model.score.score}%)`,
     `path: ${creature.scan.path}`,
     creature.scan.branch ? `branch: ${creature.scan.branch}` : undefined,
-    `vibe: ${creature.vibe.vibe} — ${creature.vibe.reason}`,
+    `vibe: ${vibe} — ${creature.vibe.reason}`,
+    showMood ? `feels: ${mood} — ${moodReason}` : undefined,
     creature.scan.isDirty ? `working tree: dirty` : `working tree: clean`,
     (creature.scan.ahead ?? 0) > 0 ? `ahead: ${creature.scan.ahead}` : undefined,
     (creature.scan.behind ?? 0) > 0 ? `behind: ${creature.scan.behind}` : undefined,

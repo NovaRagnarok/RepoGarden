@@ -134,3 +134,40 @@ test("vibe-changed for an unknown transition falls back to a generic verb", () =
   const summary = eventSummary(makeVibe("happy", "unknown", "something"));
   assert.equal(summary, "became unknown — something");
 });
+
+// ---------------------------------------------------------------------------
+// mood-changed phrasing
+// ---------------------------------------------------------------------------
+
+const makeMood = (from: string, to: string, reason?: string): JournalEvent => ({
+  ts: "2026-05-13T12:00:00.000Z",
+  repoId: "alpha",
+  repoName: "alpha",
+  kind: "mood-changed",
+  payload: { from, to, ...(reason !== undefined ? { reason } : {}) },
+});
+
+test("mood content → excited reads as perked up with reason", () => {
+  const summary = eventSummary(makeMood("content", "excited", "12 commits in the last 7 days"));
+  assert.equal(summary, "perked up — 12 commits in the last 7 days");
+});
+
+test("mood content → anxious reads as got anxious", () => {
+  const summary = eventSummary(makeMood("content", "anxious", "3 commits behind remote"));
+  assert.equal(summary, "got anxious — 3 commits behind remote");
+});
+
+test("mood anxious → content reads as relaxed", () => {
+  const summary = eventSummary(makeMood("anxious", "content", "nothing remarkable"));
+  assert.equal(summary, "relaxed — nothing remarkable");
+});
+
+test("mood-changed without a reason omits the dash-separated tail", () => {
+  const summary = eventSummary(makeMood("content", "proud"));
+  assert.equal(summary, "stood tall");
+});
+
+test("mood-changed for an unmapped transition falls back to feels X", () => {
+  const summary = eventSummary(makeMood("excited", "lonely", "quiet for a while"));
+  assert.equal(summary, "feels lonely — quiet for a while");
+});
