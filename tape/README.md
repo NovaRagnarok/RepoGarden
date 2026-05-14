@@ -33,7 +33,7 @@ On macOS: `brew install vhs ttyd ffmpeg`.
 From the repo root:
 
 ```bash
-npm run build
+pnpm build
 vhs tape/demo.tape
 ```
 

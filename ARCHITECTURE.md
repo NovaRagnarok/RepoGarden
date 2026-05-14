@@ -11,7 +11,7 @@ not a second app.
 
 ## Runtime stack
 
-- `src/cli.tsx` is the real entrypoint for both `npm run dev` and the built CLI.
+- `src/cli.tsx` is the real entrypoint for both `pnpm dev` and the built CLI.
 - React 19 + Ink render the UI.
 - `ThemeProvider` and `ToastProvider` wrap the whole app.
 - `@/*` imports resolve to `src/*`.
@@ -315,8 +315,8 @@ Start in:
 For architecture-adjacent changes, the minimum useful checks are:
 
 ```bash
-npm run typecheck
-npm run test
+pnpm typecheck
+pnpm test
 ```
 
 And if the change touches journal/workbench/top-level navigation, run:

@@ -81,20 +81,22 @@ If anything looks off, `REPOGARDEN_DISABLE_USAGE=1 repogarden` runs without the 
 ## Requirements
 
 - Node 24+
-- npm
 - `git` on `PATH`
 - a terminal at least 80×24
+
+End users install the published CLI with `npm install -g @outsideheaven/repogarden` (see top of README). For local development the repo uses **pnpm** (pinned via `packageManager` in `package.json`); the easiest way to get the right pnpm version is via [Corepack](https://nodejs.org/api/corepack.html), which ships with Node.
 
 ## Quick start (from source)
 
 ```bash
 git clone https://github.com/NovaRagnarok/RepoGarden.git
 cd RepoGarden
-npm install
-npm run dev
+corepack enable
+pnpm install
+pnpm dev
 ```
 
-That runs the Ink-based terminal UI: scan, garden/shelf/journal views, per-repo workbench, mouse + keyboard. `npm install` runs `npm run build` automatically via the `prepare` script, so `node dist/cli.js` and the `repogarden` bin work right after install.
+That runs the Ink-based terminal UI: scan, garden/shelf/journal views, per-repo workbench, mouse + keyboard. `pnpm install` runs the `prepare` script automatically (which builds `dist/`), so `node dist/cli.js` and the `repogarden` bin work right after install.
 
 ## Product guardrails
 
@@ -146,7 +148,7 @@ For a single run without changing the saved setting:
 REPOGARDEN_DISABLE_USAGE=1 repogarden
 
 # from source
-REPOGARDEN_DISABLE_USAGE=1 npm run dev
+REPOGARDEN_DISABLE_USAGE=1 pnpm dev
 ```
 
 The env var takes precedence; either path suppresses the network call entirely.
@@ -170,10 +172,10 @@ Read these core docs as needed:
 ## Common commands
 
 ```bash
-npm run dev          # run the TUI
-npm run typecheck    # tsc --noEmit
-npm run test         # node --test
-npm run build        # emit dist/
+pnpm dev             # run the TUI
+pnpm typecheck       # tsc --noEmit
+pnpm test            # node --test
+pnpm build           # emit dist/
 node dist/cli.js --help
 ```
 

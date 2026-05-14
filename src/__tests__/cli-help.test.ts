@@ -18,6 +18,6 @@ test("hasVersionFlag detects both long and short version flags", () => {
 test("CLI_HELP_TEXT includes the expected commands", () => {
   assert.match(CLI_HELP_TEXT, /^RepoGarden$/m);
   assert.match(CLI_HELP_TEXT, /repogarden --help/);
-  assert.match(CLI_HELP_TEXT, /npm run dev/);
-  assert.match(CLI_HELP_TEXT, /npm start/);
+  assert.match(CLI_HELP_TEXT, /pnpm dev/);
+  assert.match(CLI_HELP_TEXT, /pnpm build/);
 });

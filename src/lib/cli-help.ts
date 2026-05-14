@@ -21,10 +21,11 @@ Data:
   App state lives under ~/.repogarden. Reset with: rm -rf ~/.repogarden
   RepoGarden never modifies your git repositories.
 
-Development:
-  npm run dev
-  npm run build
-  npm start
+Development (from source — repo uses pnpm):
+  corepack enable
+  pnpm install
+  pnpm dev
+  pnpm build
 
 More: https://github.com/NovaRagnarok/RepoGarden`;
 

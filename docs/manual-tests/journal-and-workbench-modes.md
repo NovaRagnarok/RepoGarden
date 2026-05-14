@@ -9,8 +9,9 @@ or the workbench PORTRAIT/NOTES mode toggle.
 From the repo root:
 
 ```bash
-npm install
-npm run dev
+corepack enable
+pnpm install
+pnpm dev
 ```
 
 Point it at a directory containing two or three real git repos with at least
@@ -68,7 +69,7 @@ a few commits between them.
 7. Click **PORTRAIT** to swap back.
 8. Close the workbench (`esc`), reopen via `↵` on another creature in the
    same session — the last-used mode (NOTES, from step 4) is restored.
-9. Quit (`q`) and restart `npm run dev`. The workbench opens in PORTRAIT
+9. Quit (`q`) and restart `pnpm dev`. The workbench opens in PORTRAIT
    again — last-used mode is session-scoped, not persisted.
 
 ## Events store

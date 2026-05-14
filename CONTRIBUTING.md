@@ -9,16 +9,19 @@ RepoGarden is a local-first habitat-first app. The constraints that shape every 
 
 ## Run the project
 
+This repo uses [pnpm](https://pnpm.io/) (pinned via `packageManager` in `package.json`). The simplest way to get the right version is via [Corepack](https://nodejs.org/api/corepack.html), which ships with Node:
+
 ```bash
-npm install
-npm run dev
+corepack enable
+pnpm install
+pnpm dev
 ```
 
 Useful checks:
 
 ```bash
-npm run test
-npm run typecheck
+pnpm test
+pnpm typecheck
 ```
 
 ## Repo map
@@ -65,8 +68,8 @@ Higher-risk slices:
 If you touch one of those higher-risk areas, keep the slice small and run:
 
 ```bash
-npm run test
-npm run typecheck
+pnpm test
+pnpm typecheck
 ```
 
 Then run the manual smoke in [`docs/manual-tests/journal-and-workbench-modes.md`](docs/manual-tests/journal-and-workbench-modes.md).

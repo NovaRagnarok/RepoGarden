@@ -18,7 +18,7 @@ Polish the daily-use loop: scanning, garden/shelf/journal views, per-repo workbe
 
 ### One-line product test
 
-Open `npm run dev` from the repo root and the terminal should read like a little local habitat where your repos live, not a status board with creature decoration.
+Open `pnpm dev` from the repo root and the terminal should read like a little local habitat where your repos live, not a status board with creature decoration.
 
 ## Current top slices
 

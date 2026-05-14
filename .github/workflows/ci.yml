@@ -15,14 +15,15 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-          cache: 'npm'
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm run build
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
       - run: node dist/cli.js --help
 
   pack-smoke:
@@ -30,18 +31,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-          cache: 'npm'
-      - run: npm ci
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
       # Pack ignores "private": true, so this works for friend-alpha without
-      # publishing. The smoke test catches missing prepare/files/bin wiring.
-      - name: npm pack
+      # publishing. The smoke test catches missing prepack/files/bin wiring.
+      # We pack with pnpm but install the resulting tarball with npm so we
+      # exercise the same path real users hit when they run
+      # `npm install -g @outsideheaven/repogarden`.
+      - name: pnpm pack
         run: |
-          npm pack --pack-destination .
+          pnpm pack --pack-destination .
           ls -l outsideheaven-repogarden-*.tgz
-      - name: install tarball globally
+      - name: install tarball globally with npm
         run: npm install -g ./outsideheaven-repogarden-*.tgz
       - name: verify bin works
         run: repogarden --help

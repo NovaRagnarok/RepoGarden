@@ -10,7 +10,7 @@ mid-animation frames.
 
 ## What the harness does
 
-`scripts/tui-observe.sh` runs the real `npm run dev` app inside a detached
+`scripts/tui-observe.sh` runs the real `pnpm dev` app inside a detached
 `tmux` session with:
 
 - fixed terminal size (`100x32` by default)
@@ -28,17 +28,17 @@ logging.
 From the repo root:
 
 ```bash
-npm run observe:tui -- start
-npm run observe:tui -- capture garden-baseline
-npm run observe:tui -- sample 5 400 idle-garden
-npm run observe:tui -- flicker 8 150 idle-garden
-npm run observe:tui -- stop
+pnpm observe:tui -- start
+pnpm observe:tui -- capture garden-baseline
+pnpm observe:tui -- sample 5 400 idle-garden
+pnpm observe:tui -- flicker 8 150 idle-garden
+pnpm observe:tui -- stop
 ```
 
 You can also point the harness at another scan root:
 
 ```bash
-npm run observe:tui -- start /path/to/repos
+pnpm observe:tui -- start /path/to/repos
 ```
 
 ## Supported commands
@@ -65,9 +65,9 @@ Supported keys in `send` cover the main top-level debug loop:
 For settled state, capture immediately after a keypress plus a short wait:
 
 ```bash
-npm run observe:tui -- send Down
-npm run observe:tui -- wait 150
-npm run observe:tui -- capture focused-second-creature
+pnpm observe:tui -- send Down
+pnpm observe:tui -- wait 150
+pnpm observe:tui -- capture focused-second-creature
 ```
 
 This is the main way to confirm:
@@ -83,9 +83,9 @@ For idle Garden behavior, do not send any keys after startup. Sample the live
 screen repeatedly:
 
 ```bash
-npm run observe:tui -- start
-npm run observe:tui -- capture garden-baseline
-npm run observe:tui -- sample 6 300 idle-garden
+pnpm observe:tui -- start
+pnpm observe:tui -- capture garden-baseline
+pnpm observe:tui -- sample 6 300 idle-garden
 ```
 
 This is the main workflow for checking:
@@ -104,8 +104,8 @@ When the screen is supposed to be visually stable, use `flicker` instead of
 raw `sample`:
 
 ```bash
-npm run observe:tui -- start
-npm run observe:tui -- flicker 8 150 idle-garden
+pnpm observe:tui -- start
+pnpm observe:tui -- flicker 8 150 idle-garden
 ```
 
 This captures repeated live frames and prints a report with:
@@ -122,13 +122,13 @@ screen is still repainting?" before you start guessing at the component.
 Transitions still work the old way when needed:
 
 ```bash
-npm run observe:tui -- send g
-npm run observe:tui -- wait 250
-npm run observe:tui -- capture journal-early
-npm run observe:tui -- wait 900
-npm run observe:tui -- capture journal-late
-npm run observe:tui -- wait 600
-npm run observe:tui -- capture journal-settled
+pnpm observe:tui -- send g
+pnpm observe:tui -- wait 250
+pnpm observe:tui -- capture journal-early
+pnpm observe:tui -- wait 900
+pnpm observe:tui -- capture journal-late
+pnpm observe:tui -- wait 600
+pnpm observe:tui -- capture journal-settled
 ```
 
 ## Notes

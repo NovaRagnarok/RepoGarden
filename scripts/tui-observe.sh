@@ -158,7 +158,7 @@ start_session() {
   printf '%s\n' "$session_dir" > "$CURRENT_FILE"
 
   tmux new-session -d -s "$session" -x "$DEFAULT_COLS" -y "$DEFAULT_ROWS" \
-    "cd '$ROOT_DIR' && HOME='$home_dir' REPOGARDEN_DISABLE_USAGE=1 COLUMNS='$DEFAULT_COLS' LINES='$DEFAULT_ROWS' npm run dev"
+    "cd '$ROOT_DIR' && HOME='$home_dir' REPOGARDEN_DISABLE_USAGE=1 COLUMNS='$DEFAULT_COLS' LINES='$DEFAULT_ROWS' pnpm dev"
 
   sleep_ms "$DEFAULT_BOOT_WAIT_MS"
   tmux send-keys -t "$(capture_target "$session_dir")" Enter

@@ -12,8 +12,8 @@ if [ -s "$NVM_DIR/nvm.sh" ]; then
   nvm use --silent 24 >/dev/null 2>&1 || true
 fi
 
-if ! command -v npm >/dev/null 2>&1; then
-  echo "npm is required to launch RepoGarden." >&2
+if ! command -v pnpm >/dev/null 2>&1; then
+  echo "pnpm is required to launch RepoGarden from source. Run 'corepack enable' to provision the pinned version." >&2
   exit 1
 fi
 
@@ -29,8 +29,8 @@ if [ "$NODE_MAJOR" -lt 24 ]; then
 fi
 
 if [ ! -d node_modules ]; then
-  echo "RepoGarden dependencies are missing. Run 'npm install' in $ROOT_DIR first." >&2
+  echo "RepoGarden dependencies are missing. Run 'pnpm install' in $ROOT_DIR first." >&2
   exit 1
 fi
 
-exec npm run dev
+exec pnpm dev

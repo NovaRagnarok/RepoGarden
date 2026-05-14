@@ -58,7 +58,7 @@ For a one-off run that bypasses whatever is saved:
 REPOGARDEN_DISABLE_USAGE=1 repogarden
 
 # from source
-REPOGARDEN_DISABLE_USAGE=1 npm run dev
+REPOGARDEN_DISABLE_USAGE=1 pnpm dev
 ```
 
 The env var wins over the saved setting; either path suppresses all reads of the provider CLI credentials.
