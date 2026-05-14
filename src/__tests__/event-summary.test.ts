@@ -61,3 +61,62 @@ test("pull failure truncates long reasons to keep the line readable", () => {
   // body after the prefix is capped (60 chars including the trailing ellipsis).
   assert.ok(summary.length <= "pull failed: ".length + 60);
 });
+
+// ---------------------------------------------------------------------------
+// vibe-changed phrasing
+// ---------------------------------------------------------------------------
+
+const makeVibe = (from: string, to: string, reason?: string): JournalEvent => ({
+  ts: "2026-05-13T12:00:00.000Z",
+  repoId: "alpha",
+  repoName: "alpha",
+  kind: "vibe-changed",
+  payload: { from, to, ...(reason !== undefined ? { reason } : {}) },
+});
+
+test("vibe blocked → happy reads as back in flow, not happy: clean", () => {
+  const summary = eventSummary(makeVibe("blocked", "happy", "clean."));
+  assert.equal(summary, "back in flow — clean");
+});
+
+test("vibe sleepy → happy still reads as woke up", () => {
+  const summary = eventSummary(makeVibe("sleepy", "happy", "last commit 0d ago, clean."));
+  assert.equal(summary, "woke up — last commit 0d ago, clean");
+});
+
+test("vibe happy → blocked strips the redundant 'blocker:' prefix from the reason", () => {
+  const summary = eventSummary(makeVibe("happy", "blocked", "blocker: refactor auth"));
+  assert.equal(summary, "hit a blocker — refactor auth");
+});
+
+test("vibe happy → noisy reads as got busy with the dirty/ahead reason", () => {
+  const summary = eventSummary(
+    makeVibe("happy", "noisy", "uncommitted changes · 2 unpushed commits")
+  );
+  assert.equal(summary, "got busy — uncommitted changes · 2 unpushed commits");
+});
+
+test("vibe noisy → happy reads as settled", () => {
+  const summary = eventSummary(makeVibe("noisy", "happy", "clean."));
+  assert.equal(summary, "settled — clean");
+});
+
+test("vibe blocked → noisy reads as back at it", () => {
+  const summary = eventSummary(makeVibe("blocked", "noisy", "uncommitted changes"));
+  assert.equal(summary, "back at it — uncommitted changes");
+});
+
+test("vibe happy → sleepy reads as wound down", () => {
+  const summary = eventSummary(makeVibe("happy", "sleepy", "quiet for 14 days."));
+  assert.equal(summary, "wound down — quiet for 14 days");
+});
+
+test("vibe-changed without a reason omits the dash-separated tail", () => {
+  const summary = eventSummary(makeVibe("blocked", "happy"));
+  assert.equal(summary, "back in flow");
+});
+
+test("vibe-changed for an unknown transition falls back to a generic verb", () => {
+  const summary = eventSummary(makeVibe("happy", "unknown", "something"));
+  assert.equal(summary, "became unknown — something");
+});

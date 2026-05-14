@@ -26,12 +26,13 @@ Open `npm run dev` from the repo root and the terminal should read like a little
 2. Pick the highest-value polish slice in Priority A.
 
 ## Priority A
-- better creature placement / overlap handling in `GardenView`
 - richer SHELF view grouping labels (active vibe-divider strings already exist; copy/affordance pass)
 - memory editing polish — better diff/feedback when notes/blocker/note-to-future-self change
 <!-- workbench mode toggle keybinding — done: ctrl+1 selects portrait, ctrl+2 selects notes (see WorkbenchScreen.tsx, listed in HelpOverlay). -->
 <!-- PORTRAIT scrollable container — done in 0.3.2 via per-section PgUp/PgDn paging (see #4). -->
-- JOURNAL polish: swap 5s polling for `fs.watch` on `~/.repogarden/events.jsonl`; tune the vibe-changed phrasing (`blocked→happy` currently reads as `happy: clean` — could be `back in flow`).
+<!-- JOURNAL polish — done: fs.watch in 0.3.3 (#1); vibe-changed phrasing tune below ships separately. -->
+<!-- creature placement / overlap handling — done: label-aware footprints + two-pass wander/manual resolution. -->
+
 
 ## Priority B
 - more creature sprite variants beyond the current procedural pool

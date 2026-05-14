@@ -16,6 +16,37 @@ const cap = (value: string, max: number): string => {
 const quote = (value: unknown, fallback = "untitled", max = 40): string =>
   `"${cap(clean(value) || fallback, max)}"`;
 
+// Reads the transition direction, not the destination state, so entries
+// don't read like "happy: clean" (which sounds like a status snapshot,
+// not a change). Falls back to a generic "became <to>" if the pair is
+// unknown — defensive for future vibe additions.
+const vibeTransitionVerb = (from: string, to: string): string => {
+  switch (`${from}->${to}`) {
+    case "happy->noisy": return "got busy";
+    case "happy->blocked": return "hit a blocker";
+    case "happy->sleepy": return "wound down";
+    case "noisy->happy": return "settled";
+    case "noisy->blocked": return "hit a blocker";
+    case "noisy->sleepy": return "trailed off";
+    case "blocked->happy": return "back in flow";
+    case "blocked->noisy": return "back at it";
+    case "blocked->sleepy": return "stalled out";
+    case "sleepy->happy": return "woke up";
+    case "sleepy->noisy": return "stirred";
+    case "sleepy->blocked": return "woke into a blocker";
+    default: return to ? `became ${to}` : "vibe shifted";
+  }
+};
+
+// `inferVibe` produces reasons like "blocker: <text>" and "clean." — the
+// "blocker:" prefix doubles up after the verb, and trailing periods read
+// as awkward when followed by an em-dash. Strip both before joining.
+const trimVibeReason = (reason: string): string =>
+  reason
+    .replace(/^blocker:\s*/i, "")
+    .replace(/[.\s]+$/, "")
+    .trim();
+
 export const eventSummary = (
   event: JournalEvent,
   maxSubjectLen = 40
@@ -58,15 +89,9 @@ export const eventSummary = (
     case "vibe-changed": {
       const from = clean(payload.from);
       const to = clean(payload.to);
-      const reason = clean(payload.reason);
-      if (from === "sleepy" && to === "happy") {
-        return `woke up${reason ? ` — ${reason}` : ""}`;
-      }
-      if (from === "sleepy") {
-        return `drifted into ${to}${reason ? ` — ${reason}` : ""}`;
-      }
-      if (reason) return `${to}: ${reason}`;
-      return `became ${to}`;
+      const reason = trimVibeReason(clean(payload.reason));
+      const verb = vibeTransitionVerb(from, to);
+      return reason ? `${verb} — ${reason}` : verb;
     }
 
     case "repo-added":
