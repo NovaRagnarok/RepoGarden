@@ -813,8 +813,9 @@ export const quadrantChar = (
 };
 
 export interface CreatureSizeCohort {
-  minMass: number;
-  maxMass: number;
+  /** Sorted ascending list of every cohort member's mass value. Enables
+   *  O(log n) rank lookup for rank-based size normalization. */
+  sortedMasses: readonly number[];
   count: number;
 }
 
@@ -851,29 +852,43 @@ export const buildCreatureSizeCohort = (
   const masses = repos.map(creatureActivityMass).filter(Number.isFinite);
   if (masses.length === 0) return undefined;
   return {
-    minMass: Math.min(...masses),
-    maxMass: Math.max(...masses),
+    sortedMasses: [...masses].sort((a, b) => a - b),
     count: masses.length
   };
 };
 
-// log1p(1_000_000) ≈ 13.8 — a ~1M LOC repo lands near absolute=1.0, which
-// is roughly where a substantial monorepo sits (Linux kernel territory is
-// 30M LOC, but we want the ceiling reachable for normal big projects too).
-// Cohort spread threshold of 1.5 means "at least one e-fold of difference
-// between the smallest and largest repo's LOC" before relative scaling kicks
-// in — matches the log-of-LOC range.
+// log1p(1_000_000) ≈ 13.8 — a ~1M LOC repo lands near absolute=1.0. Only used
+// as a fallback for tiny cohorts (count < 3); the rank-based path doesn't
+// need it.
 const ABSOLUTE_MASS_DIVISOR = Math.log1p(1_000_000);
-const COHORT_SPREAD_FLAT = 1.5;
 
+// Lower-bound binary search: returns the index where `mass` would be inserted
+// into the sorted list, which is also the count of strictly-smaller masses.
+// Ties resolve to the earliest matching index so identical-mass repos share
+// a rank rather than fighting for position.
+const massRank = (sortedMasses: readonly number[], mass: number): number => {
+  let lo = 0;
+  let hi = sortedMasses.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (sortedMasses[mid] < mass) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+};
+
+// Rank-based normalization: the smallest repo in a cohort is always at 0, the
+// largest at 1, and everyone else is spread evenly by rank. This is robust to
+// skewed mass distributions — if 30 repos cluster at similar LOC plus 2 are
+// huge, the 30 still spread evenly instead of crowding near 0. The downside
+// is that the absolute size of a repo no longer matters; size is purely a
+// statement about ordering within the cohort.
 const normalizedCreatureMass = (repo: ScannedRepo, cohort?: CreatureSizeCohort): number => {
   const mass = creatureActivityMass(repo);
-  const absolute = clamp(mass / ABSOLUTE_MASS_DIVISOR, 0, 1);
-  if (!cohort || cohort.count < 3 || cohort.maxMass - cohort.minMass < COHORT_SPREAD_FLAT) {
-    return absolute;
+  if (!cohort || cohort.count < 3) {
+    return clamp(mass / ABSOLUTE_MASS_DIVISOR, 0, 1);
   }
-  const relative = clamp((mass - cohort.minMass) / (cohort.maxMass - cohort.minMass), 0, 1);
-  return clamp(relative * 0.82 + absolute * 0.18, 0, 1);
+  return clamp(massRank(cohort.sortedMasses, mass) / (cohort.count - 1), 0, 1);
 };
 
 export const creatureCharSize = (
