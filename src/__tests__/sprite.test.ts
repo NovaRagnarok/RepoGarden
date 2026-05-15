@@ -123,9 +123,9 @@ const occupiedBounds = (matrix: SubMatrix): { width: number; height: number } =>
   return { width: maxX - minX + 1, height: maxY - minY + 1 };
 };
 
-// Size now tracks "mass" (sourceBytes + fileCount), not commit history.
-// Derive a plausible byte/file footprint from the legacy commitCount knob so
-// existing call sites stay readable: ~4KB and ~1 source file per commit.
+// Size now tracks "mass" (sourceLines + fileCount), not commit history.
+// Derive a plausible LOC/file footprint from the legacy commitCount knob so
+// existing call sites stay readable: ~100 LOC and ~1 source file per commit.
 const repo = (commitCount: number, path: string): ScannedRepo => ({
   id: path,
   path,
@@ -133,7 +133,7 @@ const repo = (commitCount: number, path: string): ScannedRepo => ({
   isDirty: false,
   commitCount,
   fileCount: Math.max(1, commitCount),
-  sourceBytes: Math.max(256, commitCount * 4096)
+  sourceLines: Math.max(8, commitCount * 100)
 });
 
 test("generateCreature is deterministic, mirrored, and dimension-stable", () => {

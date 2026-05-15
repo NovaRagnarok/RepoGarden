@@ -822,20 +822,23 @@ export interface CreatureSizeCohort {
 // signals (recentCommitDays, ahead/behind, isDirty) deliberately don't appear
 // here; they belong to mood/confidence, not size.
 //
-// Primary signal: log1p(sourceBytes) — literal byte size of recognized source
-// files, post-SKIP_DIRS/noise filtering. Secondary: log1p(fileCount), so a
-// repo of many tiny files reads larger than a repo of one big file with the
-// same byte total. commitCount sticks around as a faint tiebreaker / fallback
-// when scanRepoTree hasn't run yet (Phase 3 extras race with first paint).
+// Primary signal: log1p(sourceLines) — newline-counted LOC across recognized
+// source files, post-SKIP_DIRS/noise filtering. LOC over byte size so a file
+// padded with long base64 blobs doesn't read as massive, and verbose-line
+// languages (Java/TS) don't get an unfair boost over terse ones (Python/Go).
+// Secondary: log1p(fileCount), so a repo of many small files reads larger
+// than a repo of one big file with the same LOC. commitCount sticks around
+// as a faint tiebreaker / fallback when scanRepoTree hasn't populated stats
+// yet (Phase 3 extras race with first paint).
 const creatureActivityMass = (repo: ScannedRepo): number => {
-  const sourceBytes = Math.max(0, repo.sourceBytes ?? 0);
+  const sourceLines = Math.max(0, repo.sourceLines ?? 0);
   const fileCount = Math.max(0, repo.fileCount ?? 0);
   const commitCount = Math.max(0, repo.commitCount ?? 0);
-  if (sourceBytes === 0 && fileCount === 0) {
+  if (sourceLines === 0 && fileCount === 0) {
     return Math.log1p(commitCount) * 0.5;
   }
   return (
-    Math.log1p(sourceBytes) +
+    Math.log1p(sourceLines) +
     Math.log1p(fileCount) * 0.45 +
     Math.log1p(commitCount) * 0.08
   );
@@ -854,10 +857,13 @@ export const buildCreatureSizeCohort = (
   };
 };
 
-// log1p(50_000_000) ≈ 17.7 — a ~50MB source repo lands near absolute=1.0.
-// Cohort spread threshold bumped from 0.35 to 1.5 to match the wider mass
-// range produced by log-of-bytes (vs the old log-of-commitCount scale).
-const ABSOLUTE_MASS_DIVISOR = Math.log1p(50_000_000);
+// log1p(1_000_000) ≈ 13.8 — a ~1M LOC repo lands near absolute=1.0, which
+// is roughly where a substantial monorepo sits (Linux kernel territory is
+// 30M LOC, but we want the ceiling reachable for normal big projects too).
+// Cohort spread threshold of 1.5 means "at least one e-fold of difference
+// between the smallest and largest repo's LOC" before relative scaling kicks
+// in — matches the log-of-LOC range.
+const ABSOLUTE_MASS_DIVISOR = Math.log1p(1_000_000);
 const COHORT_SPREAD_FLAT = 1.5;
 
 const normalizedCreatureMass = (repo: ScannedRepo, cohort?: CreatureSizeCohort): number => {

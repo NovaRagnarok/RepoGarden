@@ -69,9 +69,12 @@ export interface ScannedRepo {
   /** Count of recognized source files under the repo (depth-limited walk,
    *  SKIP_DIRS + SKIP_FILE_PATTERNS applied). Drives creature size. */
   fileCount?: number;
-  /** Total byte size of those same recognized source files. Primary
-   *  "mass" signal for creature size. */
-  sourceBytes?: number;
+  /** Total lines of code across those recognized source files (raw newline
+   *  count — blank/comment lines included). Primary "mass" signal for
+   *  creature size. LOC over byte size so a file padded with long base64
+   *  blobs doesn't read as massive, and verbose-line languages don't get
+   *  an unfair size boost. */
+  sourceLines?: number;
   /** First few dirty files with HEAD vs working-tree text, for diff view. */
   dirtyChanges?: DirtyFileChange[];
   /** Porcelain-status inventory for dirty files, capped for display. */
@@ -686,13 +689,40 @@ const MASS_EXCLUDED_EXTS = new Set(["md"]);
 interface RepoTreeStats {
   primaryLanguage?: string;
   fileCount: number;
-  sourceBytes: number;
+  sourceLines: number;
 }
+
+// Files bigger than this are estimated as bytes/40 instead of being read end
+// to end. A `pnpm-lock.yaml` lookalike or an accidentally-committed dump
+// shouldn't make the Phase 3 walk crawl.
+const LINE_COUNT_READ_CAP_BYTES = 1024 * 1024;
+
+const countLinesIn = (path: string, byteSize: number): number => {
+  if (byteSize === 0) return 0;
+  if (byteSize > LINE_COUNT_READ_CAP_BYTES) {
+    // ~40 bytes/line is a reasonable cross-language average; only used for
+    // outliers, where the exact number doesn't change the log-bucket anyway.
+    return Math.max(1, Math.round(byteSize / 40));
+  }
+  let buf: Buffer;
+  try {
+    buf = readFileSync(path);
+  } catch {
+    return Math.max(1, Math.round(byteSize / 40));
+  }
+  let lines = 0;
+  for (let i = 0; i < buf.length; i += 1) {
+    if (buf[i] === 0x0a) lines += 1;
+  }
+  // A file without a trailing newline still has one logical final line.
+  if (buf.length > 0 && buf[buf.length - 1] !== 0x0a) lines += 1;
+  return lines;
+};
 
 const scanRepoTree = (repoPath: string): RepoTreeStats => {
   const counts = new Map<string, number>();
   let fileCount = 0;
-  let sourceBytes = 0;
+  let sourceLines = 0;
 
   const walk = (dir: string, depth: number): void => {
     if (depth > 2) return;
@@ -724,7 +754,7 @@ const scanRepoTree = (repoPath: string): RepoTreeStats => {
         counts.set(lang, (counts.get(lang) ?? 0) + s.size);
         if (MASS_EXCLUDED_EXTS.has(ext)) continue;
         fileCount += 1;
-        sourceBytes += s.size;
+        sourceLines += countLinesIn(full, s.size);
       }
     }
   };
@@ -738,7 +768,7 @@ const scanRepoTree = (repoPath: string): RepoTreeStats => {
   }
   primaryLanguage = best?.lang;
 
-  return { primaryLanguage, fileCount, sourceBytes };
+  return { primaryLanguage, fileCount, sourceLines };
 };
 
 export const inspectRepo = (repoPath: string): ScannedRepo => {
@@ -821,7 +851,7 @@ export const inspectRepo = (repoPath: string): ScannedRepo => {
     recentCommitDays,
     commitCount: Number.isFinite(commitCount) ? commitCount : undefined,
     fileCount: tree.fileCount,
-    sourceBytes: tree.sourceBytes,
+    sourceLines: tree.sourceLines,
     dirtyChanges: dirtySnapshot?.changes,
     dirtyFiles: dirtyStatus?.files,
     dirtyFileCount: dirtyStatus?.total ?? dirtySnapshot?.total
@@ -1121,7 +1151,7 @@ export const inspectRepoExtrasAsync = async (
   if (
     tree.primaryLanguage === scan.primaryLanguage &&
     tree.fileCount === scan.fileCount &&
-    tree.sourceBytes === scan.sourceBytes
+    tree.sourceLines === scan.sourceLines
   ) {
     return scan;
   }
@@ -1129,7 +1159,7 @@ export const inspectRepoExtrasAsync = async (
     ...scan,
     primaryLanguage: tree.primaryLanguage,
     fileCount: tree.fileCount,
-    sourceBytes: tree.sourceBytes
+    sourceLines: tree.sourceLines
   };
 };
 
