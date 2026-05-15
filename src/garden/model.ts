@@ -1,14 +1,10 @@
 import type { Placement, PlacementFootprint, SizedTile } from "@/lib/garden-layout";
 import {
   creatureNameStartCol,
-  GROUND_ROWS,
   lineUpCreatures,
   NAME_GAP_ROWS,
   NAME_H,
   placeCreatures,
-  SKY_ROWS,
-  SLOT_PAD_X,
-  SLOT_PAD_Y,
   spriteBodyFootprint,
   spriteBodyFootprintsOverlap,
   stableCreatureIdsKey
@@ -267,41 +263,23 @@ const findNearestClearPlacement = (
 };
 
 export const buildTiles = (props: GardenSceneProps): SizedTile[] => {
-  const { creatures, innerWidth, canvasH } = props;
+  const { creatures } = props;
   if (creatures.length === 0) return [];
-  const aspect = innerWidth / Math.max(1, canvasH - SKY_ROWS - GROUND_ROWS);
-  const targetRowsRaw = Math.max(1, Math.sqrt(creatures.length / Math.max(0.5, aspect)));
-  const targetRows = Math.max(1, Math.round(targetRowsRaw));
-  const targetCols = Math.max(1, Math.ceil(creatures.length / targetRows));
-  const slotInnerW = Math.max(5, Math.floor(innerWidth / targetCols) - SLOT_PAD_X);
-  const slotInnerH = Math.max(
-    3,
-    Math.floor((canvasH - SKY_ROWS - GROUND_ROWS) / targetRows) - SLOT_PAD_Y
-  );
-  const maxCharW = Math.max(2, slotInnerW);
-  const maxCharH = Math.max(2, slotInnerH - NAME_H);
+  // Creature size is a property of the creature (cohort + aspect + hash-seeded
+  // jitter from creatureCharSize), not of the garden's per-cell slot budget.
+  // Density and terminal size affect pagination capacity and how the placer
+  // packs creatures into the canvas — they don't compress individual creatures
+  // to fit a slot.
   const sizeCohort = buildCreatureSizeCohort(creatures.map((creature) => creature.scan));
   return creatures.map((creature, index) => {
-    const { charW: rawW, charH: rawH } = creatureCharSize(
-      creature.scan,
-      undefined,
-      sizeCohort
-    );
-    // Preserve aspect ratio when the creature doesn't fit the slot. The
-    // previous behavior (independent Math.min on each dim) collapsed
-    // horizontal creatures — a 14×3 sausage in a 6-wide slot became 6×3,
-    // which the sprite generator then drew as a near-square. Uniform scaling
-    // keeps the shape; the creature just gets smaller to fit.
-    const scale = Math.min(1, maxCharW / rawW, maxCharH / rawH);
-    const width = Math.max(2, Math.round(rawW * scale));
-    const height = Math.max(2, Math.round(rawH * scale));
+    const { charW, charH } = creatureCharSize(creature.scan, undefined, sizeCohort);
     return {
       creature,
       index,
-      charW: width,
-      charH: height,
-      spriteCols: width,
-      charRows: height
+      charW,
+      charH,
+      spriteCols: charW,
+      charRows: charH
     };
   });
 };
