@@ -461,6 +461,131 @@ test("GardenEngine commits active drag on button-code-3 release", () => {
   }
 });
 
+test("GardenEngine commits the squishy preview when strict resolution fails on release", () => {
+  // Two creatures placed flush against the right wall so a drag of the
+  // left one onto the right one has nowhere to push to. The strict
+  // resolver returns null in that case; before the fix, the user's drag
+  // silently snapped back. The squishy preview is what the user saw on
+  // screen, so it is what we commit.
+  const writes: string[] = [];
+  const stdout = { write: (chunk: string) => (writes.push(chunk), true) } as any;
+  const changes: Array<{ creature: { id: string }; offset: { offsetX: number; offsetY: number } }> = [];
+  const engine = new GardenEngine(stdout, {
+    ...makeProps(),
+    focusIndex: -1,
+    originRow: 1,
+    originCol: 1,
+    innerWidth: 16,
+    canvasH: 10,
+    creatures: [
+      {
+        id: "alpha",
+        scan: { id: "alpha", path: "/tmp/alpha", name: "alpha", isDirty: false } as any,
+        memory: {} as any,
+        vibe: { vibe: "happy", reason: "", activity: 1 } as any
+      },
+      {
+        id: "beta",
+        scan: { id: "beta", path: "/tmp/beta", name: "beta", isDirty: false } as any,
+        memory: {} as any,
+        vibe: { vibe: "happy", reason: "", activity: 1 } as any
+      }
+    ],
+    onCreaturePlacementChange: (next) => changes.push(...next)
+  });
+
+  try {
+    const model = (engine as any).model;
+    const placements = model.scene.placements as Placement[];
+    const alpha = placements.find((p) => p.tile.creature.id === "alpha");
+    const beta = placements.find((p) => p.tile.creature.id === "beta");
+    assert.ok(alpha && beta, "expected both creatures placed");
+
+    // Drag alpha onto beta. Pick a target row inside beta's body so the
+    // resolved candidate definitively overlaps something the strict
+    // policy refuses.
+    const targetCol = 1 + beta.x;
+    const targetRow = 1 + beta.charY;
+    engine.handleMouse({
+      kind: "press",
+      button: "left",
+      row: 1 + alpha.charY,
+      col: 1 + alpha.x
+    });
+    engine.handleMouse({
+      kind: "drag",
+      button: "left",
+      row: targetRow,
+      col: targetCol
+    });
+    engine.handleMouse({
+      kind: "release",
+      button: "unknown",
+      row: targetRow,
+      col: targetCol
+    });
+
+    // Some change must have been committed — even if the strict resolver
+    // gave up, the user's drag should not silently vanish.
+    assert.ok(changes.length > 0, "drag onto a packed neighbour committed nothing");
+    const alphaChange = changes.find((c) => c.creature.id === "alpha");
+    assert.ok(alphaChange, "alpha did not receive a placement change");
+    assert.ok(
+      alphaChange.offset.offsetX !== 0 || alphaChange.offset.offsetY !== 0,
+      "alpha committed a zero offset — drag snapped back"
+    );
+  } finally {
+    engine.destroy();
+  }
+});
+
+test("GardenEngine commits a prior drag when a fresh press arrives without a release", () => {
+  // A release event can be lost when the cursor leaves the terminal mid-drag.
+  // The next press should not destroy the in-flight drag's progress.
+  const writes: string[] = [];
+  const stdout = { write: (chunk: string) => (writes.push(chunk), true) } as any;
+  const changes: Array<{ creature: { id: string }; offset: { offsetX: number; offsetY: number } }> = [];
+  const engine = new GardenEngine(stdout, {
+    ...makeProps(),
+    focusIndex: -1,
+    originRow: 1,
+    originCol: 1,
+    onCreaturePlacementChange: (next) => changes.push(...next)
+  });
+
+  try {
+    const model = (engine as any).model;
+    const placement = model.scene.placements[0] as Placement;
+
+    engine.handleMouse({
+      kind: "press",
+      button: "left",
+      row: 1 + placement.charY,
+      col: 1 + placement.x
+    });
+    engine.handleMouse({
+      kind: "drag",
+      button: "left",
+      row: 1 + placement.charY,
+      col: 1 + placement.x + 3
+    });
+    // No release. User clicks again — this should commit the prior drag
+    // rather than throwing it away.
+    engine.handleMouse({
+      kind: "press",
+      button: "left",
+      row: 1 + placement.charY,
+      col: 1 + placement.x + 3
+    });
+
+    assert.equal(changes.length, 1);
+    assert.equal(changes[0].creature.id, "alpha");
+    assert.deepEqual(changes[0].offset, { offsetX: 3, offsetY: 0 });
+  } finally {
+    engine.destroy();
+  }
+});
+
 test("GardenEngine resize does not clear the whole old canvas", () => {
   const writes: string[] = [];
   const stdout = {
