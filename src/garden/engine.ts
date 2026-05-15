@@ -1,4 +1,5 @@
 import type { MouseEvent } from "@/lib/mouse";
+import type { Placement } from "@/lib/garden-layout";
 
 import { clearRect, diffFrames } from "@/garden/diff";
 import {
@@ -231,14 +232,17 @@ export class GardenEngine {
     }
 
     if (event.kind === "move") {
-      const nextHover =
+      const inBounds =
         localY >= 0 &&
         localX >= 0 &&
         localY < this.props.canvasH &&
         localX < this.props.innerWidth &&
-        !isInBottomRightDeadZone(this.props, localX, localY)
-          ? findCreatureAtCell(this.model, localX, localY)?.tile.index ?? -1
-          : -1;
+        !isInBottomRightDeadZone(this.props, localX, localY);
+      const nextHover = inBounds
+        ? (findCreatureAtCell(this.model, localX, localY)?.tile.index ??
+            this.findCreatureAtRenderedCell(localX, localY)?.tile.index ??
+            -1)
+        : -1;
       if (nextHover !== this.model.hoverIndex) {
         this.model.hoverIndex = nextHover;
         this.repaintDiff();
@@ -280,7 +284,9 @@ export class GardenEngine {
         this.repaintDiff();
       }
     }
-    const placement = findCreatureDragHandleAtCell(this.model, localX, localY);
+    const placement =
+      findCreatureDragHandleAtCell(this.model, localX, localY) ??
+      this.findCreatureAtRenderedCell(localX, localY);
     if (placement) {
       if (this.props.placementMode === "organic") {
         // Grab relative to the creature's REST position (anchor +
@@ -337,6 +343,43 @@ export class GardenEngine {
     if (this.tickId) clearInterval(this.tickId);
     this.clearCurrent();
     this.previousFrame = null;
+  }
+
+  // Fallback hit-test against the LAST-RENDERED placements (what the
+  // user actually saw on screen), not the live model state. The 100ms
+  // wander tick can advance a non-focused creature's visualPlacements
+  // between when the screen was painted and when the user's click
+  // event arrives in Node. Without this fallback, the press lands on
+  // a now-stale rendered cell and findCreatureDragHandleAtCell — which
+  // reads model.visualPlacements — misses, so the engine never sets up
+  // a drag and subsequent drag events are silently dropped. Symptom:
+  // drag "refuses to move" intermittently, more often on wandering
+  // creatures than focused ones.
+  private findCreatureAtRenderedCell(localX: number, localY: number): Placement | undefined {
+    for (const [id, snap] of this.previousCreatureSnapshot) {
+      if (
+        localX >= snap.x &&
+        localX < snap.x + snap.spriteCols &&
+        localY >= snap.charY &&
+        localY < snap.charY + snap.charH
+      ) {
+        // Return a placement shaped like what the user saw, so
+        // grabX/Y subtraction lines up with the rendered position.
+        // applyManualGardenPlacement looks the canonical anchor up
+        // again by creatureId, so it doesn't matter that this isn't
+        // the anchor.
+        const tilePlacement = this.model.scene.placements.find(
+          (p) => p.tile.creature.id === id
+        );
+        if (!tilePlacement) continue;
+        return {
+          tile: tilePlacement.tile,
+          x: snap.x,
+          charY: snap.charY
+        };
+      }
+    }
+    return undefined;
   }
 
   private scenePropsFromEngineProps(props: GardenEngineProps) {

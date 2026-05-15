@@ -602,12 +602,42 @@ export const ReadyShell = ({
   // unallocated at the bottom of the screen.
   const chromeRef = useRef<DOMElement | null>(null);
   const [chromeRowHeight, setChromeRowHeight] = useState(7);
+  // Measure on every commit. Ink can sometimes return 0 from
+  // measureElement on the very first layout pass (notably when the app
+  // boots straight into a full-screen window — yoga hasn't sized the
+  // node yet by the time useLayoutEffect runs). When that happens, no
+  // state update fires, no re-render is scheduled, and chromeRowHeight
+  // stays stuck at the initial guess. Origin coordinates derived from
+  // it are then wrong, mouse hit-testing in the garden misses every
+  // creature, and the user has to physically resize the terminal
+  // before things start working. Schedule a single retry on the next
+  // task tick if we see a zero so the measurement loop self-heals
+  // instead of waiting for a resize.
+  const chromeRetryRef = useRef<NodeJS.Immediate | null>(null);
   useLayoutEffect(() => {
-    if (chromeRef.current) {
-      const { height } = measureElement(chromeRef.current);
-      if (height > 0 && height !== chromeRowHeight) setChromeRowHeight(height);
+    if (!chromeRef.current) return;
+    const { height } = measureElement(chromeRef.current);
+    if (height > 0) {
+      if (height !== chromeRowHeight) setChromeRowHeight(height);
+      return;
     }
+    if (chromeRetryRef.current) return;
+    chromeRetryRef.current = setImmediate(() => {
+      chromeRetryRef.current = null;
+      if (!chromeRef.current) return;
+      const retried = measureElement(chromeRef.current).height;
+      if (retried > 0 && retried !== chromeRowHeight) setChromeRowHeight(retried);
+    });
   });
+  useEffect(
+    () => () => {
+      if (chromeRetryRef.current) {
+        clearImmediate(chromeRetryRef.current);
+        chromeRetryRef.current = null;
+      }
+    },
+    []
+  );
 
   // Below the garden Panel: outer paddingY bottom (1) + footer body. The
   // footer sits flush against the garden Panel's bottom border — no spacer
