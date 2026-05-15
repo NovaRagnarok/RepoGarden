@@ -321,8 +321,34 @@ const randomContour = (state: GeneratorState, rng: () => number): number[] => {
   const maxHalf = Math.max(minHalf, state.halfW - (rng() < 0.22 ? 0 : 1));
   const contour: number[] = Array.from({ length: state.subH }, () => minHalf);
 
-  const topWidth = clamp(minHalf + Math.floor(rng() * Math.max(1, state.halfW * 0.32)), minHalf, maxHalf);
-  const bottomWidth = clamp(minHalf + Math.floor(rng() * Math.max(1, state.halfW * 0.45)), minHalf, maxHalf);
+  // For genuinely wide grids (cell aspect > 2), pick body widths from the
+  // full available [minHalf, maxHalf] band so the body fills the grid. The
+  // original halfW * 0.32 / 0.45 spreads work for near-square creatures, but
+  // leave horizontal grids mostly empty — a 14×3 sausage rendered with the
+  // body squashed into the centre 6 cells, defeating the wide-aspect bucket.
+  // Square/portrait creatures keep their original spreads so the long-
+  // established silhouette and animation tests still pass.
+  // Wide grids (cell aspect > 2) need a body width FLOOR so the random walk
+  // can't accidentally produce a narrow body squashed in the centre of a wide
+  // canvas. Without this, ~30% of wide-bucket creatures roll low topWidth/
+  // bottomWidth and render with a tall-creature-shaped body in a wide-creature
+  // grid — defeating the bucket. The 0.65 factor reserves a body filling at
+  // least ~50% of the grid width on each side of centre; combined with the
+  // organic lobe + walk variation downstream, sausages keep their shape
+  // variety but all land genuinely horizontal.
+  const isWideGrid = state.subW > state.subH * 2;
+  const wideMinHalf = isWideGrid
+    ? Math.max(minHalf, Math.floor(state.halfW * 0.65))
+    : minHalf;
+  const effectiveMaxHalf = Math.max(wideMinHalf, maxHalf);
+  const topSpread = isWideGrid
+    ? Math.max(1, effectiveMaxHalf - wideMinHalf + 1)
+    : Math.max(1, state.halfW * 0.32);
+  const bottomSpread = isWideGrid
+    ? Math.max(1, effectiveMaxHalf - wideMinHalf + 1)
+    : Math.max(1, state.halfW * 0.45);
+  const topWidth = clamp(wideMinHalf + Math.floor(rng() * topSpread), wideMinHalf, effectiveMaxHalf);
+  const bottomWidth = clamp(wideMinHalf + Math.floor(rng() * bottomSpread), wideMinHalf, effectiveMaxHalf);
   const lobeCount = 2 + Math.floor(rng() * 4);
   const lobes = Array.from({ length: lobeCount }, () => ({
     center: rng(),
@@ -348,7 +374,7 @@ const randomContour = (state: GeneratorState, rng: () => number): number[] => {
     // still making each identity look generated rather than categorized.
     const previous = y > state.bodyTop ? contour[y - 1] : width;
     width = clamp(width, previous - 2, previous + 2);
-    contour[y] = Math.round(clamp(width, minHalf, maxHalf));
+    contour[y] = Math.round(clamp(width, wideMinHalf, effectiveMaxHalf));
   }
 
   // Guarantee enough face material for tiny single-pixel eyes without making
