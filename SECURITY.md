@@ -65,9 +65,9 @@ The env var wins over the saved setting; either path suppresses all reads of the
 
 ## Supported versions
 
-RepoGarden is early beta software. Only the latest 0.6.x release receives security fixes.
+RepoGarden is early beta software. Only the latest 0.7.x release receives security fixes.
 
 | Version | Supported |
 | ------- | --------- |
-| 0.6.x (latest) | yes |
+| 0.7.x (latest) | yes |
 | older | no |
