@@ -902,12 +902,14 @@ export const creatureCharSize = (
   const sizeT = Math.pow(clamp(activity + noise, 0, 1), 0.82);
 
   const minArea = 10;
-  // Bumped from 88 → 130 (and the dimension clamps from 15×7 → 18×9) so the
-  // most active repos in a cohort can read as visibly chunkier than the rest.
-  // Smaller creatures grow modestly too — the area→dim conversion goes
-  // through a sqrt, so a 48% area bump only widens each dim by ~22% on
-  // average. Mid-cohort sprites stay close to their previous footprints.
-  const maxArea = 130;
+  // Ceiling raised 130 → 180 (and the dimension clamps 18×9 → 20×11) so the
+  // top of the cohort can read as genuinely chunky — under rank-based
+  // scaling, the biggest few repos were all bunched against the previous
+  // 130-cell cap. Mid and small creatures barely move (the area→dim
+  // conversion goes through a sqrt, so a 38% area bump only widens each
+  // dim by ~18% on average at the top; mid-cohort sprites stay close to
+  // their previous footprints).
+  const maxArea = 180;
   const targetArea = minArea + (maxArea - minArea) * sizeT;
 
   const aspectRoll = rng();
@@ -919,8 +921,8 @@ export const creatureCharSize = (
   let charW = Math.round(Math.sqrt(targetArea * aspect));
   let charH = Math.round(targetArea / Math.max(1, charW));
 
-  charW = Math.round(clamp(charW, 4, 18));
-  charH = Math.round(clamp(charH, 2, 9));
+  charW = Math.round(clamp(charW, 4, 20));
+  charH = Math.round(clamp(charH, 2, 11));
 
   // Terminal cells are tall; bias footprints toward wider-than-tall instead
   // of doing a post-render squash that distorts eyes and turns masks into bobs.

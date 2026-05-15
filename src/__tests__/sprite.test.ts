@@ -224,8 +224,8 @@ test("creatureCharSize gives cohort-relative visual spread across repo activity 
 
   assert.ok(Math.min(...sizes.map((size) => size.charW)) >= 4);
   assert.ok(Math.min(...sizes.map((size) => size.charH)) >= 2);
-  assert.ok(Math.max(...sizes.map((size) => size.charW)) <= 18);
-  assert.ok(Math.max(...sizes.map((size) => size.charH)) <= 9);
+  assert.ok(Math.max(...sizes.map((size) => size.charW)) <= 20);
+  assert.ok(Math.max(...sizes.map((size) => size.charH)) <= 11);
   assert.ok(Math.max(...areas) >= Math.min(...areas) * 4);
   assert.ok(new Set(sizes.map(({ charW, charH }) => `${charW}x${charH}`)).size >= 6);
   assert.ok(areas.at(-1)! > areas[0]);
