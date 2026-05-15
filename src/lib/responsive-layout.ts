@@ -73,14 +73,20 @@ export const computeOverlayCardSlot = ({
   const height = 10;
   const offsetTop = Math.max(0, gardenHeight - height - 1);
   const offsetLeft = Math.max(0, gardenWidth - width - 1);
+  // Slot is only "active" when the layout can host the card AND the
+  // user has it toggled on. When the user dismisses the card with
+  // `c`, the bottom-right corner returns to the garden: stars render
+  // there, creatures can wander or be dragged into it, and no
+  // placeholder Box paints over the canvas.
+  const active = canReserve && cardVisible;
 
   return {
-    reserved: canReserve,
-    visible: canReserve && cardVisible,
+    reserved: active,
+    visible: active,
     width,
     height,
     offsetTop,
     offsetLeft,
-    deadZone: canReserve ? { width, height } : undefined
+    deadZone: active ? { width, height } : undefined
   };
 };

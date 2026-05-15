@@ -656,9 +656,10 @@ export const ReadyShell = ({
     8,
     responsive.contentHeight - chromeRowHeight - gardenChromeBelow - compactSummaryRows
   );
-  // Wide habitat card: keep the same bottom-right slot reserved even when the
-  // card is hidden. Toggling `c` should only affect visibility, not creature
-  // placement or drag hit-testing.
+  // Wide habitat card: the slot is only reserved when the user has it
+  // toggled on. Dismissing with `c` returns the bottom-right corner to
+  // the garden — the placeholder Box stops painting, stars render
+  // through, and creatures can wander or be dragged into it.
   const overlayCardSlot = useMemo(
     () =>
       computeOverlayCardSlot({
