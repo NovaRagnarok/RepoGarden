@@ -282,9 +282,19 @@ export const buildTiles = (props: GardenSceneProps): SizedTile[] => {
   const maxCharH = Math.max(2, slotInnerH - NAME_H);
   const sizeCohort = buildCreatureSizeCohort(creatures.map((creature) => creature.scan));
   return creatures.map((creature, index) => {
-    const { charW, charH } = creatureCharSize(creature.scan, undefined, sizeCohort);
-    const width = Math.max(2, Math.min(charW, maxCharW));
-    const height = Math.max(2, Math.min(charH, maxCharH));
+    const { charW: rawW, charH: rawH } = creatureCharSize(
+      creature.scan,
+      undefined,
+      sizeCohort
+    );
+    // Preserve aspect ratio when the creature doesn't fit the slot. The
+    // previous behavior (independent Math.min on each dim) collapsed
+    // horizontal creatures — a 14×3 sausage in a 6-wide slot became 6×3,
+    // which the sprite generator then drew as a near-square. Uniform scaling
+    // keeps the shape; the creature just gets smaller to fit.
+    const scale = Math.min(1, maxCharW / rawW, maxCharH / rawH);
+    const width = Math.max(2, Math.round(rawW * scale));
+    const height = Math.max(2, Math.round(rawH * scale));
     return {
       creature,
       index,
