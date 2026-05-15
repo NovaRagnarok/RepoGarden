@@ -50,6 +50,7 @@ interface DragState {
   grabY: number;
   moved: boolean;
   lastCommitOffsets: ManualGardenPlacementOffset[] | null;
+  lastPreviewOffsets: ManualGardenPlacementOffset[] | null;
   lastPreviewKey: string | null;
 }
 
@@ -132,28 +133,24 @@ export class GardenEngine {
           localX - drag.grabX,
           localY - drag.grabY
         );
-        const commitOffsets = finalResult?.commitChanges ?? drag.lastCommitOffsets;
+        // Prefer the strict commit at the release point. If that overlaps,
+        // fall back to the last strict-clean state we passed through during
+        // the drag, then to the squishy preview the user actually saw. The
+        // final fallback keeps the drag from silently snapping back when the
+        // user releases on top of a neighbour: the squishy state may leave a
+        // light overlap, but the wander solver recovers from that, whereas
+        // a snap-back makes the whole interaction feel broken.
+        const commitOffsets =
+          finalResult?.commitChanges ??
+          drag.lastCommitOffsets ??
+          finalResult?.previewChanges ??
+          drag.lastPreviewOffsets;
         if (!commitOffsets) {
           clearManualGardenPlacementPreview(this.model);
           this.repaintDiff();
           return;
         }
-        commitManualGardenPlacement(this.model, commitOffsets);
-        const changes = commitOffsets.flatMap((offset) => {
-          const placement = this.model.scene.placements.find(
-            (candidate) => candidate.tile.creature.id === offset.creatureId
-          );
-          return placement
-            ? [{
-                creature: placement.tile.creature,
-                offset: { offsetX: offset.offsetX, offsetY: offset.offsetY }
-              }]
-            : [];
-        });
-        if (changes.length > 0 && this.props.onCreaturePlacementChange) {
-          this.props.onCreaturePlacementChange(changes);
-        }
-        this.repaintDiff();
+        this.commitDragOffsets(commitOffsets);
       } else {
         clearManualGardenPlacementPreview(this.model);
         this.repaintDiff();
@@ -177,6 +174,7 @@ export class GardenEngine {
         if (previewKey === this.drag.lastPreviewKey) return;
         this.drag.moved = true;
         this.drag.lastPreviewKey = previewKey;
+        this.drag.lastPreviewOffsets = result.previewChanges;
         if (result.commitChanges) {
           this.drag.lastCommitOffsets = result.commitChanges;
         }
@@ -218,9 +216,22 @@ export class GardenEngine {
     if (event.kind !== "press" || event.button !== "left") return;
     if (isInBottomRightDeadZone(this.props, localX, localY)) return;
     if (this.drag) {
+      // A prior drag was never released — likely the user moved out of the
+      // terminal before letting go. Commit whatever progress we made instead
+      // of dropping it on the floor, then fall through to start a fresh drag
+      // on this press.
+      const stale = this.drag;
       this.drag = null;
-      clearManualGardenPlacementPreview(this.model);
-      this.repaintDiff();
+      const recoverOffsets =
+        stale.moved
+          ? stale.lastCommitOffsets ?? stale.lastPreviewOffsets
+          : null;
+      if (recoverOffsets) {
+        this.commitDragOffsets(recoverOffsets);
+      } else {
+        clearManualGardenPlacementPreview(this.model);
+        this.repaintDiff();
+      }
     }
     const placement = findCreatureDragHandleAtCell(this.model, localX, localY);
     if (placement) {
@@ -231,6 +242,7 @@ export class GardenEngine {
           grabY: localY - placement.charY,
           moved: false,
           lastCommitOffsets: null,
+          lastPreviewOffsets: null,
           lastPreviewKey: null
         };
       }
@@ -238,6 +250,27 @@ export class GardenEngine {
         this.props.onCreatureSelect(placement.tile.index);
       }
     }
+  }
+
+  private commitDragOffsets(offsets: ManualGardenPlacementOffset[]): void {
+    commitManualGardenPlacement(this.model, offsets);
+    if (this.props.onCreaturePlacementChange) {
+      const changes = offsets.flatMap((offset) => {
+        const placement = this.model.scene.placements.find(
+          (candidate) => candidate.tile.creature.id === offset.creatureId
+        );
+        return placement
+          ? [{
+              creature: placement.tile.creature,
+              offset: { offsetX: offset.offsetX, offsetY: offset.offsetY }
+            }]
+          : [];
+      });
+      if (changes.length > 0) {
+        this.props.onCreaturePlacementChange(changes);
+      }
+    }
+    this.repaintDiff();
   }
 
   destroy(): void {
