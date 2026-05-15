@@ -912,11 +912,17 @@ export const creatureCharSize = (
   const maxArea = 180;
   const targetArea = minArea + (maxArea - minArea) * sizeT;
 
+  // Cell aspect (charW / charH). Terminal cells are roughly 2:1 tall:wide,
+  // so visual aspect ≈ cellAspect / 2. Most repos land portrait/square here;
+  // the last bucket exists so ~15% of creatures look genuinely wider-than-
+  // tall, breaking the "everything's a vertical rectangle" feel that the
+  // first three buckets alone produce.
   const aspectRoll = rng();
   let aspect: number;
-  if (aspectRoll < 0.12) aspect = 1.15 + rng() * 0.22;
-  else if (aspectRoll < 0.52) aspect = 1.65 + rng() * 0.72;
-  else aspect = 1.32 + rng() * 0.42;
+  if (aspectRoll < 0.10) aspect = 1.15 + rng() * 0.22;      // 10% squat (very portrait)
+  else if (aspectRoll < 0.45) aspect = 1.65 + rng() * 0.72; // 35% wide-cell (square-ish)
+  else if (aspectRoll < 0.85) aspect = 1.32 + rng() * 0.42; // 40% mid (portrait)
+  else aspect = 2.4 + rng() * 0.7;                          // 15% horizontal (wider than tall)
 
   let charW = Math.round(Math.sqrt(targetArea * aspect));
   let charH = Math.round(targetArea / Math.max(1, charW));
