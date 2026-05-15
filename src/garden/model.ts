@@ -164,7 +164,13 @@ const visualPlacementAtOffset = (
   canvasH: number
 ): Placement => {
   const maxX = Math.max(0, canvasW - placement.tile.spriteCols);
-  const maxY = Math.max(0, canvasH - placement.tile.charRows - 1);
+  // Reserve room for the name strip (NAME_GAP_ROWS + NAME_H) below the
+  // sprite — without it, the bottom-most clamp lands the name row at
+  // canvasH (outside the canvas) and setCell silently drops it. In panel
+  // coordinates that row sits one line above the bottom border, which is
+  // the "name disappears near the bottom" symptom users see during wander
+  // / drag.
+  const maxY = Math.max(0, canvasH - placement.tile.charRows - NAME_GAP_ROWS - NAME_H);
   return {
     tile: placement.tile,
     x: clamp(placement.x + offsetX, 0, maxX),
@@ -242,7 +248,9 @@ const findNearestClearPlacement = (
         };
         if (candidate.x < 0 || candidate.charY < 0) continue;
         if (candidate.x + base.tile.spriteCols > canvasW) continue;
-        if (candidate.charY + base.tile.charRows > canvasH) continue;
+        // Keep room for the name strip below the sprite — see the matching
+        // reserve in visualPlacementAtOffset.
+        if (candidate.charY + base.tile.charRows + NAME_GAP_ROWS + NAME_H > canvasH) continue;
         if (
           canUsePlacement(
             creatureId,
