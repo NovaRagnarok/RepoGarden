@@ -922,7 +922,7 @@ export const creatureCharSize = (
   if (aspectRoll < 0.10) aspect = 1.15 + rng() * 0.22;      // 10% squat (very portrait)
   else if (aspectRoll < 0.45) aspect = 1.65 + rng() * 0.72; // 35% wide-cell (square-ish)
   else if (aspectRoll < 0.85) aspect = 1.32 + rng() * 0.42; // 40% mid (portrait)
-  else aspect = 2.4 + rng() * 0.7;                          // 15% horizontal (wider than tall)
+  else aspect = 3.2 + rng() * 1.2;                          // 15% horizontal (3.2-4.4, visually 1.6-2.2 — sausage cats)
 
   let charW = Math.round(Math.sqrt(targetArea * aspect));
   let charH = Math.round(targetArea / Math.max(1, charW));
