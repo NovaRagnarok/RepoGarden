@@ -2077,3 +2077,88 @@ test("drag-replay: stress — 20 successive drags with wander ticks between each
     engine.destroy();
   }
 });
+
+test("drag-replay: pre-existing overlap between two unrelated creatures does not veto a third creature's drag", () => {
+  // The "smoking gun" from a real session: the placer left two
+  // wide-aspect creatures (InkaiPlus, RepoGarden) overlapping in their
+  // resting positions by more than the squishy budget. Every drag of
+  // any OTHER creature failed because resolvePushPlacements's final
+  // overlap check saw that pre-existing overlap and rejected the
+  // entire push solution. The drag solver should only judge pairs
+  // it's responsible for moving.
+  const writes: string[] = [];
+  const stdout = { write: (chunk: string) => (writes.push(chunk), true) } as any;
+  const changes: Array<{ creature: { id: string }; offset: { offsetX: number; offsetY: number } }> = [];
+  const engine = new GardenEngine(stdout, {
+    ...makeProps(),
+    focusIndex: -1,
+    innerWidth: 80,
+    canvasH: 24,
+    originRow: 1,
+    originCol: 1,
+    creatures: [
+      {
+        id: "victim",
+        scan: { id: "victim", path: "/tmp/victim", name: "victim", isDirty: false } as any,
+        memory: {} as any,
+        vibe: { vibe: "happy", reason: "", activity: 1 } as any
+      },
+      {
+        id: "overlap-a",
+        scan: { id: "overlap-a", path: "/tmp/overlap-a", name: "overlap-a", isDirty: false } as any,
+        memory: {} as any,
+        vibe: { vibe: "happy", reason: "", activity: 1 } as any
+      },
+      {
+        id: "overlap-b",
+        scan: { id: "overlap-b", path: "/tmp/overlap-b", name: "overlap-b", isDirty: false } as any,
+        memory: {} as any,
+        vibe: { vibe: "happy", reason: "", activity: 1 } as any
+      }
+    ],
+    onCreaturePlacementChange: (next) => changes.push(...next)
+  });
+  try {
+    const model = (engine as any).model;
+    // Force overlap-a and overlap-b to overlap by mutating their
+    // anchor positions. (We mutate scene.placements directly because
+    // we want to simulate the placer producing overlapping anchors.)
+    const placements = model.scene.placements as Placement[];
+    const a = placements.find((p) => p.tile.creature.id === "overlap-a")!;
+    const b = placements.find((p) => p.tile.creature.id === "overlap-b")!;
+    (b as any).x = a.x + 1;
+    (b as any).charY = a.charY;
+    model.visualPlacements.set("overlap-a", a);
+    model.visualPlacements.set("overlap-b", b);
+
+    const victim = placements.find((p) => p.tile.creature.id === "victim")!;
+    engine.handleMouse({
+      kind: "press",
+      button: "left",
+      row: 1 + victim.charY,
+      col: 1 + victim.x
+    });
+    engine.handleMouse({
+      kind: "drag",
+      button: "left",
+      row: 1 + victim.charY,
+      col: 1 + victim.x + 3
+    });
+    engine.handleMouse({
+      kind: "release",
+      button: "unknown",
+      row: 1 + victim.charY,
+      col: 1 + victim.x + 3
+    });
+
+    assert.ok(
+      changes.length > 0,
+      "victim drag was rejected by pre-existing overlap between two unrelated creatures"
+    );
+    const victimChange = changes.find((c) => c.creature.id === "victim");
+    assert.ok(victimChange, "victim did not receive a placement change");
+    assert.deepEqual(victimChange.offset, { offsetX: 3, offsetY: 0 });
+  } finally {
+    engine.destroy();
+  }
+});

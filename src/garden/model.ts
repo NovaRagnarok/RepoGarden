@@ -829,7 +829,8 @@ const resolvePushPlacements = (
   creatureId: string,
   candidate: Placement,
   direction: { axis: PushAxis; sign: 1 | -1 },
-  policy: CollisionPolicy
+  policy: CollisionPolicy,
+  debug?: ApplyManualPlacementDebug
 ): Map<string, Placement> | null => {
   const placements = new Map<string, Placement>();
   for (const anchor of model.scene.placements) {
@@ -846,8 +847,19 @@ const resolvePushPlacements = (
     const pusherId = queue.shift();
     if (!pusherId) continue;
     const pusher = placements.get(pusherId);
-    if (!pusher) return null;
+    if (!pusher) {
+      debug?.(`resolve(${policy}): pusher missing`, pusherId);
+      return null;
+    }
     if (!placementIsUsable(pusher, model.props.deadZone, model.props.innerWidth, model.props.canvasH)) {
+      debug?.(
+        `resolve(${policy}): pusher unusable`,
+        pusherId,
+        `at=(${pusher.x},${pusher.charY})`,
+        `size=${pusher.tile.spriteCols}x${pusher.tile.charRows}`,
+        `deadZone=${model.props.deadZone ? `${model.props.deadZone.width}x${model.props.deadZone.height}` : "none"}`,
+        `canvas=${model.props.innerWidth}x${model.props.canvasH}`
+      );
       return null;
     }
 
@@ -855,7 +867,10 @@ const resolvePushPlacements = (
       const pushedId = anchor.tile.creature.id;
       if (pushedId === pusherId) continue;
       const pushed = placements.get(pushedId);
-      if (!pushed) return null;
+      if (!pushed) {
+        debug?.(`resolve(${policy}): pushed missing`, pushedId);
+        return null;
+      }
       if (!spriteBodyFootprintsOverlap(spriteBodyFootprint(pusher), spriteBodyFootprint(pushed))) {
         continue;
       }
@@ -869,7 +884,10 @@ const resolvePushPlacements = (
       }
 
       iterations += 1;
-      if (iterations > maxIterations) return null;
+      if (iterations > maxIterations) {
+        debug?.(`resolve(${policy}): iteration cap`, iterations, maxIterations);
+        return null;
+      }
       const delta = pushDeltaToClear(pusher, pushed, direction.axis, direction.sign, allowedOverlap);
       const next = movePlacementBy(
         pushed,
@@ -878,8 +896,22 @@ const resolvePushPlacements = (
         model.props.innerWidth,
         model.props.canvasH
       );
-      if (next.x === pushed.x && next.charY === pushed.charY) return null;
+      if (next.x === pushed.x && next.charY === pushed.charY) {
+        debug?.(
+          `resolve(${policy}): push had no effect`,
+          pushedId,
+          `pusher=(${pusher.x},${pusher.charY})`,
+          `pushed=(${pushed.x},${pushed.charY})`,
+          `delta=(${delta.dx},${delta.dy})`
+        );
+        return null;
+      }
       if (!placementIsUsable(next, model.props.deadZone, model.props.innerWidth, model.props.canvasH)) {
+        debug?.(
+          `resolve(${policy}): push landed unusable`,
+          pushedId,
+          `at=(${next.x},${next.charY})`
+        );
         return null;
       }
       placements.set(pushedId, next);
@@ -890,15 +922,41 @@ const resolvePushPlacements = (
 
   const final = Array.from(placements.values());
   for (let i = 0; i < final.length; i += 1) {
-    if (!placementIsUsable(final[i], model.props.deadZone, model.props.innerWidth, model.props.canvasH)) {
+    const iId = final[i].tile.creature.id;
+    // Only enforce dead-zone / canvas usability on creatures this
+    // drag actually moved. If some other creature's REST position is
+    // already in the dead zone (because the layout solver placed it
+    // there before the drag started, or a stale manualOffset puts it
+    // there), that's the scene's problem to resolve — refusing every
+    // drag because of it makes the whole feature unusable.
+    if (moved.has(iId) && !placementIsUsable(final[i], model.props.deadZone, model.props.innerWidth, model.props.canvasH)) {
+      debug?.(
+        `resolve(${policy}): final unusable`,
+        iId,
+        `at=(${final[i].x},${final[i].charY})`,
+        `size=${final[i].tile.spriteCols}x${final[i].tile.charRows}`,
+        `deadZone=${model.props.deadZone ? `${model.props.deadZone.width}x${model.props.deadZone.height}` : "none"}`
+      );
       return null;
     }
     for (let j = i + 1; j < final.length; j += 1) {
+      const jId = final[j].tile.creature.id;
+      // Same principle for overlap: only check pairs the drag is
+      // responsible for. Two creatures already overlapping in their
+      // rest positions (e.g. tightly-packed wide-aspect creatures
+      // after a placer run) shouldn't veto an unrelated drag.
+      if (!moved.has(iId) && !moved.has(jId)) continue;
       if (!spriteBodyFootprintsOverlap(spriteBodyFootprint(final[i]), spriteBodyFootprint(final[j]))) {
         continue;
       }
       const allowedOverlap = allowedOverlapForPolicy(policy, final[i], final[j], direction.axis);
       if (overlapDepth(spriteBodyFootprint(final[i]), spriteBodyFootprint(final[j]), direction.axis) > allowedOverlap) {
+        debug?.(
+          `resolve(${policy}): final overlap`,
+          `${iId}/${jId}`,
+          `depth=${overlapDepth(spriteBodyFootprint(final[i]), spriteBodyFootprint(final[j]), direction.axis)}`,
+          `allowed=${allowedOverlap}`
+        );
         return null;
       }
     }
@@ -907,16 +965,30 @@ const resolvePushPlacements = (
   return new Map(Array.from(moved, (id) => [id, placements.get(id) as Placement]));
 };
 
+export type ApplyManualPlacementDebug = (reason: string, ...details: unknown[]) => void;
+
 export const applyManualGardenPlacement = (
   model: GardenModel,
   creatureId: string,
   targetX: number,
   targetY: number,
-  now: number = performance.now()
+  now: number = performance.now(),
+  debug?: ApplyManualPlacementDebug
 ): ManualGardenPlacementResult | null => {
-  if (model.props.placementMode !== "organic") return null;
+  if (model.props.placementMode !== "organic") {
+    debug?.("FAIL: mode != organic", model.props.placementMode);
+    return null;
+  }
   const anchor = placementByCreatureId(model.scene.placements, creatureId);
-  if (!anchor) return null;
+  if (!anchor) {
+    debug?.(
+      "FAIL: anchor not found",
+      "creatureId=" + creatureId,
+      "scene IDs:",
+      model.scene.placements.map((p) => p.tile.creature.id).join(",")
+    );
+    return null;
+  }
   const current = model.visualPlacements.get(creatureId) ?? anchor;
 
   const candidate = visualPlacementAtOffset(
@@ -932,9 +1004,19 @@ export const applyManualGardenPlacement = (
     creatureId,
     candidate,
     direction,
-    "squishy"
+    "squishy",
+    debug
   );
-  if (!preview) return null;
+  if (!preview) {
+    debug?.(
+      "FAIL: squishy resolve null",
+      `anchor=(${anchor.x},${anchor.charY})`,
+      `candidate=(${candidate.x},${candidate.charY})`,
+      `canvas=${model.props.innerWidth}x${model.props.canvasH}`,
+      `deadZone=${model.props.deadZone ? `${model.props.deadZone.width}x${model.props.deadZone.height}` : "none"}`
+    );
+    return null;
+  }
   const commit = resolvePushPlacements(
     model,
     creatureId,
