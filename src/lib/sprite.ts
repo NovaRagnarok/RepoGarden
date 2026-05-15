@@ -813,20 +813,35 @@ export const quadrantChar = (
 };
 
 export interface CreatureSizeCohort {
-  minMass: number;
-  maxMass: number;
+  /** Sorted ascending list of every cohort member's mass value. Enables
+   *  O(log n) rank lookup for rank-based size normalization. */
+  sortedMasses: readonly number[];
   count: number;
 }
 
+// Pure "mass" — how much stuff is in the repo, not how alive it is. Vitality
+// signals (recentCommitDays, ahead/behind, isDirty) deliberately don't appear
+// here; they belong to mood/confidence, not size.
+//
+// Primary signal: log1p(sourceLines) — newline-counted LOC across recognized
+// source files, post-SKIP_DIRS/noise filtering. LOC over byte size so a file
+// padded with long base64 blobs doesn't read as massive, and verbose-line
+// languages (Java/TS) don't get an unfair boost over terse ones (Python/Go).
+// Secondary: log1p(fileCount), so a repo of many small files reads larger
+// than a repo of one big file with the same LOC. commitCount sticks around
+// as a faint tiebreaker / fallback when scanRepoTree hasn't populated stats
+// yet (Phase 3 extras race with first paint).
 const creatureActivityMass = (repo: ScannedRepo): number => {
+  const sourceLines = Math.max(0, repo.sourceLines ?? 0);
+  const fileCount = Math.max(0, repo.fileCount ?? 0);
   const commitCount = Math.max(0, repo.commitCount ?? 0);
-  const recentCommits = (repo.recentCommitDays ?? []).reduce((sum, count) => sum + count, 0);
-  const branchDelta = Math.max(0, repo.ahead ?? 0) + Math.max(0, repo.behind ?? 0);
+  if (sourceLines === 0 && fileCount === 0) {
+    return Math.log1p(commitCount) * 0.5;
+  }
   return (
-    Math.log1p(commitCount) +
-    Math.log1p(recentCommits) * 0.38 +
-    Math.log1p(branchDelta) * 0.16 +
-    (repo.isDirty ? 0.22 : 0)
+    Math.log1p(sourceLines) +
+    Math.log1p(fileCount) * 0.45 +
+    Math.log1p(commitCount) * 0.08
   );
 };
 
@@ -837,20 +852,43 @@ export const buildCreatureSizeCohort = (
   const masses = repos.map(creatureActivityMass).filter(Number.isFinite);
   if (masses.length === 0) return undefined;
   return {
-    minMass: Math.min(...masses),
-    maxMass: Math.max(...masses),
+    sortedMasses: [...masses].sort((a, b) => a - b),
     count: masses.length
   };
 };
 
+// log1p(1_000_000) ≈ 13.8 — a ~1M LOC repo lands near absolute=1.0. Only used
+// as a fallback for tiny cohorts (count < 3); the rank-based path doesn't
+// need it.
+const ABSOLUTE_MASS_DIVISOR = Math.log1p(1_000_000);
+
+// Lower-bound binary search: returns the index where `mass` would be inserted
+// into the sorted list, which is also the count of strictly-smaller masses.
+// Ties resolve to the earliest matching index so identical-mass repos share
+// a rank rather than fighting for position.
+const massRank = (sortedMasses: readonly number[], mass: number): number => {
+  let lo = 0;
+  let hi = sortedMasses.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (sortedMasses[mid] < mass) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+};
+
+// Rank-based normalization: the smallest repo in a cohort is always at 0, the
+// largest at 1, and everyone else is spread evenly by rank. This is robust to
+// skewed mass distributions — if 30 repos cluster at similar LOC plus 2 are
+// huge, the 30 still spread evenly instead of crowding near 0. The downside
+// is that the absolute size of a repo no longer matters; size is purely a
+// statement about ordering within the cohort.
 const normalizedCreatureMass = (repo: ScannedRepo, cohort?: CreatureSizeCohort): number => {
   const mass = creatureActivityMass(repo);
-  const absolute = clamp(mass / Math.log1p(1200), 0, 1);
-  if (!cohort || cohort.count < 3 || cohort.maxMass - cohort.minMass < 0.35) {
-    return absolute;
+  if (!cohort || cohort.count < 3) {
+    return clamp(mass / ABSOLUTE_MASS_DIVISOR, 0, 1);
   }
-  const relative = clamp((mass - cohort.minMass) / (cohort.maxMass - cohort.minMass), 0, 1);
-  return clamp(relative * 0.82 + absolute * 0.18, 0, 1);
+  return clamp(massRank(cohort.sortedMasses, mass) / (cohort.count - 1), 0, 1);
 };
 
 export const creatureCharSize = (
@@ -864,12 +902,14 @@ export const creatureCharSize = (
   const sizeT = Math.pow(clamp(activity + noise, 0, 1), 0.82);
 
   const minArea = 10;
-  // Bumped from 88 → 130 (and the dimension clamps from 15×7 → 18×9) so the
-  // most active repos in a cohort can read as visibly chunkier than the rest.
-  // Smaller creatures grow modestly too — the area→dim conversion goes
-  // through a sqrt, so a 48% area bump only widens each dim by ~22% on
-  // average. Mid-cohort sprites stay close to their previous footprints.
-  const maxArea = 130;
+  // Ceiling raised 130 → 180 (and the dimension clamps 18×9 → 20×11) so the
+  // top of the cohort can read as genuinely chunky — under rank-based
+  // scaling, the biggest few repos were all bunched against the previous
+  // 130-cell cap. Mid and small creatures barely move (the area→dim
+  // conversion goes through a sqrt, so a 38% area bump only widens each
+  // dim by ~18% on average at the top; mid-cohort sprites stay close to
+  // their previous footprints).
+  const maxArea = 180;
   const targetArea = minArea + (maxArea - minArea) * sizeT;
 
   const aspectRoll = rng();
@@ -881,8 +921,8 @@ export const creatureCharSize = (
   let charW = Math.round(Math.sqrt(targetArea * aspect));
   let charH = Math.round(targetArea / Math.max(1, charW));
 
-  charW = Math.round(clamp(charW, 4, 18));
-  charH = Math.round(clamp(charH, 2, 9));
+  charW = Math.round(clamp(charW, 4, 20));
+  charH = Math.round(clamp(charH, 2, 11));
 
   // Terminal cells are tall; bias footprints toward wider-than-tall instead
   // of doing a post-render squash that distorts eyes and turns masks into bobs.

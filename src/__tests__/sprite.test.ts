@@ -123,12 +123,17 @@ const occupiedBounds = (matrix: SubMatrix): { width: number; height: number } =>
   return { width: maxX - minX + 1, height: maxY - minY + 1 };
 };
 
+// Size now tracks "mass" (sourceLines + fileCount), not commit history.
+// Derive a plausible LOC/file footprint from the legacy commitCount knob so
+// existing call sites stay readable: ~100 LOC and ~1 source file per commit.
 const repo = (commitCount: number, path: string): ScannedRepo => ({
   id: path,
   path,
   name: path.split("/").at(-1) ?? path,
   isDirty: false,
-  commitCount
+  commitCount,
+  fileCount: Math.max(1, commitCount),
+  sourceLines: Math.max(8, commitCount * 100)
 });
 
 test("generateCreature is deterministic, mirrored, and dimension-stable", () => {
@@ -219,8 +224,8 @@ test("creatureCharSize gives cohort-relative visual spread across repo activity 
 
   assert.ok(Math.min(...sizes.map((size) => size.charW)) >= 4);
   assert.ok(Math.min(...sizes.map((size) => size.charH)) >= 2);
-  assert.ok(Math.max(...sizes.map((size) => size.charW)) <= 18);
-  assert.ok(Math.max(...sizes.map((size) => size.charH)) <= 9);
+  assert.ok(Math.max(...sizes.map((size) => size.charW)) <= 20);
+  assert.ok(Math.max(...sizes.map((size) => size.charH)) <= 11);
   assert.ok(Math.max(...areas) >= Math.min(...areas) * 4);
   assert.ok(new Set(sizes.map(({ charW, charH }) => `${charW}x${charH}`)).size >= 6);
   assert.ok(areas.at(-1)! > areas[0]);

@@ -21,6 +21,7 @@ import { useInput } from "@/hooks/use-input";
 import { useMouse } from "@/hooks/use-mouse";
 import { layoutMode, useTerminalSize } from "@/hooks/use-terminal-size";
 import type { RepoCreature } from "@/lib/creature";
+import type { CreatureSizeCohort } from "@/lib/sprite";
 import { tildify } from "@/lib/scanner";
 import { vibeGlyph, type Vibe } from "@/lib/vibe";
 import {
@@ -81,6 +82,12 @@ export interface ReadyShellProps {
   /** Per-page slot density (garden) and per-cell breathing room (shelf).
    *  Default `comfortable`. */
   gardenDensity?: GardenDensity;
+  /** Cohort used for cohort-aware (rank-based) sizing in the focus popup
+   *  and downstream views. Built upstream from the full non-hidden creature
+   *  list so a creature renders the same size whether viewed in the garden
+   *  or as a popup. The garden internally builds its own per-page cohort
+   *  for tile placement; this prop is for non-garden consumers. */
+  sizeCohort?: CreatureSizeCohort;
 }
 
 const vibeBadgeVariant: Record<Vibe, "default" | "warning" | "error" | "info" | "success"> = {
@@ -110,7 +117,8 @@ export const ReadyShell = ({
   scanProgressByRoot,
   usageBarDisabled = false,
   gardenPaginate = true,
-  gardenDensity = "comfortable"
+  gardenDensity = "comfortable",
+  sizeCohort
 }: ReadyShellProps) => {
   const theme = useTheme();
   const { reduced: reducedMotion } = useMotion();
@@ -1487,7 +1495,7 @@ export const ReadyShell = ({
         }
       >
         <Box flexDirection="row" paddingBottom={1}>
-          <CreatureSprite creature={focus} />
+          <CreatureSprite creature={focus} cohort={sizeCohort} />
           <Box flexDirection="column" paddingLeft={2} flexGrow={1}>
             <Box flexShrink={0}>
               <Badge variant={vibeBadgeVariant[focus.vibe.vibe]} bold>

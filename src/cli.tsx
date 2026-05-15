@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { render, useApp } from "ink";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PassThrough } from "stream";
 
 import {
@@ -20,6 +20,7 @@ import { ToastProvider, useToasts } from "@/components/ui/toast-host";
 import { BootScreen } from "@/screens/BootScreen";
 import { OnboardingScreen } from "@/screens/OnboardingScreen";
 import { ReadyShell, type ReadyView } from "@/screens/ReadyShell";
+import { buildCreatureSizeCohort } from "@/lib/sprite";
 import { SettingsScreen } from "@/screens/SettingsScreen";
 import { WorkbenchScreen } from "@/screens/WorkbenchScreen";
 import { HelpOverlay } from "@/screens/HelpOverlay";
@@ -110,6 +111,18 @@ const App = ({
   const [bellOnVibeChange, setBellOnVibeChange] = useState<boolean>(initialBellOnVibeChange);
   const [scanProgress, setScanProgress] = useState<{ done: number; total: number } | undefined>();
   const [scanProgressByRoot, setScanProgressByRoot] = useState<RootProgress[] | undefined>();
+
+  // Shared sizing cohort: built from the visible (non-hidden) creature set so
+  // a single creature renders at the same size in the garden, focus popup,
+  // and workbench. Under rank-based scaling these views diverge dramatically
+  // when each builds its own cohort (or worse, falls back to absolute-only).
+  const sizeCohort = useMemo(
+    () =>
+      buildCreatureSizeCohort(
+        creatures.filter((c) => !c.memory.hidden).map((c) => c.scan)
+      ),
+    [creatures]
+  );
 
   const runScan = useCallback(
     async (rootsToScan: string[]): Promise<{ ok: boolean; count: number; message: string }> => {
@@ -599,6 +612,7 @@ const App = ({
       <WorkbenchScreen
         creature={activeWorkbench}
         usageBarDisabled={usageBarDisabled}
+        sizeCohort={sizeCohort}
         onPulled={handlePulled}
         onClose={() => {
           // The workbench owns note persistence now; we only stamp
@@ -649,6 +663,7 @@ const App = ({
       usageBarDisabled={usageBarDisabled}
       gardenPaginate={gardenPaginate}
       gardenDensity={gardenDensity}
+      sizeCohort={sizeCohort}
     />
   );
 };

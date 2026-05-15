@@ -127,7 +127,7 @@ test("saveScanCache creates the parent directory if it doesn't exist", () => {
     saveScanCache(buildUpdatedCache([sampleScan()]), file);
     const raw = readFileSync(file, "utf8");
     const parsed = JSON.parse(raw);
-    assert.equal(parsed.version, 1);
+    assert.equal(parsed.version, 2);
     assert.ok(parsed.entries["/tmp/alpha"]);
   } finally {
     rmSync(dir, { recursive: true, force: true });

@@ -25,7 +25,11 @@ import { dirname, join } from "node:path";
 
 import type { ScannedRepo } from "./scanner";
 
-const CACHE_VERSION = 1;
+// Bumped to 2 when ScannedRepo gained sourceLines and fileCount — old
+// entries lack those fields and would route mass calculation through the
+// commitCount fallback, which makes high-churn / low-LOC repos render
+// dramatically oversized until the cache catches up.
+const CACHE_VERSION = 2;
 const CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 export interface ScanCacheEntry {
