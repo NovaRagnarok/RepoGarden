@@ -388,8 +388,14 @@ const randomContour = (state: GeneratorState, rng: () => number): number[] => {
 
 const stampBody = (grid: SubMatrix, state: GeneratorState, rng: () => number): void => {
   const contour = randomContour(state, rng);
-  const fillBias = 0.70 + rng() * 0.24;
-  const raggedness = 0.10 + rng() * 0.22;
+  // Wide grids have a body silhouette that extends far from the centre line,
+  // so the per-cell fill probability needs a higher floor — otherwise the
+  // `fromCenter` falloff carves visible internal gaps into the body. Square
+  // and portrait grids keep their original chunkier-edges values so the
+  // organic raggedness still shows on normal creatures.
+  const isWideGrid = state.subW > state.subH * 2;
+  const fillBias = isWideGrid ? 0.86 + rng() * 0.12 : 0.70 + rng() * 0.24;
+  const raggedness = isWideGrid ? 0.04 + rng() * 0.12 : 0.10 + rng() * 0.22;
 
   for (let y = state.bodyTop; y <= state.bodyBottom; y += 1) {
     const halfWidth = contour[y];
