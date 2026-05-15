@@ -321,8 +321,34 @@ const randomContour = (state: GeneratorState, rng: () => number): number[] => {
   const maxHalf = Math.max(minHalf, state.halfW - (rng() < 0.22 ? 0 : 1));
   const contour: number[] = Array.from({ length: state.subH }, () => minHalf);
 
-  const topWidth = clamp(minHalf + Math.floor(rng() * Math.max(1, state.halfW * 0.32)), minHalf, maxHalf);
-  const bottomWidth = clamp(minHalf + Math.floor(rng() * Math.max(1, state.halfW * 0.45)), minHalf, maxHalf);
+  // For genuinely wide grids (cell aspect > 2), pick body widths from the
+  // full available [minHalf, maxHalf] band so the body fills the grid. The
+  // original halfW * 0.32 / 0.45 spreads work for near-square creatures, but
+  // leave horizontal grids mostly empty — a 14×3 sausage rendered with the
+  // body squashed into the centre 6 cells, defeating the wide-aspect bucket.
+  // Square/portrait creatures keep their original spreads so the long-
+  // established silhouette and animation tests still pass.
+  // Wide grids (cell aspect > 2) need a body width FLOOR so the random walk
+  // can't accidentally produce a narrow body squashed in the centre of a wide
+  // canvas. Without this, ~30% of wide-bucket creatures roll low topWidth/
+  // bottomWidth and render with a tall-creature-shaped body in a wide-creature
+  // grid — defeating the bucket. The 0.65 factor reserves a body filling at
+  // least ~50% of the grid width on each side of centre; combined with the
+  // organic lobe + walk variation downstream, sausages keep their shape
+  // variety but all land genuinely horizontal.
+  const isWideGrid = state.subW > state.subH * 2;
+  const wideMinHalf = isWideGrid
+    ? Math.max(minHalf, Math.floor(state.halfW * 0.65))
+    : minHalf;
+  const effectiveMaxHalf = Math.max(wideMinHalf, maxHalf);
+  const topSpread = isWideGrid
+    ? Math.max(1, effectiveMaxHalf - wideMinHalf + 1)
+    : Math.max(1, state.halfW * 0.32);
+  const bottomSpread = isWideGrid
+    ? Math.max(1, effectiveMaxHalf - wideMinHalf + 1)
+    : Math.max(1, state.halfW * 0.45);
+  const topWidth = clamp(wideMinHalf + Math.floor(rng() * topSpread), wideMinHalf, effectiveMaxHalf);
+  const bottomWidth = clamp(wideMinHalf + Math.floor(rng() * bottomSpread), wideMinHalf, effectiveMaxHalf);
   const lobeCount = 2 + Math.floor(rng() * 4);
   const lobes = Array.from({ length: lobeCount }, () => ({
     center: rng(),
@@ -348,7 +374,7 @@ const randomContour = (state: GeneratorState, rng: () => number): number[] => {
     // still making each identity look generated rather than categorized.
     const previous = y > state.bodyTop ? contour[y - 1] : width;
     width = clamp(width, previous - 2, previous + 2);
-    contour[y] = Math.round(clamp(width, minHalf, maxHalf));
+    contour[y] = Math.round(clamp(width, wideMinHalf, effectiveMaxHalf));
   }
 
   // Guarantee enough face material for tiny single-pixel eyes without making
@@ -362,8 +388,14 @@ const randomContour = (state: GeneratorState, rng: () => number): number[] => {
 
 const stampBody = (grid: SubMatrix, state: GeneratorState, rng: () => number): void => {
   const contour = randomContour(state, rng);
-  const fillBias = 0.70 + rng() * 0.24;
-  const raggedness = 0.10 + rng() * 0.22;
+  // Wide grids have a body silhouette that extends far from the centre line,
+  // so the per-cell fill probability needs a higher floor — otherwise the
+  // `fromCenter` falloff carves visible internal gaps into the body. Square
+  // and portrait grids keep their original chunkier-edges values so the
+  // organic raggedness still shows on normal creatures.
+  const isWideGrid = state.subW > state.subH * 2;
+  const fillBias = isWideGrid ? 0.86 + rng() * 0.12 : 0.70 + rng() * 0.24;
+  const raggedness = isWideGrid ? 0.04 + rng() * 0.12 : 0.10 + rng() * 0.22;
 
   for (let y = state.bodyTop; y <= state.bodyBottom; y += 1) {
     const halfWidth = contour[y];
@@ -922,7 +954,7 @@ export const creatureCharSize = (
   if (aspectRoll < 0.10) aspect = 1.15 + rng() * 0.22;      // 10% squat (very portrait)
   else if (aspectRoll < 0.45) aspect = 1.65 + rng() * 0.72; // 35% wide-cell (square-ish)
   else if (aspectRoll < 0.85) aspect = 1.32 + rng() * 0.42; // 40% mid (portrait)
-  else aspect = 2.4 + rng() * 0.7;                          // 15% horizontal (wider than tall)
+  else aspect = 3.2 + rng() * 1.2;                          // 15% horizontal (3.2-4.4, visually 1.6-2.2 — sausage cats)
 
   let charW = Math.round(Math.sqrt(targetArea * aspect));
   let charH = Math.round(targetArea / Math.max(1, charW));
