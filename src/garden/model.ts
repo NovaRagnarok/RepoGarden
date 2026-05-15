@@ -636,6 +636,14 @@ export const syncGardenModel = (
 ): void => {
   const previousProps = model.props;
   const previousVisualPlacements = model.visualPlacements;
+  // Capture the in-flight drag state BEFORE we rebuild the scene. A
+  // mid-drag setProps (the common case: any unrelated React re-render
+  // that changes the engineProps memo identity) must not strand the
+  // engine's `drag` pointer on a model that's just had its preview
+  // wiped and its wander manualOffsets reset to the last-committed
+  // memory value — that would discard everything the user has moved
+  // since press.
+  const dragPreviewIn = model.dragPreviewPlacements;
   const nextScene = buildScene(props);
   const shouldTweenLayout =
     !props.reducedMotion &&
@@ -645,7 +653,6 @@ export const syncGardenModel = (
     stableCreatureIdsKey(previousProps.creatures) === stableCreatureIdsKey(props.creatures);
   model.props = props;
   model.scene = nextScene;
-  model.dragPreviewPlacements = null;
   model.layoutTransition = shouldTweenLayout
     ? buildLayoutTransition(nextScene, previousVisualPlacements, now)
     : null;
@@ -654,9 +661,28 @@ export const syncGardenModel = (
   for (const id of Array.from(model.wander.keys())) {
     if (!validIds.has(id)) model.wander.delete(id);
   }
+  // Carry the drag preview across the sync, pruning entries whose
+  // creature no longer exists in the new scene. A drag mode flip to
+  // non-organic is handled by the engine clearing its own drag state,
+  // so it never reaches here with a preview to preserve.
+  let dragPreviewOut: Map<string, Placement> | null = null;
+  if (dragPreviewIn && props.placementMode === "organic") {
+    const pruned = new Map<string, Placement>();
+    for (const [id, placement] of dragPreviewIn) {
+      if (validIds.has(id)) pruned.set(id, placement);
+    }
+    dragPreviewOut = pruned.size > 0 ? pruned : null;
+  }
+  model.dragPreviewPlacements = dragPreviewOut;
+  const dragIds = dragPreviewOut ? new Set(dragPreviewOut.keys()) : null;
+
   for (const placement of model.scene.placements) {
     const state = model.wander.get(placement.tile.creature.id);
     if (state) {
+      // Don't clobber an in-flight drag's manualOffset with the
+      // last-committed memory value. The engine still holds the drag
+      // state and will commit the user's intent on release.
+      if (dragIds?.has(placement.tile.creature.id)) continue;
       state.manualOffset = memoryManualOffset(placement, props.placementMode);
     }
   }

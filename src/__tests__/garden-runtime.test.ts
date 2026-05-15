@@ -586,6 +586,140 @@ test("GardenEngine commits a prior drag when a fresh press arrives without a rel
   }
 });
 
+test("GardenEngine setProps with identical scene fields does not disturb an in-flight drag", () => {
+  // A mid-drag re-render (toast pop, background scan tick, any
+  // unmemoized callback in the React tree) was tearing down
+  // `dragPreviewPlacements` and resetting every wander state's
+  // `manualOffset` back to the last committed memory value. The
+  // engine's `drag` pointer survived but pointed into a wiped model —
+  // the user's drag silently undid itself.
+  const writes: string[] = [];
+  const stdout = { write: (chunk: string) => (writes.push(chunk), true) } as any;
+  const baseProps = {
+    ...makeProps(),
+    focusIndex: -1,
+    originRow: 1,
+    originCol: 1,
+    onCreatureSelect: () => {},
+    onFocusDelta: () => {}
+  };
+  const changes: Array<{ creature: { id: string }; offset: { offsetX: number; offsetY: number } }> = [];
+  const engine = new GardenEngine(stdout, {
+    ...baseProps,
+    onCreaturePlacementChange: (next) => changes.push(...next)
+  });
+
+  try {
+    const model = (engine as any).model;
+    const placement = model.scene.placements[0] as Placement;
+    engine.handleMouse({
+      kind: "press",
+      button: "left",
+      row: 1 + placement.charY,
+      col: 1 + placement.x
+    });
+    engine.handleMouse({
+      kind: "drag",
+      button: "left",
+      row: 1 + placement.charY,
+      col: 1 + placement.x + 4
+    });
+    // Mid-drag setProps with semantically identical scene fields but a
+    // fresh callback identity (simulating a parent re-render).
+    engine.setProps({
+      ...baseProps,
+      onCreaturePlacementChange: (next) => changes.push(...next)
+    });
+    // Preview must still be present after the spurious re-sync.
+    assert.ok(
+      (model as any).dragPreviewPlacements,
+      "in-flight drag preview was wiped by a spurious setProps"
+    );
+    engine.handleMouse({
+      kind: "release",
+      button: "unknown",
+      row: 1 + placement.charY,
+      col: 1 + placement.x + 4
+    });
+
+    assert.equal(changes.length, 1);
+    assert.equal(changes[0].creature.id, "alpha");
+    assert.deepEqual(changes[0].offset, { offsetX: 4, offsetY: 0 });
+  } finally {
+    engine.destroy();
+  }
+});
+
+test("GardenEngine drag math is independent of the creature's wander bob at press time", () => {
+  // Grab offset used to be measured against the visual placement
+  // (which includes wander.currentOffset). That baked the wander bob
+  // into the persisted offset, so a small drag on a wandering creature
+  // landed 1–2 cells off where the cursor was released.
+  const writes: string[] = [];
+  const stdout = { write: (chunk: string) => (writes.push(chunk), true) } as any;
+  const changes: Array<{ creature: { id: string }; offset: { offsetX: number; offsetY: number } }> = [];
+  const engine = new GardenEngine(stdout, {
+    ...makeProps(),
+    focusIndex: -1,
+    originRow: 1,
+    originCol: 1,
+    onCreaturePlacementChange: (next) => changes.push(...next)
+  });
+
+  try {
+    const model = (engine as any).model;
+    const anchor = model.scene.placements[0] as Placement;
+    // Force a non-zero wander bob on the creature at press time.
+    const wanderState = {
+      profile: { idleMin: 1000, idleMax: 2000 },
+      phase: "idle",
+      idleUntil: Number.POSITIVE_INFINITY,
+      currentOffset: { x: 2, y: 0 },
+      persistentOffset: { x: 0, y: 0 },
+      manualOffset: undefined
+    };
+    (model.wander as Map<string, unknown>).set(anchor.tile.creature.id, wanderState);
+    // Force the visual placement to reflect that bob (so the user
+    // clicks where the wandering creature visibly is).
+    const visualX = anchor.x + 2;
+    model.visualPlacements.set(anchor.tile.creature.id, {
+      ...anchor,
+      x: visualX,
+      charY: anchor.charY
+    });
+
+    engine.handleMouse({
+      kind: "press",
+      button: "left",
+      row: 1 + anchor.charY,
+      col: 1 + visualX
+    });
+    // Drag 3 cells right. User expects the persisted offset to reflect
+    // a 3-cell move, not 3+bob.
+    engine.handleMouse({
+      kind: "drag",
+      button: "left",
+      row: 1 + anchor.charY,
+      col: 1 + visualX + 3
+    });
+    engine.handleMouse({
+      kind: "release",
+      button: "unknown",
+      row: 1 + anchor.charY,
+      col: 1 + visualX + 3
+    });
+
+    assert.equal(changes.length, 1);
+    assert.deepEqual(
+      changes[0].offset,
+      { offsetX: 3, offsetY: 0 },
+      "committed offset must equal cursor delta, not cursor delta + wander bob"
+    );
+  } finally {
+    engine.destroy();
+  }
+});
+
 test("GardenEngine resize does not clear the whole old canvas", () => {
   const writes: string[] = [];
   const stdout = {
