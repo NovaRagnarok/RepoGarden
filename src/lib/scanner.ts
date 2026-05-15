@@ -66,6 +66,12 @@ export interface ScannedRepo {
   /** Daily commit counts for the last 30 days, oldest first. */
   recentCommitDays?: number[];
   commitCount?: number;
+  /** Count of recognized source files under the repo (depth-limited walk,
+   *  SKIP_DIRS + SKIP_FILE_PATTERNS applied). Drives creature size. */
+  fileCount?: number;
+  /** Total byte size of those same recognized source files. Primary
+   *  "mass" signal for creature size. */
+  sourceBytes?: number;
   /** First few dirty files with HEAD vs working-tree text, for diff view. */
   dirtyChanges?: DirtyFileChange[];
   /** Porcelain-status inventory for dirty files, capped for display. */
@@ -636,8 +642,57 @@ export const findRepos = (root: string, maxDepth = 4): string[] => {
   return repos.sort();
 };
 
-const detectLanguage = (repoPath: string): string | undefined => {
+// Extra exclusions on top of SKIP_DIRS — these are files that match a
+// recognized source extension but shouldn't count toward "mass" because
+// they're generated, vendored, or otherwise not authored content.
+// "deps" covers Erlang/Elixir's deps/ dir (mix's node_modules-equivalent);
+// "external"/"extern" cover Bazel and CMake vendor trees. NB: we deliberately
+// skip plural "libs" — in Nx/Angular monorepos that's the source root, not a
+// vendor dir. Singular "lib" is also legitimate source in many projects.
+const SKIP_DIR_NAMES_EXTRA = new Set([
+  "vendor",
+  "third_party",
+  "third-party",
+  "external",
+  "extern",
+  "deps"
+]);
+const SKIP_FILENAMES = new Set([
+  "package-lock.json",
+  "yarn.lock",
+  "pnpm-lock.yaml",
+  "composer.lock",
+  "Gemfile.lock",
+  "Cargo.lock",
+  "poetry.lock"
+]);
+const isNoiseFile = (entry: string): boolean => {
+  if (SKIP_FILENAMES.has(entry)) return true;
+  if (entry.endsWith(".min.js") || entry.endsWith(".min.css")) return true;
+  if (entry.endsWith(".map")) return true;
+  // Generated TypeScript declarations and a few common codegen suffixes.
+  // `.d.ts` files balloon repos with no hand-written content; `.generated.*`
+  // and `.gen.*` are the prevailing conventions for codegen output.
+  if (entry.endsWith(".d.ts")) return true;
+  if (entry.includes(".generated.") || entry.includes(".gen.")) return true;
+  return false;
+};
+
+// Recognized as a "language" for primaryLanguage detection, but doesn't count
+// toward creature mass. Markdown is the obvious one — a docs-heavy repo
+// shouldn't render as a massive creature just because it has a long README.
+const MASS_EXCLUDED_EXTS = new Set(["md"]);
+
+interface RepoTreeStats {
+  primaryLanguage?: string;
+  fileCount: number;
+  sourceBytes: number;
+}
+
+const scanRepoTree = (repoPath: string): RepoTreeStats => {
   const counts = new Map<string, number>();
+  let fileCount = 0;
+  let sourceBytes = 0;
 
   const walk = (dir: string, depth: number): void => {
     if (depth > 2) return;
@@ -649,6 +704,7 @@ const detectLanguage = (repoPath: string): string | undefined => {
     }
     for (const entry of entries) {
       if (entry.startsWith(".") || SKIP_DIRS.has(entry)) continue;
+      if (SKIP_DIR_NAMES_EXTRA.has(entry)) continue;
       const full = join(dir, entry);
       let s;
       try {
@@ -659,26 +715,30 @@ const detectLanguage = (repoPath: string): string | undefined => {
       if (s.isDirectory()) {
         walk(full, depth + 1);
       } else if (s.isFile()) {
+        if (isNoiseFile(entry)) continue;
         const dot = entry.lastIndexOf(".");
         if (dot < 0) continue;
         const ext = entry.slice(dot + 1).toLowerCase();
         const lang = LANGUAGE_BY_EXT[ext];
         if (!lang) continue;
         counts.set(lang, (counts.get(lang) ?? 0) + s.size);
+        if (MASS_EXCLUDED_EXTS.has(ext)) continue;
+        fileCount += 1;
+        sourceBytes += s.size;
       }
     }
   };
 
   walk(repoPath, 0);
-  if (counts.size === 0) return undefined;
 
+  let primaryLanguage: string | undefined;
   let best: { lang: string; size: number } | undefined;
   for (const [lang, size] of counts.entries()) {
-    if (!best || size > best.size) {
-      best = { lang, size };
-    }
+    if (!best || size > best.size) best = { lang, size };
   }
-  return best?.lang;
+  primaryLanguage = best?.lang;
+
+  return { primaryLanguage, fileCount, sourceBytes };
 };
 
 export const inspectRepo = (repoPath: string): ScannedRepo => {
@@ -745,6 +805,7 @@ export const inspectRepo = (repoPath: string): ScannedRepo => {
   const recentCommitDays = buildRecentCommitDays(repoPath);
   const dirtySnapshot = isDirty ? buildDirtyChanges(repoPath) : undefined;
   const dirtyStatus = isDirty ? buildDirtyFileStatuses(repoPath) : undefined;
+  const tree = scanRepoTree(repoPath);
 
   return {
     ...base,
@@ -755,10 +816,12 @@ export const inspectRepo = (repoPath: string): ScannedRepo => {
     lastCommitSubject,
     lastCommitSha,
     lastCommitAt,
-    primaryLanguage: detectLanguage(repoPath),
+    primaryLanguage: tree.primaryLanguage,
     recentCommits,
     recentCommitDays,
     commitCount: Number.isFinite(commitCount) ? commitCount : undefined,
+    fileCount: tree.fileCount,
+    sourceBytes: tree.sourceBytes,
     dirtyChanges: dirtySnapshot?.changes,
     dirtyFiles: dirtyStatus?.files,
     dirtyFileCount: dirtyStatus?.total ?? dirtySnapshot?.total
@@ -1042,8 +1105,8 @@ export const inspectRepoEnrichAsync = async (
 
 /**
  * Phase 3 — best-effort extras that don't gate the "scan complete" feeling.
- * Currently: primary-language detection, a fs walk over the working tree
- * (depth 2) that counts source-file bytes. Runs after every repo already has
+ * Currently: primary-language detection plus file-count / source-byte
+ * tallies from a single depth-2 fs walk. Runs after every repo already has
  * its git data on screen, so a monorepo's deep src tree doesn't hold up the
  * rest of the scan.
  */
@@ -1051,11 +1114,23 @@ export const inspectRepoExtrasAsync = async (
   scan: ScannedRepo
 ): Promise<ScannedRepo> => {
   if (scan.scanError) return scan;
-  // detectLanguage is synchronous fs IO — wrap in an awaited microtask so
+  // scanRepoTree is synchronous fs IO — wrap in an awaited microtask so
   // the worker pool can interleave with other repos' work.
   await Promise.resolve();
-  const primaryLanguage = detectLanguage(scan.path);
-  return primaryLanguage === scan.primaryLanguage ? scan : { ...scan, primaryLanguage };
+  const tree = scanRepoTree(scan.path);
+  if (
+    tree.primaryLanguage === scan.primaryLanguage &&
+    tree.fileCount === scan.fileCount &&
+    tree.sourceBytes === scan.sourceBytes
+  ) {
+    return scan;
+  }
+  return {
+    ...scan,
+    primaryLanguage: tree.primaryLanguage,
+    fileCount: tree.fileCount,
+    sourceBytes: tree.sourceBytes
+  };
 };
 
 export interface ScanResult {

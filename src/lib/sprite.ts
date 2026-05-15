@@ -818,15 +818,26 @@ export interface CreatureSizeCohort {
   count: number;
 }
 
+// Pure "mass" — how much stuff is in the repo, not how alive it is. Vitality
+// signals (recentCommitDays, ahead/behind, isDirty) deliberately don't appear
+// here; they belong to mood/confidence, not size.
+//
+// Primary signal: log1p(sourceBytes) — literal byte size of recognized source
+// files, post-SKIP_DIRS/noise filtering. Secondary: log1p(fileCount), so a
+// repo of many tiny files reads larger than a repo of one big file with the
+// same byte total. commitCount sticks around as a faint tiebreaker / fallback
+// when scanRepoTree hasn't run yet (Phase 3 extras race with first paint).
 const creatureActivityMass = (repo: ScannedRepo): number => {
+  const sourceBytes = Math.max(0, repo.sourceBytes ?? 0);
+  const fileCount = Math.max(0, repo.fileCount ?? 0);
   const commitCount = Math.max(0, repo.commitCount ?? 0);
-  const recentCommits = (repo.recentCommitDays ?? []).reduce((sum, count) => sum + count, 0);
-  const branchDelta = Math.max(0, repo.ahead ?? 0) + Math.max(0, repo.behind ?? 0);
+  if (sourceBytes === 0 && fileCount === 0) {
+    return Math.log1p(commitCount) * 0.5;
+  }
   return (
-    Math.log1p(commitCount) +
-    Math.log1p(recentCommits) * 0.38 +
-    Math.log1p(branchDelta) * 0.16 +
-    (repo.isDirty ? 0.22 : 0)
+    Math.log1p(sourceBytes) +
+    Math.log1p(fileCount) * 0.45 +
+    Math.log1p(commitCount) * 0.08
   );
 };
 
@@ -843,10 +854,16 @@ export const buildCreatureSizeCohort = (
   };
 };
 
+// log1p(50_000_000) ≈ 17.7 — a ~50MB source repo lands near absolute=1.0.
+// Cohort spread threshold bumped from 0.35 to 1.5 to match the wider mass
+// range produced by log-of-bytes (vs the old log-of-commitCount scale).
+const ABSOLUTE_MASS_DIVISOR = Math.log1p(50_000_000);
+const COHORT_SPREAD_FLAT = 1.5;
+
 const normalizedCreatureMass = (repo: ScannedRepo, cohort?: CreatureSizeCohort): number => {
   const mass = creatureActivityMass(repo);
-  const absolute = clamp(mass / Math.log1p(1200), 0, 1);
-  if (!cohort || cohort.count < 3 || cohort.maxMass - cohort.minMass < 0.35) {
+  const absolute = clamp(mass / ABSOLUTE_MASS_DIVISOR, 0, 1);
+  if (!cohort || cohort.count < 3 || cohort.maxMass - cohort.minMass < COHORT_SPREAD_FLAT) {
     return absolute;
   }
   const relative = clamp((mass - cohort.minMass) / (cohort.maxMass - cohort.minMass), 0, 1);
