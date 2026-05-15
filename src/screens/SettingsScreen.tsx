@@ -41,12 +41,14 @@ export interface SettingsScreenProps {
   observerEnabled?: boolean;
   gardenPaginate?: boolean;
   gardenDensity?: GardenDensity;
+  bellOnVibeChange?: boolean;
   onPickTheme: (id: string) => void;
   onToggleReducedMotion?: () => void;
   onToggleUsageBar?: () => void;
   onToggleObserver?: () => void;
   onToggleGardenPaginate?: () => void;
   onCycleGardenDensity?: () => void;
+  onToggleBellOnVibeChange?: () => void;
   onClose: () => void;
 }
 
@@ -361,12 +363,14 @@ export const SettingsScreen = ({
   observerEnabled = true,
   gardenPaginate = true,
   gardenDensity = "comfortable",
+  bellOnVibeChange = false,
   onPickTheme,
   onToggleReducedMotion,
   onToggleUsageBar,
   onToggleObserver,
   onToggleGardenPaginate,
   onCycleGardenDensity,
+  onToggleBellOnVibeChange,
   onClose
 }: SettingsScreenProps) => {
   const appliedTheme = useTheme();
@@ -376,18 +380,18 @@ export const SettingsScreen = ({
   // Compact mode kicks in when the full stack (header + prefs + min 4 themes
   // + four-line footer + padding) would overflow the container. Worst-case
   // chrome cost (narrow header):
-  //   header(6) + prefs(10) + themes-chrome(5) + footer(5) + paddingY(2) = 28
-  // Plus min pageSize 4 + container off-by-one (1) = 33 rows. Below that we
+  //   header(6) + prefs(11) + themes-chrome(5) + footer(5) + paddingY(2) = 29
+  // Plus min pageSize 4 + container off-by-one (1) = 34 rows. Below that we
   // switch to a tab bar that shows one section at a time, so no option ever
   // gets clipped.
-  const compactMode = rows < 33;
+  const compactMode = rows < 34;
   // reservedRows is the chrome cost that's subtracted from rows to derive
   // pageSize. We use the worst-case (narrow) numbers so themes content never
   // overflows the container — at wide widths this just leaves ~2 rows of
   // margin, which is fine.
   //   compact: header(6) + tab(1) + themes-chrome(5) + footer(3) + padding(2) + container off-by-one(1) = 18
-  //   non-compact: header(6) + prefs(10) + themes-chrome(5) + footer(5) + padding(2) + container off-by-one(1) = 29
-  const reservedRows = compactMode ? 18 : 29;
+  //   non-compact: header(6) + prefs(11) + themes-chrome(5) + footer(5) + padding(2) + container off-by-one(1) = 30
+  const reservedRows = compactMode ? 18 : 30;
   const pageSize = Math.max(4, Math.min(themeCatalogue.length, rows - reservedRows));
   const containerHeight = Math.max(8, rows - 1);
   const startIndex = Math.max(
@@ -455,6 +459,10 @@ export const SettingsScreen = ({
       onCycleGardenDensity();
       return;
     }
+    if (input === "b" && onToggleBellOnVibeChange) {
+      onToggleBellOnVibeChange();
+      return;
+    }
     if (key.escape || input === "q") {
       onClose();
     }
@@ -480,7 +488,7 @@ export const SettingsScreen = ({
   });
 
   const hitZones = useMemo(() => {
-    type PrefKind = "motion" | "usage" | "observer" | "paginate" | "density";
+    type PrefKind = "motion" | "usage" | "observer" | "paginate" | "density" | "bell";
     type TabKind = "tab-themes" | "tab-prefs";
     type Zone =
       | {
@@ -503,7 +511,7 @@ export const SettingsScreen = ({
 
     const innerLeft = 2;
     const innerRight = Math.max(innerLeft, innerLeft + innerContentW - 1);
-    const prefKinds: PrefKind[] = ["motion", "usage", "observer", "paginate", "density"];
+    const prefKinds: PrefKind[] = ["motion", "usage", "observer", "paginate", "density", "bell"];
 
     if (compactMode) {
       // Tab bar lives in a single row directly below the header. Labels are
@@ -669,6 +677,9 @@ export const SettingsScreen = ({
                 case "density":
                   onCycleGardenDensity?.();
                   break;
+                case "bell":
+                  onToggleBellOnVibeChange?.();
+                  break;
                 case "tab-themes":
                   setCompactSection("themes");
                   break;
@@ -689,7 +700,8 @@ export const SettingsScreen = ({
         onToggleUsageBar,
         onToggleObserver,
         onToggleGardenPaginate,
-        onCycleGardenDensity
+        onCycleGardenDensity,
+        onToggleBellOnVibeChange
       ]
     )
   );
@@ -778,6 +790,15 @@ export const SettingsScreen = ({
         label="density · how packed garden + shelf feel"
         indicator={gardenDensity}
         indicatorColor={previewTheme.colors.success}
+        labelColor={previewTheme.colors.foreground}
+      />
+      <PrefRow
+        hotkey="b"
+        label="bell on vibe flip · BEL when a repo changes state"
+        indicator={bellOnVibeChange ? "● on" : "○ off"}
+        indicatorColor={
+          bellOnVibeChange ? previewTheme.colors.success : previewTheme.colors.mutedForeground
+        }
         labelColor={previewTheme.colors.foreground}
       />
     </Panel>

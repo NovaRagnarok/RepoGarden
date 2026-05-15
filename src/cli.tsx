@@ -72,6 +72,7 @@ interface AppProps {
   initialObserverEnabled: boolean;
   initialGardenPaginate: boolean;
   initialGardenDensity: GardenDensity;
+  initialBellOnVibeChange: boolean;
   onThemeChange: (theme: Theme) => void;
   onReducedMotionChange: (reduced: boolean) => void;
 }
@@ -85,6 +86,7 @@ const App = ({
   initialObserverEnabled,
   initialGardenPaginate,
   initialGardenDensity,
+  initialBellOnVibeChange,
   onThemeChange,
   onReducedMotionChange
 }: AppProps) => {
@@ -105,6 +107,7 @@ const App = ({
   const [observerOn, setObserverOn] = useState<boolean>(initialObserverEnabled);
   const [gardenPaginate, setGardenPaginate] = useState<boolean>(initialGardenPaginate);
   const [gardenDensity, setGardenDensity] = useState<GardenDensity>(initialGardenDensity);
+  const [bellOnVibeChange, setBellOnVibeChange] = useState<boolean>(initialBellOnVibeChange);
   const [scanProgress, setScanProgress] = useState<{ done: number; total: number } | undefined>();
   const [scanProgressByRoot, setScanProgressByRoot] = useState<RootProgress[] | undefined>();
 
@@ -228,6 +231,33 @@ const App = ({
         // never appears is fine; a crash on launch is not.
       });
   }, [phase, pushToast]);
+
+  // Terminal bell on vibe transitions. Diffs current vs previous creatures
+  // and rings BEL once per genuine flip (repo existed before AND vibe
+  // differs). Gated on phase === "ready" so boot-time streaming partials
+  // and the workbench focus surface don't bell-storm. The journal layer's
+  // reconcileWithSnapshot already records the vibe-changed events; this is
+  // a pure UI side-effect on top, off by default.
+  const prevVibesRef = useRef<Map<string, string> | null>(null);
+  useEffect(() => {
+    const nextVibes = new Map(creatures.map((c) => [c.id, c.vibe.vibe]));
+    const prev = prevVibesRef.current;
+    prevVibesRef.current = nextVibes;
+    if (!bellOnVibeChange) return;
+    if (phase !== "ready") return;
+    if (isRescanning) return;
+    if (!prev) return;
+    let flips = 0;
+    for (const [id, vibe] of nextVibes) {
+      const before = prev.get(id);
+      if (before !== undefined && before !== vibe) flips += 1;
+    }
+    if (flips > 0 && process.stdout.isTTY) {
+      // Single BEL regardless of how many repos flipped — bursts of bells
+      // are worse than one. The journal carries the per-repo detail.
+      process.stdout.write("\x07");
+    }
+  }, [creatures, phase, isRescanning, bellOnVibeChange]);
 
   // Light background refresh: every 30s, probe each repo with a single
   // `git status --porcelain=v2 --branch` to pick up push/commit/dirty
@@ -396,6 +426,13 @@ const App = ({
     pushToast(`pagination · ${next ? "on" : "off"}`, "info");
   };
 
+  const handleToggleBellOnVibeChange = () => {
+    const next = !bellOnVibeChange;
+    setBellOnVibeChange(next);
+    updateConfig({ bellOnVibeChange: next });
+    pushToast(`bell on vibe flip · ${next ? "on" : "off"}`, "info");
+  };
+
   // Cycle through cozy → comfortable → dense → cozy so a single hotkey can
   // walk the user across the whole spectrum.
   const handleCycleGardenDensity = () => {
@@ -527,11 +564,13 @@ const App = ({
         observerEnabled={observerOn}
         gardenPaginate={gardenPaginate}
         gardenDensity={gardenDensity}
+        bellOnVibeChange={bellOnVibeChange}
         onToggleReducedMotion={handleToggleReducedMotion}
         onToggleUsageBar={handleToggleUsageBar}
         onToggleObserver={handleToggleObserver}
         onToggleGardenPaginate={handleToggleGardenPaginate}
         onCycleGardenDensity={handleCycleGardenDensity}
+        onToggleBellOnVibeChange={handleToggleBellOnVibeChange}
         onPickTheme={handlePickTheme}
         onClose={() => setPhase("ready")}
       />
@@ -648,6 +687,7 @@ const Root = () => {
             initialObserverEnabled={config.observer.enabled}
             initialGardenPaginate={config.gardenPaginate}
             initialGardenDensity={config.gardenDensity}
+            initialBellOnVibeChange={config.bellOnVibeChange}
             onThemeChange={setActiveTheme}
             onReducedMotionChange={setReducedMotion}
           />

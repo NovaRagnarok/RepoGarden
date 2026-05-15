@@ -36,7 +36,7 @@ Open `pnpm dev` from the repo root and the terminal should read like a little lo
 
 ## Priority B
 - more creature sprite variants beyond the current procedural pool
-- accessible reduced-motion mode in the TUI: skip the star wipe + creature tween when set, mirror `prefers-reduced-motion`
+<!-- reduced-motion mode — done: `reducedMotion` config + Settings toggle, `NO_MOTION=1` / `CI=true` env detection in `theme-provider.tsx`, consumed by garden tween/wander, dither cross-fade, garden↔shelf hold, boot scene, spinner, skeleton, privacy scramble, settings star animation, and blink. -->
 - per-repo or per-root colour biomes layered over the existing theme set
 - shareable session snapshot (printable ASCII / text export of the current garden)
 - usage-bar follow-ups: `/usage` overlay with reset countdowns + provider-by-provider breakdown; optional plan-limit config for Claude so its windows can render a real bar instead of raw counts; opt-out flag in `src/lib/config.ts` for users who don't want the row at all

@@ -126,6 +126,14 @@ REPOGARDEN_DISABLE_USAGE=1 pnpm dev
 
 The env var takes precedence; either path suppresses the network call entirely.
 
+### Reduced motion
+
+The garden tween, dither cross-fade, creature wander, blink, spinner, skeleton, and the boot scene all respect a reduced-motion setting. Open Settings (`s`) and press `m` to toggle it persistently, or set `NO_MOTION=1` (or `CI=true`) for a single run:
+
+```bash
+NO_MOTION=1 repogarden
+```
+
 ## Choose your path
 
 ### Human collaborator

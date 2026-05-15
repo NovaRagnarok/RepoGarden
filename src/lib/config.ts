@@ -43,6 +43,11 @@ export interface TuiConfig {
    *  pagination kicks in. Threaded into the shelf placer too so the
    *  setting reads consistently across both views. */
   gardenDensity: GardenDensity;
+  /** Emit a terminal bell (BEL, 0x07) when a live scan picks up a
+   *  vibe transition on a repo that existed before. Off by default —
+   *  bells are polarizing. Only fires from the ready/home views, not
+   *  during boot, edit-roots, or workbench focus. */
+  bellOnVibeChange: boolean;
 }
 
 const DEFAULT_CONFIG: TuiConfig = {
@@ -53,7 +58,8 @@ const DEFAULT_CONFIG: TuiConfig = {
   usageBarDisabled: false,
   observer: { enabled: true },
   gardenPaginate: true,
-  gardenDensity: "comfortable"
+  gardenDensity: "comfortable",
+  bellOnVibeChange: false
 };
 
 const isGardenDensity = (value: unknown): value is GardenDensity =>
@@ -90,7 +96,11 @@ export const loadConfig = (): TuiConfig => {
           : DEFAULT_CONFIG.gardenPaginate,
       gardenDensity: isGardenDensity(parsed.gardenDensity)
         ? parsed.gardenDensity
-        : DEFAULT_CONFIG.gardenDensity
+        : DEFAULT_CONFIG.gardenDensity,
+      bellOnVibeChange:
+        typeof parsed.bellOnVibeChange === "boolean"
+          ? parsed.bellOnVibeChange
+          : DEFAULT_CONFIG.bellOnVibeChange
     };
   } catch {
     return DEFAULT_CONFIG;

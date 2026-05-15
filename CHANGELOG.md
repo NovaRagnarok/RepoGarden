@@ -4,6 +4,17 @@ All notable changes to RepoGarden land here. Format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+## [0.6.1] — 2026-05-15
+
+### Added
+
+- **Optional terminal bell on vibe flips.** New `b` toggle in Settings (and `bellOnVibeChange` in `~/.repogarden/tui.json`, default off) emits a single BEL (`\x07`) when a live scan picks up a vibe transition on a repo that existed before. The diff runs in `cli.tsx` on every creature update and is gated on `phase === "ready"` (so boot-time streaming partials and workbench focus don't bell-storm) and on not currently rescanning; new repos that just appeared don't count. One BEL fires per change-batch regardless of how many repos flipped — the journal still records the per-repo `vibe-changed` events as before for any detail the bell omits.
+
+### Internal
+
+- README gained a "Reduced motion" subsection documenting the existing Settings (`m`) toggle and `NO_MOTION=1` / `CI=true` env detection — the feature shipped earlier (see `theme-provider.tsx:86`, garden tween/wander, dither, boot, spinner, skeleton, privacy scramble) but wasn't called out in the user-facing docs. Stale "reduced-motion mode" entry pruned from `BACKLOG.md` Priority B.
+- Settings prefs panel grew a sixth row; `compactMode` threshold bumped from `rows < 33` to `< 34` and non-compact `reservedRows` from 29 to 30 so the new row never clips on short terminals.
+
 ## [0.6.0] — 2026-05-14
 
 ### Added
