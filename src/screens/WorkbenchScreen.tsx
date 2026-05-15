@@ -57,7 +57,7 @@ import {
 } from "@/lib/portrait";
 import { tildify } from "@/lib/scanner";
 import { getTerminalLayout } from "@/lib/responsive-layout";
-import { creatureCharSize } from "@/lib/sprite";
+import { creatureCharSize, type CreatureSizeCohort } from "@/lib/sprite";
 import { vibeGlyph } from "@/lib/vibe";
 import { isEditorActive, isEditorVisible } from "@/lib/workbench-mode";
 
@@ -66,6 +66,10 @@ export interface WorkbenchScreenProps {
   onClose: () => void;
   onPulled?: (creature: RepoCreature) => void;
   usageBarDisabled?: boolean;
+  /** Cohort the creature belongs to, used for cohort-aware (rank-based)
+   *  sizing of the workbench sprite. When omitted the sprite falls back to
+   *  absolute sizing — visually inconsistent with the garden a click ago. */
+  sizeCohort?: CreatureSizeCohort;
 }
 
 // In-memory, session-scoped last-used workbench mode. NOT persisted to disk —
@@ -93,6 +97,7 @@ export const WorkbenchScreen = ({
   onClose,
   onPulled,
   usageBarDisabled = false,
+  sizeCohort,
 }: WorkbenchScreenProps) => {
   const theme = useTheme();
   const { columns, rows } = useTerminalSize();
@@ -546,7 +551,7 @@ export const WorkbenchScreen = ({
   // of mouse-click offsets that varied with terminal size.
   // Tab columns start at outer paddingX=1 (col 2) and lay out left-to-right
   // with TAB_GUTTER=1 between each.
-  const spriteCharH = creatureCharSize(creature.scan).charH;
+  const spriteCharH = creatureCharSize(creature.scan, undefined, sizeCohort).charH;
   const headerRows = isCompact ? 3 : Math.max(spriteCharH, 3);
   // Mode toggle row position (1-indexed). Same for both wide and narrow.
   const toggleTop = headerRows + 3;
@@ -1141,7 +1146,7 @@ export const WorkbenchScreen = ({
         flexShrink={0}
       >
         <Box flexDirection="row">
-          {isCompact ? null : <CreatureSprite creature={creature} />}
+          {isCompact ? null : <CreatureSprite creature={creature} cohort={sizeCohort} />}
           <Box flexDirection="column" paddingLeft={isCompact ? 0 : 2}>
             <Text bold color={theme.colors.primary}>
               {creature.scan.name}

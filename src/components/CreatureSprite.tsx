@@ -7,27 +7,38 @@ import {
   creatureCharSize,
   generateCreature,
   pickSpriteColors,
-  quadrantChar
+  quadrantChar,
+  type CreatureSizeCohort
 } from "@/lib/sprite";
 
 export interface CreatureSpriteProps {
   creature: RepoCreature;
-  /** Override character width. Falls back to creatureCharSize(repo). */
+  /** Override character width. Falls back to creatureCharSize(repo, …, cohort). */
   charW?: number;
-  /** Override character height. Falls back to creatureCharSize(repo). */
+  /** Override character height. Falls back to creatureCharSize(repo, …, cohort). */
   charH?: number;
   /** When true, draw a faint frame around the sprite (used to mark focus). */
   framed?: boolean;
+  /** Cohort the creature belongs to. Without it, the sprite falls back to
+   *  absolute-only sizing, which under rank-based scaling diverges sharply
+   *  from the cohort-aware sizes used in the garden view. Pass the same
+   *  cohort the parent built for the garden so the popup and workbench
+   *  sprites match what the user just clicked on. */
+  cohort?: CreatureSizeCohort;
 }
 
 export const CreatureSprite = ({
   creature,
   charW,
   charH,
-  framed = false
+  framed = false,
+  cohort
 }: CreatureSpriteProps) => {
   const theme = useTheme();
-  const sized = useMemo(() => creatureCharSize(creature.scan), [creature.scan]);
+  const sized = useMemo(
+    () => creatureCharSize(creature.scan, undefined, cohort),
+    [creature.scan, cohort]
+  );
   const w = charW ?? sized.charW;
   const h = charH ?? sized.charH;
   const frame = useMemo(
