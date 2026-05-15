@@ -3,7 +3,47 @@ import { quadrantChar } from "@/lib/sprite";
 
 import { computeStarVisual, greyHex, starAtCell } from "@/garden/stars";
 import { blinkClosedAt, wiggleFrameAt } from "@/garden/model";
-import type { GardenCell, GardenFrame, GardenModel } from "@/garden/types";
+import type { GardenCell, GardenFrame, GardenModel, GardenSpriteInfo } from "@/garden/types";
+
+// Tightest cell rect that contains any lit sub-pixel across both animation
+// frames. Sprite bitmaps frequently leave empty cells at the top/sides of
+// their charW × charH bounding box (the body window in sprite.ts picks
+// ~54-74% of the available height), and feeding the bounding box straight
+// into the focus frame inflates the box well past the visible creature.
+// OR-ing both frames keeps the frame stable through the body-bob — it
+// reflects the creature's range of motion, not its instantaneous extent.
+const visibleCellBounds = (
+  info: GardenSpriteInfo
+): { minCx: number; maxCx: number; minCy: number; maxCy: number } => {
+  let minCx = info.charW;
+  let maxCx = -1;
+  let minCy = info.charH;
+  let maxCy = -1;
+  for (let cy = 0; cy < info.charH; cy += 1) {
+    for (let cx = 0; cx < info.charW; cx += 1) {
+      const sy = cy * SUB_PER_CELL;
+      const sx = cx * SUB_PER_CELL;
+      const on =
+        info.frameA[sy]?.[sx] === 1 ||
+        info.frameA[sy]?.[sx + 1] === 1 ||
+        info.frameA[sy + 1]?.[sx] === 1 ||
+        info.frameA[sy + 1]?.[sx + 1] === 1 ||
+        info.frameB[sy]?.[sx] === 1 ||
+        info.frameB[sy]?.[sx + 1] === 1 ||
+        info.frameB[sy + 1]?.[sx] === 1 ||
+        info.frameB[sy + 1]?.[sx + 1] === 1;
+      if (!on) continue;
+      if (cx < minCx) minCx = cx;
+      if (cx > maxCx) maxCx = cx;
+      if (cy < minCy) minCy = cy;
+      if (cy > maxCy) maxCy = cy;
+    }
+  }
+  if (maxCx < 0) {
+    return { minCx: 0, maxCx: info.charW - 1, minCy: 0, maxCy: info.charH - 1 };
+  }
+  return { minCx, maxCx, minCy, maxCy };
+};
 
 // Lower one-quarter block — sits at the bottom of the cell like `_`
 // but with a thicker bar that reads clearly as a closed eyelid.
@@ -241,7 +281,24 @@ export const renderGardenFrame = (
   );
   if (focusPlacement) {
     const visual = model.visualPlacements.get(focusPlacement.tile.creature.id) ?? focusPlacement;
-    const focusCells = computeFocusFrameCells(visual, {
+    const focusInfo = model.scene.sprites.get(focusPlacement.tile.creature.id);
+    // Shrink the frame anchor to the sprite's lit cells so the box hugs
+    // the visible creature instead of the bitmap's bounding box.
+    const tightVisual = focusInfo
+      ? (() => {
+          const bounds = visibleCellBounds(focusInfo);
+          return {
+            tile: {
+              ...visual.tile,
+              spriteCols: bounds.maxCx - bounds.minCx + 1,
+              charRows: bounds.maxCy - bounds.minCy + 1
+            },
+            x: visual.x + bounds.minCx,
+            charY: visual.charY + bounds.minCy
+          };
+        })()
+      : visual;
+    const focusCells = computeFocusFrameCells(tightVisual, {
       canvasW: frame.width,
       canvasH: frame.height,
       deadZone: model.props.deadZone

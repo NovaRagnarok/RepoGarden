@@ -38,7 +38,11 @@ test("responsive layout only shows the overlay card on tall wide terminals", () 
   assert.equal(getTerminalLayout(120, 40).showOverlayCard, true);
 });
 
-test("overlay card slot reserves the same dead zone when hidden", () => {
+test("overlay card slot releases the dead zone when hidden so the garden reclaims the corner", () => {
+  // When the user dismisses the focus card with `c`, the bottom-right
+  // corner should return to the garden — stars render there again,
+  // creatures wander/drag into it, no placeholder paints over the canvas.
+  // The dimensions stay stable so toggling back doesn't change card size.
   const visible = computeOverlayCardSlot({
     canReserve: true,
     cardVisible: true,
@@ -54,9 +58,10 @@ test("overlay card slot reserves the same dead zone when hidden", () => {
 
   assert.equal(visible.reserved, true);
   assert.equal(visible.visible, true);
-  assert.equal(hidden.reserved, true);
+  assert.ok(visible.deadZone, "visible card must reserve a dead zone");
+  assert.equal(hidden.reserved, false, "hidden card must release the slot");
   assert.equal(hidden.visible, false);
-  assert.deepEqual(hidden.deadZone, visible.deadZone);
+  assert.equal(hidden.deadZone, undefined, "hidden card must drop the dead zone");
   assert.equal(hidden.width, visible.width);
   assert.equal(hidden.height, visible.height);
   assert.equal(hidden.offsetTop, visible.offsetTop);

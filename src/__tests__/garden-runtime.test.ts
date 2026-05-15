@@ -586,6 +586,140 @@ test("GardenEngine commits a prior drag when a fresh press arrives without a rel
   }
 });
 
+test("GardenEngine setProps with identical scene fields does not disturb an in-flight drag", () => {
+  // A mid-drag re-render (toast pop, background scan tick, any
+  // unmemoized callback in the React tree) was tearing down
+  // `dragPreviewPlacements` and resetting every wander state's
+  // `manualOffset` back to the last committed memory value. The
+  // engine's `drag` pointer survived but pointed into a wiped model —
+  // the user's drag silently undid itself.
+  const writes: string[] = [];
+  const stdout = { write: (chunk: string) => (writes.push(chunk), true) } as any;
+  const baseProps = {
+    ...makeProps(),
+    focusIndex: -1,
+    originRow: 1,
+    originCol: 1,
+    onCreatureSelect: () => {},
+    onFocusDelta: () => {}
+  };
+  const changes: Array<{ creature: { id: string }; offset: { offsetX: number; offsetY: number } }> = [];
+  const engine = new GardenEngine(stdout, {
+    ...baseProps,
+    onCreaturePlacementChange: (next) => changes.push(...next)
+  });
+
+  try {
+    const model = (engine as any).model;
+    const placement = model.scene.placements[0] as Placement;
+    engine.handleMouse({
+      kind: "press",
+      button: "left",
+      row: 1 + placement.charY,
+      col: 1 + placement.x
+    });
+    engine.handleMouse({
+      kind: "drag",
+      button: "left",
+      row: 1 + placement.charY,
+      col: 1 + placement.x + 4
+    });
+    // Mid-drag setProps with semantically identical scene fields but a
+    // fresh callback identity (simulating a parent re-render).
+    engine.setProps({
+      ...baseProps,
+      onCreaturePlacementChange: (next) => changes.push(...next)
+    });
+    // Preview must still be present after the spurious re-sync.
+    assert.ok(
+      (model as any).dragPreviewPlacements,
+      "in-flight drag preview was wiped by a spurious setProps"
+    );
+    engine.handleMouse({
+      kind: "release",
+      button: "unknown",
+      row: 1 + placement.charY,
+      col: 1 + placement.x + 4
+    });
+
+    assert.equal(changes.length, 1);
+    assert.equal(changes[0].creature.id, "alpha");
+    assert.deepEqual(changes[0].offset, { offsetX: 4, offsetY: 0 });
+  } finally {
+    engine.destroy();
+  }
+});
+
+test("GardenEngine drag math is independent of the creature's wander bob at press time", () => {
+  // Grab offset used to be measured against the visual placement
+  // (which includes wander.currentOffset). That baked the wander bob
+  // into the persisted offset, so a small drag on a wandering creature
+  // landed 1–2 cells off where the cursor was released.
+  const writes: string[] = [];
+  const stdout = { write: (chunk: string) => (writes.push(chunk), true) } as any;
+  const changes: Array<{ creature: { id: string }; offset: { offsetX: number; offsetY: number } }> = [];
+  const engine = new GardenEngine(stdout, {
+    ...makeProps(),
+    focusIndex: -1,
+    originRow: 1,
+    originCol: 1,
+    onCreaturePlacementChange: (next) => changes.push(...next)
+  });
+
+  try {
+    const model = (engine as any).model;
+    const anchor = model.scene.placements[0] as Placement;
+    // Force a non-zero wander bob on the creature at press time.
+    const wanderState = {
+      profile: { idleMin: 1000, idleMax: 2000 },
+      phase: "idle",
+      idleUntil: Number.POSITIVE_INFINITY,
+      currentOffset: { x: 2, y: 0 },
+      persistentOffset: { x: 0, y: 0 },
+      manualOffset: undefined
+    };
+    (model.wander as Map<string, unknown>).set(anchor.tile.creature.id, wanderState);
+    // Force the visual placement to reflect that bob (so the user
+    // clicks where the wandering creature visibly is).
+    const visualX = anchor.x + 2;
+    model.visualPlacements.set(anchor.tile.creature.id, {
+      ...anchor,
+      x: visualX,
+      charY: anchor.charY
+    });
+
+    engine.handleMouse({
+      kind: "press",
+      button: "left",
+      row: 1 + anchor.charY,
+      col: 1 + visualX
+    });
+    // Drag 3 cells right. User expects the persisted offset to reflect
+    // a 3-cell move, not 3+bob.
+    engine.handleMouse({
+      kind: "drag",
+      button: "left",
+      row: 1 + anchor.charY,
+      col: 1 + visualX + 3
+    });
+    engine.handleMouse({
+      kind: "release",
+      button: "unknown",
+      row: 1 + anchor.charY,
+      col: 1 + visualX + 3
+    });
+
+    assert.equal(changes.length, 1);
+    assert.deepEqual(
+      changes[0].offset,
+      { offsetX: 3, offsetY: 0 },
+      "committed offset must equal cursor delta, not cursor delta + wander bob"
+    );
+  } finally {
+    engine.destroy();
+  }
+});
+
 test("GardenEngine resize does not clear the whole old canvas", () => {
   const writes: string[] = [];
   const stdout = {
@@ -1397,4 +1531,634 @@ test("applyManualGardenPlacement blocks push when a pushed creature would enter 
   assert.equal(offset, null);
   assert.deepEqual(model.visualPlacements.get("alpha"), alpha);
   assert.deepEqual(model.visualPlacements.get("beta"), beta);
+});
+
+// =========================================================================
+// Drag replay harness — exercise the same mouse-event sequences a user
+// produces during a drag, in many variants, so each "the drag refused to
+// move" symptom maps to one concrete failing scenario. Each scenario is
+// its own test so the failures are isolated.
+// =========================================================================
+
+interface DragScenarioOpts {
+  /** Creatures in the garden. */
+  creatures: Array<{ id: string; name?: string }>;
+  /** Which creature to drag. */
+  dragId: string;
+  /** Cell-space delta to drag by. */
+  delta: { dx: number; dy: number };
+  /**
+   * Optional hook that runs after press but before any drag events. Use
+   * to simulate background things that happen mid-drag (a stray
+   * setProps, a tick, etc.).
+   */
+  betweenPressAndDrag?: (engine: GardenEngine) => void;
+  /**
+   * Optional hook that runs after each drag event but before release.
+   * Lets a test inject a re-render in the middle of a multi-step drag.
+   */
+  betweenDragEvents?: (engine: GardenEngine, step: number) => void;
+  /** How many drag events to emit between press and release. */
+  steps?: number;
+  /** Initial focus index. -1 = no focus. */
+  focusIndex?: number;
+  /** Force a non-zero wander bob on the dragged creature at press time. */
+  wanderBob?: { x: number; y: number };
+}
+
+interface DragScenarioResult {
+  /** Did any onCreaturePlacementChange fire? */
+  committed: boolean;
+  /** Final committed offset for the dragged creature, if any. */
+  committedOffset: { offsetX: number; offsetY: number } | null;
+  /** Engine's drag state at the moment of release (should be null after). */
+  dragAliveAfterRelease: boolean;
+  /** Whether dragPreviewPlacements was ever populated during the drag. */
+  previewEverSet: boolean;
+  /** Final visual placement of the dragged creature (post-release). */
+  finalVisualX: number | null;
+  /** The press placement returned by hit-test, or null if press missed. */
+  pressHit: { x: number; charY: number } | null;
+}
+
+const runDragScenario = (opts: DragScenarioOpts): DragScenarioResult => {
+  const writes: string[] = [];
+  const stdout = { write: (chunk: string) => (writes.push(chunk), true) } as any;
+  const props: GardenSceneProps = {
+    ...makeProps(),
+    creatures: opts.creatures.map((c) => ({
+      id: c.id,
+      scan: { id: c.id, path: `/tmp/${c.id}`, name: c.name ?? c.id, isDirty: false } as any,
+      memory: {} as any,
+      vibe: { vibe: "happy", reason: "", activity: 1 } as any
+    })),
+    focusIndex: opts.focusIndex ?? -1,
+    innerWidth: 60,
+    canvasH: 20,
+    placementMode: "organic"
+  };
+  const changes: Array<{ creature: { id: string }; offset: { offsetX: number; offsetY: number } }> = [];
+  const engineProps = {
+    ...props,
+    originRow: 1,
+    originCol: 1,
+    onCreaturePlacementChange: (next: typeof changes) => changes.push(...next)
+  };
+  const engine = new GardenEngine(stdout, engineProps);
+  const result: DragScenarioResult = {
+    committed: false,
+    committedOffset: null,
+    dragAliveAfterRelease: false,
+    previewEverSet: false,
+    finalVisualX: null,
+    pressHit: null
+  };
+
+  try {
+    const model = (engine as any).model;
+    const placement = (model.scene.placements as Placement[]).find(
+      (p) => p.tile.creature.id === opts.dragId
+    );
+    if (!placement) {
+      throw new Error(`scenario setup: creature "${opts.dragId}" not placed in scene`);
+    }
+
+    if (opts.wanderBob) {
+      const wanderState = {
+        profile: { idleMin: 1000, idleMax: 2000 },
+        phase: "idle",
+        idleUntil: Number.POSITIVE_INFINITY,
+        currentOffset: { x: opts.wanderBob.x, y: opts.wanderBob.y },
+        persistentOffset: { x: 0, y: 0 },
+        manualOffset: undefined
+      };
+      (model.wander as Map<string, unknown>).set(placement.tile.creature.id, wanderState);
+      model.visualPlacements.set(placement.tile.creature.id, {
+        ...placement,
+        x: placement.x + opts.wanderBob.x,
+        charY: placement.charY + opts.wanderBob.y
+      });
+    }
+
+    const visual = model.visualPlacements.get(placement.tile.creature.id) ?? placement;
+    const pressCol = 1 + visual.x;
+    const pressRow = 1 + visual.charY;
+    result.pressHit = { x: visual.x, charY: visual.charY };
+
+    engine.handleMouse({ kind: "press", button: "left", row: pressRow, col: pressCol });
+
+    if (opts.betweenPressAndDrag) opts.betweenPressAndDrag(engine);
+
+    const steps = opts.steps ?? 1;
+    for (let i = 1; i <= steps; i += 1) {
+      const fraction = i / steps;
+      const dx = Math.round(opts.delta.dx * fraction);
+      const dy = Math.round(opts.delta.dy * fraction);
+      engine.handleMouse({
+        kind: "drag",
+        button: "left",
+        row: pressRow + dy,
+        col: pressCol + dx
+      });
+      if (model.dragPreviewPlacements) result.previewEverSet = true;
+      if (opts.betweenDragEvents) opts.betweenDragEvents(engine, i);
+    }
+
+    engine.handleMouse({
+      kind: "release",
+      button: "unknown",
+      row: pressRow + opts.delta.dy,
+      col: pressCol + opts.delta.dx
+    });
+
+    result.dragAliveAfterRelease = (engine as any).drag !== null;
+    if (changes.length > 0) {
+      result.committed = true;
+      const myChange = changes.find((c) => c.creature.id === opts.dragId);
+      if (myChange) result.committedOffset = myChange.offset;
+    }
+    const finalPlacement = (model.scene.placements as Placement[]).find(
+      (p) => p.tile.creature.id === opts.dragId
+    );
+    if (finalPlacement) {
+      const visualAfter = model.visualPlacements.get(opts.dragId);
+      result.finalVisualX = visualAfter?.x ?? finalPlacement.x;
+    }
+  } finally {
+    engine.destroy();
+  }
+
+  return result;
+};
+
+test("drag-replay: simple single-step drag commits the cursor delta", () => {
+  const r = runDragScenario({
+    creatures: [{ id: "alpha" }],
+    dragId: "alpha",
+    delta: { dx: 5, dy: 0 }
+  });
+  assert.ok(r.pressHit, "press should hit a creature");
+  assert.ok(r.previewEverSet, "drag preview should populate during drag");
+  assert.ok(r.committed, "drag should commit");
+  assert.deepEqual(r.committedOffset, { offsetX: 5, offsetY: 0 });
+});
+
+test("drag-replay: multi-step drag (10 events) commits the final position", () => {
+  const r = runDragScenario({
+    creatures: [{ id: "alpha" }],
+    dragId: "alpha",
+    delta: { dx: 10, dy: 0 },
+    steps: 10
+  });
+  assert.deepEqual(r.committedOffset, { offsetX: 10, offsetY: 0 });
+});
+
+test("drag-replay: zero-distance drag (press + release, no movement) does not commit", () => {
+  const r = runDragScenario({
+    creatures: [{ id: "alpha" }],
+    dragId: "alpha",
+    delta: { dx: 0, dy: 0 },
+    steps: 0
+  });
+  assert.equal(r.committed, false, "click without drag should not commit");
+});
+
+test("drag-replay: drag in negative direction commits the negative offset", () => {
+  const r = runDragScenario({
+    creatures: [{ id: "alpha" }],
+    dragId: "alpha",
+    delta: { dx: -3, dy: 0 }
+  });
+  assert.deepEqual(r.committedOffset, { offsetX: -3, offsetY: 0 });
+});
+
+test("drag-replay: drag a wandering creature ignores the bob in the commit", () => {
+  const r = runDragScenario({
+    creatures: [{ id: "alpha" }],
+    dragId: "alpha",
+    delta: { dx: 4, dy: 0 },
+    wanderBob: { x: 2, y: 1 }
+  });
+  assert.deepEqual(
+    r.committedOffset,
+    { offsetX: 4, offsetY: 0 },
+    "wander bob at press should not contaminate the persisted offset"
+  );
+});
+
+test("drag-replay: stray setProps mid-drag (same scene) does not break commit", () => {
+  const r = runDragScenario({
+    creatures: [{ id: "alpha" }],
+    dragId: "alpha",
+    delta: { dx: 6, dy: 0 },
+    steps: 3,
+    betweenDragEvents: (engine, step) => {
+      if (step === 2) {
+        // Simulate a parent re-render that ships fresh callback identities
+        // but no scene change.
+        engine.setProps({
+          ...(engine as any).props,
+          onCreaturePlacementChange: ((engine as any).props.onCreaturePlacementChange)
+        });
+      }
+    }
+  });
+  assert.equal(r.committed, true);
+  assert.deepEqual(r.committedOffset, { offsetX: 6, offsetY: 0 });
+});
+
+test("drag-replay: stepGardenModel tick mid-drag does not lose the preview", () => {
+  const r = runDragScenario({
+    creatures: [{ id: "alpha" }],
+    dragId: "alpha",
+    delta: { dx: 4, dy: 0 },
+    steps: 2,
+    betweenDragEvents: (engine, step) => {
+      if (step === 1) {
+        const model = (engine as any).model;
+        stepGardenModel(model, performance.now() + 100);
+      }
+    }
+  });
+  assert.equal(r.committed, true);
+  assert.ok(r.previewEverSet);
+});
+
+test("drag-replay: two consecutive drags on the same creature both commit", () => {
+  const writes: string[] = [];
+  const stdout = { write: (chunk: string) => (writes.push(chunk), true) } as any;
+  const changes: Array<{ creature: { id: string }; offset: { offsetX: number; offsetY: number } }> = [];
+  const engine = new GardenEngine(stdout, {
+    ...makeProps(),
+    focusIndex: -1,
+    originRow: 1,
+    originCol: 1,
+    onCreaturePlacementChange: (next) => changes.push(...next)
+  });
+  try {
+    const model = (engine as any).model;
+    const placement = model.scene.placements[0] as Placement;
+    // Drag 1: +3.
+    engine.handleMouse({ kind: "press", button: "left", row: 1 + placement.charY, col: 1 + placement.x });
+    engine.handleMouse({ kind: "drag", button: "left", row: 1 + placement.charY, col: 1 + placement.x + 3 });
+    engine.handleMouse({ kind: "release", button: "unknown", row: 1 + placement.charY, col: 1 + placement.x + 3 });
+    assert.equal(changes.length, 1);
+    assert.deepEqual(changes[0].offset, { offsetX: 3, offsetY: 0 });
+    // Drag 2: +2 from where it now sits. The creature now visually lives at x+3
+    // because of the committed manualOffset; the next press must target that.
+    const visualNow = model.visualPlacements.get("alpha");
+    assert.ok(visualNow, "creature should be in visualPlacements after commit");
+    engine.handleMouse({ kind: "press", button: "left", row: 1 + visualNow.charY, col: 1 + visualNow.x });
+    engine.handleMouse({ kind: "drag", button: "left", row: 1 + visualNow.charY, col: 1 + visualNow.x + 2 });
+    engine.handleMouse({ kind: "release", button: "unknown", row: 1 + visualNow.charY, col: 1 + visualNow.x + 2 });
+    assert.equal(changes.length, 2);
+    assert.deepEqual(changes[1].offset, { offsetX: 5, offsetY: 0 }, "second drag is cumulative");
+  } finally {
+    engine.destroy();
+  }
+});
+
+test("drag-replay: drag survives a setProps that changes focusIndex mid-drag", () => {
+  const r = runDragScenario({
+    creatures: [{ id: "alpha" }, { id: "beta" }],
+    dragId: "alpha",
+    delta: { dx: 4, dy: 0 },
+    steps: 2,
+    betweenPressAndDrag: (engine) => {
+      // Simulate the press's onCreatureSelect → setFocusIndex → re-render
+      // → setProps cascade.
+      engine.setProps({
+        ...(engine as any).props,
+        focusIndex: 0
+      });
+    }
+  });
+  assert.equal(r.committed, true, "focus-change mid-drag should not lose the drag");
+  assert.deepEqual(r.committedOffset, { offsetX: 4, offsetY: 0 });
+});
+
+test("drag-replay: drag commits even when a setProps swaps the creatures array", () => {
+  // Common case: a background scan refresh produces a new creatures array
+  // mid-drag, with the dragged creature still in it (just different object
+  // identity).
+  const writes: string[] = [];
+  const stdout = { write: (chunk: string) => (writes.push(chunk), true) } as any;
+  const baseCreatures = [
+    {
+      id: "alpha",
+      scan: { id: "alpha", path: "/tmp/alpha", name: "alpha", isDirty: false } as any,
+      memory: {} as any,
+      vibe: { vibe: "happy", reason: "", activity: 1 } as any
+    },
+    {
+      id: "beta",
+      scan: { id: "beta", path: "/tmp/beta", name: "beta", isDirty: false } as any,
+      memory: {} as any,
+      vibe: { vibe: "happy", reason: "", activity: 1 } as any
+    }
+  ];
+  const changes: Array<{ creature: { id: string }; offset: { offsetX: number; offsetY: number } }> = [];
+  const engine = new GardenEngine(stdout, {
+    ...makeProps(),
+    creatures: baseCreatures,
+    focusIndex: -1,
+    innerWidth: 60,
+    canvasH: 20,
+    originRow: 1,
+    originCol: 1,
+    onCreaturePlacementChange: (next) => changes.push(...next)
+  });
+  try {
+    const model = (engine as any).model;
+    const placement = (model.scene.placements as Placement[]).find((p) => p.tile.creature.id === "alpha")!;
+    engine.handleMouse({ kind: "press", button: "left", row: 1 + placement.charY, col: 1 + placement.x });
+    engine.handleMouse({ kind: "drag", button: "left", row: 1 + placement.charY, col: 1 + placement.x + 3 });
+    // Simulate setCreatures with new object identities for both creatures.
+    const reshuffled = baseCreatures.map((c) => ({ ...c }));
+    engine.setProps({
+      ...(engine as any).props,
+      creatures: reshuffled
+    });
+    engine.handleMouse({ kind: "drag", button: "left", row: 1 + placement.charY, col: 1 + placement.x + 5 });
+    engine.handleMouse({ kind: "release", button: "unknown", row: 1 + placement.charY, col: 1 + placement.x + 5 });
+    assert.ok(changes.length > 0, "drag survived a creatures-array swap");
+    const alphaChange = changes.find((c) => c.creature.id === "alpha");
+    assert.ok(alphaChange, "alpha received a placement change");
+    assert.deepEqual(alphaChange.offset, { offsetX: 5, offsetY: 0 });
+  } finally {
+    engine.destroy();
+  }
+});
+
+test("drag-replay: wander tick BETWEEN press and first drag does not break the drag", () => {
+  // The most realistic intermittent failure: the engine's 100ms tick
+  // fires between the user pressing and the first drag event arriving.
+  // stepGardenModel advances the wander state. If the engine's drag
+  // math depends on anything that just moved, the user sees the drag
+  // refuse to track.
+  const r = runDragScenario({
+    creatures: [{ id: "alpha" }],
+    dragId: "alpha",
+    delta: { dx: 5, dy: 0 },
+    steps: 3,
+    wanderBob: { x: 1, y: 0 },
+    betweenPressAndDrag: (engine) => {
+      const model = (engine as any).model;
+      stepGardenModel(model, performance.now() + 100);
+      stepGardenModel(model, performance.now() + 200);
+    }
+  });
+  assert.ok(r.committed, "drag refused to commit after a mid-press wander tick");
+  assert.deepEqual(r.committedOffset, { offsetX: 5, offsetY: 0 });
+});
+
+test("drag-replay: press hits a creature whose visualPlacements moved one tick AFTER the user saw it", () => {
+  // The race: user looks at the screen at tick T (creature at x=visualX),
+  // clicks, but the click arrives in Node AFTER tick T+1 has advanced
+  // the wander offset by one cell. The engine's hit-test now sees a
+  // creature at visualX+1, but the user clicked at visualX. Miss.
+  //
+  // We simulate by capturing the visual coords from the engine's
+  // rendered state, then advancing the model BEFORE the press arrives.
+  const writes: string[] = [];
+  const stdout = { write: (chunk: string) => (writes.push(chunk), true) } as any;
+  const changes: Array<{ creature: { id: string }; offset: { offsetX: number; offsetY: number } }> = [];
+  const engine = new GardenEngine(stdout, {
+    ...makeProps(),
+    focusIndex: -1,
+    originRow: 1,
+    originCol: 1,
+    innerWidth: 60,
+    canvasH: 20,
+    onCreaturePlacementChange: (next) => changes.push(...next)
+  });
+  try {
+    const model = (engine as any).model;
+    const placement = model.scene.placements[0] as Placement;
+    // Force a wander state with a non-zero currentOffset (this is what
+    // the user is looking at on screen).
+    const wanderState = {
+      profile: { idleMin: 1000, idleMax: 2000 },
+      kind: "wander",
+      phase: "wandering",
+      idleUntil: 0,
+      wanderStartedAt: 0,
+      wanderDurationMs: 10000,
+      outpoint: { x: 1, y: 0 },
+      currentOffset: { x: 1, y: 0 },
+      persistentOffset: { x: 0, y: 0 },
+      manualOffset: undefined
+    };
+    (model.wander as Map<string, unknown>).set("alpha", wanderState);
+    // Sync visuals to reflect that the user is seeing the creature at x+1.
+    syncGardenModel(model, model.props, performance.now());
+    const userSeesX = (model.visualPlacements.get("alpha") as Placement).x;
+
+    // Now advance the model BEFORE the press arrives. The wander
+    // currentOffset will shift, and visualPlacements will reflect that.
+    wanderState.currentOffset = { x: 2, y: 0 };
+    syncGardenModel(model, model.props, performance.now());
+    const engineSeesX = (model.visualPlacements.get("alpha") as Placement).x;
+    assert.notEqual(userSeesX, engineSeesX, "test premise: engine should have advanced");
+
+    // User clicks where they SAW the creature.
+    engine.handleMouse({
+      kind: "press",
+      button: "left",
+      row: 1 + placement.charY,
+      col: 1 + userSeesX
+    });
+    engine.handleMouse({
+      kind: "drag",
+      button: "left",
+      row: 1 + placement.charY,
+      col: 1 + userSeesX + 3
+    });
+    engine.handleMouse({
+      kind: "release",
+      button: "unknown",
+      row: 1 + placement.charY,
+      col: 1 + userSeesX + 3
+    });
+
+    assert.ok(
+      changes.length > 0,
+      `drag missed: user clicked at x=${userSeesX} (where they saw the creature) but engine had advanced to x=${engineSeesX}`
+    );
+  } finally {
+    engine.destroy();
+  }
+});
+
+test("drag-replay: press exactly on sprite bounding-box edge (not on rendered ink) still picks up the creature", () => {
+  // findCreatureDragHandleAtCell has a fallback to bounding-box hit-test
+  // when the exact sprite-ink test misses. Make sure it actually fires.
+  const writes: string[] = [];
+  const stdout = { write: (chunk: string) => (writes.push(chunk), true) } as any;
+  const changes: Array<{ creature: { id: string }; offset: { offsetX: number; offsetY: number } }> = [];
+  const engine = new GardenEngine(stdout, {
+    ...makeProps(),
+    focusIndex: -1,
+    originRow: 1,
+    originCol: 1,
+    innerWidth: 60,
+    canvasH: 20,
+    onCreaturePlacementChange: (next) => changes.push(...next)
+  });
+  try {
+    const model = (engine as any).model;
+    const placement = model.scene.placements[0] as Placement;
+    // Click on the top-left corner cell of the bounding box (may or may
+    // not have ink depending on the sprite shape).
+    engine.handleMouse({
+      kind: "press",
+      button: "left",
+      row: 1 + placement.charY,
+      col: 1 + placement.x
+    });
+    engine.handleMouse({
+      kind: "drag",
+      button: "left",
+      row: 1 + placement.charY,
+      col: 1 + placement.x + 2
+    });
+    engine.handleMouse({
+      kind: "release",
+      button: "unknown",
+      row: 1 + placement.charY,
+      col: 1 + placement.x + 2
+    });
+    assert.ok(changes.length > 0, "bounding-box press did not produce a drag");
+  } finally {
+    engine.destroy();
+  }
+});
+
+test("drag-replay: stress — 20 successive drags with wander ticks between each all commit", () => {
+  // Approximates real interactive use: many drags in a row, with a
+  // wander tick firing between each one (since each drag in a real
+  // session is separated by at least one 100ms tick).
+  const writes: string[] = [];
+  const stdout = { write: (chunk: string) => (writes.push(chunk), true) } as any;
+  const changes: Array<{ creature: { id: string }; offset: { offsetX: number; offsetY: number } }> = [];
+  const engine = new GardenEngine(stdout, {
+    ...makeProps(),
+    focusIndex: -1,
+    originRow: 1,
+    originCol: 1,
+    innerWidth: 60,
+    canvasH: 20,
+    onCreaturePlacementChange: (next) => changes.push(...next)
+  });
+  try {
+    const model = (engine as any).model;
+    for (let i = 0; i < 20; i += 1) {
+      // Advance the model — the wander state shifts by some amount.
+      stepGardenModel(model, performance.now() + i * 100);
+      const visual = model.visualPlacements.get("alpha") as Placement;
+      assert.ok(visual, `iteration ${i}: visual placement missing`);
+      const dx = (i % 2 === 0 ? 1 : -1);
+      engine.handleMouse({ kind: "press", button: "left", row: 1 + visual.charY, col: 1 + visual.x });
+      engine.handleMouse({
+        kind: "drag",
+        button: "left",
+        row: 1 + visual.charY,
+        col: 1 + visual.x + dx
+      });
+      engine.handleMouse({
+        kind: "release",
+        button: "unknown",
+        row: 1 + visual.charY,
+        col: 1 + visual.x + dx
+      });
+    }
+    assert.equal(changes.length, 20, `expected 20 commits, got ${changes.length}`);
+  } finally {
+    engine.destroy();
+  }
+});
+
+test("drag-replay: pre-existing overlap between two unrelated creatures does not veto a third creature's drag", () => {
+  // The "smoking gun" from a real session: the placer left two
+  // wide-aspect creatures (InkaiPlus, RepoGarden) overlapping in their
+  // resting positions by more than the squishy budget. Every drag of
+  // any OTHER creature failed because resolvePushPlacements's final
+  // overlap check saw that pre-existing overlap and rejected the
+  // entire push solution. The drag solver should only judge pairs
+  // it's responsible for moving.
+  const writes: string[] = [];
+  const stdout = { write: (chunk: string) => (writes.push(chunk), true) } as any;
+  const changes: Array<{ creature: { id: string }; offset: { offsetX: number; offsetY: number } }> = [];
+  const engine = new GardenEngine(stdout, {
+    ...makeProps(),
+    focusIndex: -1,
+    innerWidth: 80,
+    canvasH: 24,
+    originRow: 1,
+    originCol: 1,
+    creatures: [
+      {
+        id: "victim",
+        scan: { id: "victim", path: "/tmp/victim", name: "victim", isDirty: false } as any,
+        memory: {} as any,
+        vibe: { vibe: "happy", reason: "", activity: 1 } as any
+      },
+      {
+        id: "overlap-a",
+        scan: { id: "overlap-a", path: "/tmp/overlap-a", name: "overlap-a", isDirty: false } as any,
+        memory: {} as any,
+        vibe: { vibe: "happy", reason: "", activity: 1 } as any
+      },
+      {
+        id: "overlap-b",
+        scan: { id: "overlap-b", path: "/tmp/overlap-b", name: "overlap-b", isDirty: false } as any,
+        memory: {} as any,
+        vibe: { vibe: "happy", reason: "", activity: 1 } as any
+      }
+    ],
+    onCreaturePlacementChange: (next) => changes.push(...next)
+  });
+  try {
+    const model = (engine as any).model;
+    // Force overlap-a and overlap-b to overlap by mutating their
+    // anchor positions. (We mutate scene.placements directly because
+    // we want to simulate the placer producing overlapping anchors.)
+    const placements = model.scene.placements as Placement[];
+    const a = placements.find((p) => p.tile.creature.id === "overlap-a")!;
+    const b = placements.find((p) => p.tile.creature.id === "overlap-b")!;
+    (b as any).x = a.x + 1;
+    (b as any).charY = a.charY;
+    model.visualPlacements.set("overlap-a", a);
+    model.visualPlacements.set("overlap-b", b);
+
+    const victim = placements.find((p) => p.tile.creature.id === "victim")!;
+    engine.handleMouse({
+      kind: "press",
+      button: "left",
+      row: 1 + victim.charY,
+      col: 1 + victim.x
+    });
+    engine.handleMouse({
+      kind: "drag",
+      button: "left",
+      row: 1 + victim.charY,
+      col: 1 + victim.x + 3
+    });
+    engine.handleMouse({
+      kind: "release",
+      button: "unknown",
+      row: 1 + victim.charY,
+      col: 1 + victim.x + 3
+    });
+
+    assert.ok(
+      changes.length > 0,
+      "victim drag was rejected by pre-existing overlap between two unrelated creatures"
+    );
+    const victimChange = changes.find((c) => c.creature.id === "victim");
+    assert.ok(victimChange, "victim did not receive a placement change");
+    assert.deepEqual(victimChange.offset, { offsetX: 3, offsetY: 0 });
+  } finally {
+    engine.destroy();
+  }
 });
