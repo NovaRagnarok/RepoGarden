@@ -72,9 +72,9 @@ export interface ReadyShellProps {
   rescanError?: string;
   scanProgress?: { done: number; total: number };
   scanProgressByRoot?: RootProgress[];
-  /** When true, suppresses the Claude/Codex usage bar entirely (no network
-   *  calls, no footer row). Mirrors the env-level
-   *  REPOGARDEN_DISABLE_USAGE=1 toggle as a persistent settings choice. */
+  /** When true, suppresses the Claude/Codex usage bar entirely (no credential
+   *  reads, no network calls, no footer row). Defaults off unless the user
+   *  opts in from Settings. */
   usageBarDisabled?: boolean;
   /** Master pagination toggle for the garden view. False jams the whole
    *  creature list onto a single page and lets the placer's graceful-
@@ -103,7 +103,7 @@ export const ReadyShell = ({
   rescanError,
   scanProgress,
   scanProgressByRoot,
-  usageBarDisabled = false,
+  usageBarDisabled = true,
   gardenPaginate = true,
   gardenDensity = "comfortable"
 }: ReadyShellProps) => {

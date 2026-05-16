@@ -359,7 +359,7 @@ const PrefRow = ({ hotkey, label, indicator, indicatorColor, labelColor }: PrefR
 export const SettingsScreen = ({
   currentThemeId,
   reducedMotion = false,
-  usageBarDisabled = false,
+  usageBarDisabled = true,
   observerEnabled = true,
   gardenPaginate = true,
   gardenDensity = "comfortable",
@@ -758,7 +758,7 @@ export const SettingsScreen = ({
       />
       <PrefRow
         hotkey="u"
-        label="usage bar · reads Claude/Codex CLI credentials locally"
+        label="usage bar · opt-in Claude/Codex quota checks"
         indicator={usageBarDisabled ? "○ off" : "● on"}
         indicatorColor={
           usageBarDisabled

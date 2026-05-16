@@ -4,6 +4,10 @@ All notable changes to RepoGarden land here. Format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Changed
+
+- Claude/Codex usage bars are now opt-in for fresh installs. The Settings `u` toggle still turns them on/off persistently, and `REPOGARDEN_DISABLE_USAGE=1` remains a single-run override.
+
 ## [0.8.0] — 2026-05-15
 
 ### Fixed

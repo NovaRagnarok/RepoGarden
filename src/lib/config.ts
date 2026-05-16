@@ -28,7 +28,8 @@ export interface TuiConfig {
   scanRoots: string[];
   view: ReadyView;
   reducedMotion: boolean;
-  /** Persistently hides the Claude/Codex usage bar. Env
+  /** Persistently hides the Claude/Codex usage bar. Defaults to hidden so
+   *  provider credential reads are opt-in on fresh installs. Env
    *  REPOGARDEN_DISABLE_USAGE=1 still overrides this for a single run
    *  (per-run flag wins). */
   usageBarDisabled: boolean;
@@ -59,7 +60,7 @@ const DEFAULT_CONFIG: TuiConfig = {
   scanRoots: [],
   view: "garden",
   reducedMotion: false,
-  usageBarDisabled: false,
+  usageBarDisabled: true,
   observer: { enabled: true },
   gardenPaginate: true,
   gardenDensity: "comfortable",
