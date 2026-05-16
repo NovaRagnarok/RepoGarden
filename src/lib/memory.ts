@@ -3,17 +3,9 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { appendEvent } from "./events";
+import type { ProjectMemory } from "./memory-types";
 
-export interface ProjectMemory {
-  currentBlocker?: string;
-  noteToFutureSelf?: string;
-  lastVisitedAt?: string;
-  hidden?: boolean;
-  gardenPlacement?: {
-    offsetX: number;
-    offsetY: number;
-  };
-}
+export type { ProjectMemory } from "./memory-types";
 
 const memoryDir = (): string => join(homedir(), ".repogarden", "projects");
 

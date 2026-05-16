@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { render, useApp } from "ink";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PassThrough } from "stream";
 
 import {
@@ -26,8 +26,17 @@ import { WorkbenchScreen } from "@/screens/WorkbenchScreen";
 import { HelpOverlay } from "@/screens/HelpOverlay";
 import { openInFileBrowser } from "@/lib/system";
 import { defaultThemeId, themeById, themeCatalogue } from "@/themes";
-import { loadConfig, observerEnabled, updateConfig } from "@/lib/config";
+import { loadConfig, updateConfig } from "@/lib/config";
 import type { GardenDensity } from "@/lib/garden-layout";
+import {
+  bootPhaseForScanOutcome,
+  countVibeFlips,
+  nextGardenDensity,
+  parseScanRoots,
+  shouldRingVibeBell,
+  type AppPhase,
+  type ScanStatus
+} from "@/lib/app-shell-state";
 import {
   inspectRepo,
   scanRootsProgressive,
@@ -48,21 +57,8 @@ import { CLI_HELP_TEXT, hasHelpFlag, hasVersionFlag } from "@/lib/cli-help";
 import { checkForUpdate, readCurrentVersion } from "@/lib/update-check";
 import { scheduleStartupPrune } from "@/lib/startup-prune";
 
-type Phase = "booting" | "onboarding" | "ready" | "settings" | "workbench" | "help" | "edit-roots";
-
 const BOOT_SCAN_DELAY_MS = 400;
 const MIN_BOOT_PRESENTATION_MS = 900;
-
-interface ScanStatus {
-  kind: "idle" | "scanning" | "error" | "ok";
-  message: string;
-}
-
-const parseRoots = (raw: string): string[] =>
-  raw
-    .split(/[,\n]/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
 
 interface AppProps {
   initialThemeId: string;
@@ -94,7 +90,7 @@ const App = ({
   const { exit } = useApp();
   const { push: pushToast } = useToasts();
   const privacy = usePrivacy();
-  const [phase, setPhase] = useState<Phase>("booting");
+  const [phase, setPhase] = useState<AppPhase>("booting");
   const [scanStatus, setScanStatus] = useState<ScanStatus | undefined>();
   const [themeId, setThemeId] = useState<string>(initialThemeId);
   const [roots, setRoots] = useState<string[]>(initialRoots);
@@ -260,12 +256,13 @@ const App = ({
     if (phase !== "ready") return;
     if (isRescanning) return;
     if (!prev) return;
-    let flips = 0;
-    for (const [id, vibe] of nextVibes) {
-      const before = prev.get(id);
-      if (before !== undefined && before !== vibe) flips += 1;
-    }
-    if (flips > 0 && process.stdout.isTTY) {
+    if (shouldRingVibeBell({
+      enabled: bellOnVibeChange,
+      phase,
+      isRescanning,
+      flips: countVibeFlips(prev, nextVibes),
+      isTTY: process.stdout.isTTY
+    })) {
       // Single BEL regardless of how many repos flipped — bursts of bells
       // are worse than one. The journal carries the per-repo detail.
       process.stdout.write("\x07");
@@ -368,15 +365,9 @@ const App = ({
       if (cancelled) return;
       await holdBootIntro();
       if (cancelled) return;
-      if (result.ok && result.count > 0) {
-        setPhase("ready");
-      } else if (result.ok) {
-        setPhase("onboarding");
-        setScanStatus({ kind: "error", message: result.message });
-      } else {
-        setPhase("onboarding");
-        setScanStatus({ kind: "error", message: result.message });
-      }
+      const next = bootPhaseForScanOutcome(result);
+      setPhase(next.phase);
+      if (next.scanStatus) setScanStatus(next.scanStatus);
     }, BOOT_SCAN_DELAY_MS);
     return () => {
       cancelled = true;
@@ -385,7 +376,7 @@ const App = ({
   }, []);
 
   const handleScan = async (raw: string) => {
-    const nextRoots = parseRoots(raw);
+    const nextRoots = parseScanRoots(raw);
     if (nextRoots.length === 0) {
       setScanStatus({ kind: "error", message: "give at least one folder path." });
       return;
@@ -449,8 +440,7 @@ const App = ({
   // Cycle through cozy → comfortable → dense → cozy so a single hotkey can
   // walk the user across the whole spectrum.
   const handleCycleGardenDensity = () => {
-    const order: GardenDensity[] = ["cozy", "comfortable", "dense"];
-    const next = order[(order.indexOf(gardenDensity) + 1) % order.length];
+    const next = nextGardenDensity(gardenDensity);
     setGardenDensity(next);
     updateConfig({ gardenDensity: next });
     pushToast(`density · ${next}`, "info");
@@ -663,7 +653,6 @@ const App = ({
       usageBarDisabled={usageBarDisabled}
       gardenPaginate={gardenPaginate}
       gardenDensity={gardenDensity}
-      sizeCohort={sizeCohort}
     />
   );
 };

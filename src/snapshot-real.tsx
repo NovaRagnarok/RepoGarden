@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import { render } from "ink";
-import React from "react";
 import { ThemeProvider } from "@/components/ui/theme-provider";
 import { ReadyShell } from "@/screens/ReadyShell";
 import { themeById } from "@/themes";

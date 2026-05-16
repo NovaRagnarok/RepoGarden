@@ -16,7 +16,7 @@ import {
   DEFAULT_RETENTION_DAYS,
   type JournalEvent,
 } from "../lib/events";
-import { saveMemory, loadMemory } from "../lib/memory";
+import { saveMemory } from "../lib/memory";
 import { enrichScans } from "../lib/creature";
 import type { ScannedRepo } from "../lib/scanner";
 

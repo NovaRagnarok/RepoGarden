@@ -1,5 +1,5 @@
 import { Box, Text } from "ink";
-import React, { useState } from "react";
+import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { BigText } from "@/components/ui/big-text";

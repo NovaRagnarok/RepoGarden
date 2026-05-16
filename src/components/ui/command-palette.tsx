@@ -1,5 +1,5 @@
 import { Box, Text } from "ink";
-import React, { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { TextInput } from "@/components/ui/text-input";
 import { useTheme } from "@/components/ui/theme-provider";

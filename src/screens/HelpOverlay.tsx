@@ -1,6 +1,4 @@
 import { Box, Text } from "ink";
-import React from "react";
-
 import { Credit } from "@/components/Credit";
 import { KeyboardShortcuts, type Shortcut } from "@/components/ui/keyboard-shortcuts";
 import { Panel } from "@/components/ui/panel";

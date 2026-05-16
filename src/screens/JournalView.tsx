@@ -7,7 +7,7 @@
  */
 
 import { Box, Text } from "ink";
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Sparkline } from "@/components/ui/sparkline";
 import { Panel } from "@/components/ui/panel";
@@ -149,7 +149,6 @@ export const JournalView = ({
   filter,
   isActive = true,
   onOpenWorkbench,
-  onSelectRepo,
 }: JournalViewProps) => {
   const theme = useTheme();
   const [scrollOffset, setScrollOffset] = useState(0);

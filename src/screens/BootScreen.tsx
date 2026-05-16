@@ -1,6 +1,4 @@
 import { Box, Text } from "ink";
-import React from "react";
-
 import { BigText } from "@/components/ui/big-text";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import {

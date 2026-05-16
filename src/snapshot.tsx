@@ -5,7 +5,6 @@
  * env to drive arbitrary widths.
  */
 import { render } from "ink";
-import React from "react";
 
 import { ThemeProvider } from "@/components/ui/theme-provider";
 import { BootScreen } from "@/screens/BootScreen";

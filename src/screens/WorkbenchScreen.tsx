@@ -1,5 +1,5 @@
 import { Box, Text, useFocusManager } from "ink";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Alert } from "@/components/ui/alert";

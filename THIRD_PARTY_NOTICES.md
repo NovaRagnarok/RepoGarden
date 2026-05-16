@@ -14,7 +14,6 @@ implementation patterns.
 
 Adapted in:
 
-- `src/components/ui/gradient.tsx` — vendored wholesale from `registry/bases/ink/ui/gradient.tsx`; API and presets are kept identical to upstream
 - `src/components/ui/text-area.tsx` — scroll-viewport pattern lifted from termcn's `ScrollView` component
 - `src/themes/*.ts` and `src/themes/index.ts` — theme palette definitions, naming, and the bundled theme catalogue are ported and normalized from termcn's theme registry for RepoGarden's theme shape
 

@@ -23,7 +23,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-import type { ScannedRepo } from "./scanner";
+import type { ScannedRepo } from "./scanner-types";
 
 // Bumped to 2 when ScannedRepo gained sourceLines and fileCount — old
 // entries lack those fields and would route mass calculation through the

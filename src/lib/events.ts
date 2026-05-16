@@ -11,7 +11,7 @@ import {
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-import type { Mood, Vibe } from "./vibe";
+import type { Mood, Vibe } from "./vibe-types";
 
 // ---------------------------------------------------------------------------
 // Types

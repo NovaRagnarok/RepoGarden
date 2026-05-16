@@ -112,27 +112,6 @@ const fillRow = (grid: SubMatrix, state: GeneratorState, y: number, left: number
   state.rowRightEdges[y] = Math.max(state.rowRightEdges[y] ?? safeRight, safeRight);
 };
 
-const drawMirroredBridge = (grid: SubMatrix, from: Pixel, to: Pixel): void => {
-  const subW = grid[0].length;
-  const halfW = Math.floor(subW / 2);
-  const normalize = (x: number): number => Math.round(clamp(Math.min(x, subW - 1 - x), 0, halfW - 1));
-
-  let x = normalize(from.x);
-  let y = Math.round(clamp(from.y, 0, grid.length - 1));
-  const targetX = normalize(to.x);
-  const targetY = Math.round(clamp(to.y, 0, grid.length - 1));
-
-  setMirrored(grid, y, x, 1);
-  while (x !== targetX) {
-    x += x < targetX ? 1 : -1;
-    setMirrored(grid, y, x, 1);
-  }
-  while (y !== targetY) {
-    y += y < targetY ? 1 : -1;
-    setMirrored(grid, y, x, 1);
-  }
-};
-
 const connectedComponents = (grid: SubMatrix): Pixel[][] => {
   const subH = grid.length;
   const subW = grid[0]?.length ?? 0;
@@ -228,7 +207,7 @@ const repairDisconnectedPixels = (grid: SubMatrix, protectedZeros: ReadonlySet<s
 };
 
 const randomBodyWindow = (
-  charW: number,
+  _charW: number,
   charH: number,
   rng: () => number
 ): { top: number; bottom: number; bobStyle: BobStyle } => {
@@ -400,7 +379,6 @@ const stampBody = (grid: SubMatrix, state: GeneratorState, rng: () => number): v
   for (let y = state.bodyTop; y <= state.bodyBottom; y += 1) {
     const halfWidth = contour[y];
     const left = state.centerLeft - halfWidth + 1;
-    const right = state.centerRight + halfWidth - 1;
 
     for (let x = left; x <= state.centerLeft; x += 1) {
       const fromCenter = (state.centerLeft - x) / Math.max(1, halfWidth);
@@ -1015,35 +993,6 @@ export const DEFAULT_CREATURE_PALETTE: CreaturePalette = {
   saturation: 0.78,
   lightness: 0.6,
   lightnessJitter: 0.06
-};
-
-const parseHexChannel = (hex: string, start: number): number =>
-  Number.parseInt(hex.slice(start, start + 2), 16);
-
-const hexToRgb = (hex: string): [number, number, number] => {
-  const normalized = hex.startsWith("#") ? hex.slice(1) : hex;
-  return [
-    parseHexChannel(normalized, 0),
-    parseHexChannel(normalized, 2),
-    parseHexChannel(normalized, 4)
-  ];
-};
-
-const rgbToHsl = (r: number, g: number, b: number): [number, number, number] => {
-  const rn = r / 255;
-  const gn = g / 255;
-  const bn = b / 255;
-  const max = Math.max(rn, gn, bn);
-  const min = Math.min(rn, gn, bn);
-  const l = (max + min) / 2;
-  if (max === min) return [0, 0, l];
-  const d = max - min;
-  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-  let h: number;
-  if (max === rn) h = (gn - bn) / d + (gn < bn ? 6 : 0);
-  else if (max === gn) h = (bn - rn) / d + 2;
-  else h = (rn - gn) / d + 4;
-  return [h * 60, s, l];
 };
 
 const hslToRgb = (h: number, s: number, l: number): [number, number, number] => {

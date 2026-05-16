@@ -754,8 +754,6 @@ export const computeFocusFrameCells = (
   const boxTop = charY - 1;
   const boxBottom = charY + tile.charRows;
 
-  const canvasW = bounds?.canvasW ?? Number.POSITIVE_INFINITY;
-
   if (bounds) {
     if (boxLeft < 0) {
       const shift = -boxLeft;

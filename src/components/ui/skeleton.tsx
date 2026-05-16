@@ -21,16 +21,6 @@ export const Skeleton = ({
   // Reduced motion: render the static dots field with no traveling shimmer
   // band. Same shape, no movement.
   const motionActive = animated && !reduced;
-  const offset = motionActive ? frame % (width + 6) : -1;
-
-  const _buildRow = (): string => {
-    let row = "";
-    for (let i = 0; i < width; i += 1) {
-      const inHighlight = i >= offset - 3 && i <= offset + 3;
-      row += inHighlight ? "█" : "░";
-    }
-    return row;
-  };
 
   const rows = Array.from({ length: height }, (_, rowIndex) => {
     const rowOffset = motionActive ? (frame + rowIndex * 2) % (width + 6) : -1;
