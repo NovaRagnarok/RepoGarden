@@ -43,6 +43,7 @@ test("loadConfig returns current schema defaults when config is missing", () => 
     assert.equal(config.themeId, "high-contrast");
     assert.deepEqual(config.scanRoots, []);
     assert.equal(config.view, "garden");
+    assert.equal(config.usageBarDisabled, true);
     assert.equal(config.observer.enabled, true);
   });
 });

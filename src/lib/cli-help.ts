@@ -23,7 +23,7 @@ Export options:
 
 Environment:
   REPOGARDEN_DISABLE_USAGE=1     hide the Claude/Codex usage bar this run
-                                  (persistent toggle: Settings → u)
+                                  (opt-in toggle: Settings → u)
   REPOGARDEN_NO_UPDATE_CHECK=1   skip the once-a-day npm version check
   REPOGARDEN_DEMO=1              launch with demo data (for screenshots)
   NO_MOTION=1                    reduce motion where supported

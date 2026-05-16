@@ -96,7 +96,7 @@ export const WorkbenchScreen = ({
   creature,
   onClose,
   onPulled,
-  usageBarDisabled = false,
+  usageBarDisabled = true,
   sizeCohort,
 }: WorkbenchScreenProps) => {
   const theme = useTheme();

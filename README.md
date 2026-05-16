@@ -16,7 +16,7 @@ RepoGarden:
 - may read branch names, commit subjects, dirty file names, and small diff previews for display in the habitat
 - can be reset with `rm -rf ~/.repogarden`
 
-The Claude/Codex usage bar reads local provider CLI credentials to call those providers' usage endpoints directly. Disable it for a run with `REPOGARDEN_DISABLE_USAGE=1 repogarden`. Details: [SECURITY.md](SECURITY.md).
+The Claude/Codex usage bar is opt-in. If enabled in Settings, it reads local provider CLI credentials to call those providers' usage endpoints directly. Details: [SECURITY.md](SECURITY.md).
 
 ## Install
 
@@ -49,7 +49,7 @@ After `npm install -g @outsideheaven/repogarden`:
 5. Press `↵` on a creature to drop into its workbench (portrait, notes, recent commits).
 6. Press `?` for the full keymap, `s` for settings, `q` to quit.
 
-If anything looks off, `REPOGARDEN_DISABLE_USAGE=1 repogarden` runs without the provider usage bar, and `rm -rf ~/.repogarden` resets local state.
+If anything looks off, `rm -rf ~/.repogarden` resets local state. If you enabled the provider usage bar, `REPOGARDEN_DISABLE_USAGE=1 repogarden` suppresses it for one run.
 
 ## Requirements
 
@@ -113,9 +113,9 @@ The next launch will re-run onboarding and rebuild the journal/snapshot from a c
 
 ### Claude / Codex usage bar
 
-The Claude/Codex usage bar is enabled by default in this early beta build.
+The Claude/Codex usage bar is off by default in this early beta build. Turn it on from Settings (`s`) with `u`.
 
-When the ready UI renders (garden, shelf, or journal) or the workbench screen renders, RepoGarden attempts to read local Claude Code and Codex CLI OAuth credentials, refreshes tokens if needed, and calls the providers' usage endpoints directly. Refreshed tokens may be written back to the same local file or macOS Keychain entry used by those CLIs.
+When the bar is enabled and the ready UI renders (garden, shelf, or journal) or the workbench screen renders, RepoGarden attempts to read local Claude Code and Codex CLI OAuth credentials, refreshes tokens if needed, and calls the providers' usage endpoints directly. Refreshed tokens may be written back to the same local file or macOS Keychain entry used by those CLIs.
 
 RepoGarden does not send these credentials to any RepoGarden-operated server. The credentials are used only to call the originating provider.
 
@@ -126,7 +126,7 @@ The implementation lives in:
 
 The endpoints used here are not documented public APIs and may change.
 
-To disable the usage bar persistently, open Settings (`s`) and press `u` — the toggle is saved to `~/.repogarden/tui.json`.
+To enable or disable the usage bar persistently, open Settings (`s`) and press `u` — the toggle is saved to `~/.repogarden/tui.json`.
 
 For a single run without changing the saved setting:
 
