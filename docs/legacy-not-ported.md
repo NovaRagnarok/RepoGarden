@@ -35,7 +35,7 @@ For each item: **Was** (v1 behavior + path), **TUI** (PORTED / PARTIAL / DROPPED
 
 ### Placement persistence
 - **Was:** users could drag creatures to specific (xRatio, yRatio) positions in the habitat, persisted via Tauri IPC and localStorage. `legacy/src/components/habitatWorld/placementPersistence.ts`, command `set_creature_habitat_position`.
-- **TUI:** PORTED. Creatures can be dragged in the garden and their offset is persisted per-repo as `gardenPlacement.{offsetX, offsetY}` in `src/lib/memory.ts` (under `~/.repogarden/repos/<id>/memory.json`). Cohort sort still drives the default layout; the offset is a user-applied override on top of it.
+- **TUI:** PORTED. Creatures can be dragged in the garden and their offset is persisted per-repo as `gardenPlacement.{offsetX, offsetY}` in `src/lib/memory.ts` (under `~/.repogarden/projects/<repo-id>.json`). Cohort sort still drives the default layout; the offset is a user-applied override on top of it.
 - **Why:** Default ordering is still data-driven (no manual upkeep required), but users who want to arrange the garden can.
 
 ### Pointer / drag interaction
@@ -97,7 +97,7 @@ For each item: **Was** (v1 behavior + path), **TUI** (PORTED / PARTIAL / DROPPED
 
 ### Active scan roots
 - **Was:** persisted list of directories to scan, in SQLite + localStorage.
-- **TUI:** PORTED. Stored in `~/.repogarden/config.json` (`src/lib/config.ts`).
+- **TUI:** PORTED. Stored in `~/.repogarden/tui.json` (`src/lib/config.ts`).
 
 ## 5. Inference
 
@@ -110,7 +110,7 @@ For each item: **Was** (v1 behavior + path), **TUI** (PORTED / PARTIAL / DROPPED
 
 ### SQLite schema + migrations
 - **Was:** Rust-side SQLite database with migrations 0001–0004 — `scan_roots`, `projects`, `project_memory`, `project_events`, `project_sessions`, `app_state`, plus columns for incoming / outgoing / push / ship / needs-pull / remote-warning signals and first-commit / total-commit / recent-burst / changed-files / TODO / FIXME counts. `legacy/migrations/`.
-- **TUI:** DROPPED. Replaced by JSON-on-disk: per-repo memory + notes under `~/.repogarden/repos/<id>/`, append-only event log at `~/.repogarden/events.jsonl`, app config at `~/.repogarden/config.json`. Atomic writes via temp-file + rename in `src/lib/notes.ts`.
+- **TUI:** DROPPED. Replaced by JSON-on-disk: per-repo memory + notes under `~/.repogarden/projects/<repo-id>/`, append-only event log at `~/.repogarden/events.jsonl`, app config at `~/.repogarden/tui.json`. Atomic writes via temp-file + rename in `src/lib/notes.ts`.
 - **Why:** SQLite required Tauri and a migration runner. Plain files are inspectable, diffable, and survive corruption by definition. Signal columns and session tracking were observability for the desktop animation loop — without that loop, they had no consumer.
 
 ### Startup recovery (DB corruption fallback)

@@ -2,8 +2,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-const configDir = join(homedir(), ".repogarden");
-const configFile = join(configDir, "tui.json");
+export const TUI_CONFIG_SCHEMA_VERSION = 1 as const;
+
+const configDir = (): string => join(homedir(), ".repogarden");
+const configFile = (): string => join(configDir(), "tui.json");
 
 export type ReadyView = "garden" | "shelf" | "journal";
 
@@ -21,6 +23,7 @@ export interface ObserverConfig {
 }
 
 export interface TuiConfig {
+  schemaVersion: typeof TUI_CONFIG_SCHEMA_VERSION;
   themeId: string;
   scanRoots: string[];
   view: ReadyView;
@@ -51,6 +54,7 @@ export interface TuiConfig {
 }
 
 const DEFAULT_CONFIG: TuiConfig = {
+  schemaVersion: TUI_CONFIG_SCHEMA_VERSION,
   themeId: "high-contrast",
   scanRoots: [],
   view: "garden",
@@ -68,47 +72,62 @@ const isGardenDensity = (value: unknown): value is GardenDensity =>
 const isReadyView = (value: unknown): value is ReadyView =>
   value === "garden" || value === "shelf" || value === "journal";
 
+const defaultConfig = (): TuiConfig => ({
+  ...DEFAULT_CONFIG,
+  observer: { ...DEFAULT_CONFIG.observer },
+  scanRoots: [...DEFAULT_CONFIG.scanRoots]
+});
+
+const normalizeConfig = (raw: unknown): TuiConfig => {
+  if (!raw || typeof raw !== "object") {
+    return defaultConfig();
+  }
+  const parsed = raw as Partial<TuiConfig>;
+  return {
+    schemaVersion: TUI_CONFIG_SCHEMA_VERSION,
+    themeId: typeof parsed.themeId === "string" ? parsed.themeId : DEFAULT_CONFIG.themeId,
+    scanRoots: Array.isArray(parsed.scanRoots)
+      ? parsed.scanRoots.filter((entry): entry is string => typeof entry === "string")
+      : [...DEFAULT_CONFIG.scanRoots],
+    view: isReadyView(parsed.view) ? parsed.view : DEFAULT_CONFIG.view,
+    reducedMotion:
+      typeof parsed.reducedMotion === "boolean"
+        ? parsed.reducedMotion
+        : DEFAULT_CONFIG.reducedMotion,
+    usageBarDisabled:
+      typeof parsed.usageBarDisabled === "boolean"
+        ? parsed.usageBarDisabled
+        : DEFAULT_CONFIG.usageBarDisabled,
+    observer: parseObserver(parsed.observer),
+    gardenPaginate:
+      typeof parsed.gardenPaginate === "boolean"
+        ? parsed.gardenPaginate
+        : DEFAULT_CONFIG.gardenPaginate,
+    gardenDensity: isGardenDensity(parsed.gardenDensity)
+      ? parsed.gardenDensity
+      : DEFAULT_CONFIG.gardenDensity,
+    bellOnVibeChange:
+      typeof parsed.bellOnVibeChange === "boolean"
+        ? parsed.bellOnVibeChange
+        : DEFAULT_CONFIG.bellOnVibeChange
+  };
+};
+
 export const loadConfig = (): TuiConfig => {
   try {
-    if (!existsSync(configFile)) {
-      return DEFAULT_CONFIG;
+    const path = configFile();
+    if (!existsSync(path)) {
+      return normalizeConfig(null);
     }
-    const raw = readFileSync(configFile, "utf8");
-    const parsed = JSON.parse(raw) as Partial<TuiConfig>;
-    return {
-      themeId: typeof parsed.themeId === "string" ? parsed.themeId : DEFAULT_CONFIG.themeId,
-      scanRoots: Array.isArray(parsed.scanRoots)
-        ? parsed.scanRoots.filter((entry): entry is string => typeof entry === "string")
-        : DEFAULT_CONFIG.scanRoots,
-      view: isReadyView(parsed.view) ? parsed.view : DEFAULT_CONFIG.view,
-      reducedMotion:
-        typeof parsed.reducedMotion === "boolean"
-          ? parsed.reducedMotion
-          : DEFAULT_CONFIG.reducedMotion,
-      usageBarDisabled:
-        typeof parsed.usageBarDisabled === "boolean"
-          ? parsed.usageBarDisabled
-          : DEFAULT_CONFIG.usageBarDisabled,
-      observer: parseObserver(parsed.observer),
-      gardenPaginate:
-        typeof parsed.gardenPaginate === "boolean"
-          ? parsed.gardenPaginate
-          : DEFAULT_CONFIG.gardenPaginate,
-      gardenDensity: isGardenDensity(parsed.gardenDensity)
-        ? parsed.gardenDensity
-        : DEFAULT_CONFIG.gardenDensity,
-      bellOnVibeChange:
-        typeof parsed.bellOnVibeChange === "boolean"
-          ? parsed.bellOnVibeChange
-          : DEFAULT_CONFIG.bellOnVibeChange
-    };
+    const raw = readFileSync(path, "utf8");
+    return normalizeConfig(JSON.parse(raw));
   } catch {
-    return DEFAULT_CONFIG;
+    return normalizeConfig(null);
   }
 };
 
 const parseObserver = (raw: unknown): ObserverConfig => {
-  if (!raw || typeof raw !== "object") return DEFAULT_CONFIG.observer;
+  if (!raw || typeof raw !== "object") return { ...DEFAULT_CONFIG.observer };
   const partial = raw as Partial<ObserverConfig>;
   const max =
     typeof partial.maxWatches === "number" && partial.maxWatches > 0
@@ -131,16 +150,19 @@ export const observerEnabled = (config: TuiConfig): boolean => {
 
 export const saveConfig = (config: TuiConfig): void => {
   try {
-    mkdirSync(dirname(configFile), { recursive: true });
-    writeFileSync(configFile, JSON.stringify(config, null, 2), "utf8");
+    const path = configFile();
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, JSON.stringify(normalizeConfig(config), null, 2), "utf8");
   } catch {
     // best-effort: settings stay session-only if disk write fails.
   }
 };
 
-export const updateConfig = (patch: Partial<TuiConfig>): TuiConfig => {
+type TuiConfigPatch = Partial<Omit<TuiConfig, "schemaVersion">>;
+
+export const updateConfig = (patch: TuiConfigPatch): TuiConfig => {
   const current = loadConfig();
-  const next: TuiConfig = { ...current, ...patch };
+  const next: TuiConfig = normalizeConfig({ ...current, ...patch });
   saveConfig(next);
   return next;
 };
