@@ -185,13 +185,21 @@ the garden after rescans, follow this pipeline before touching UI code.
 
 Everything lives under `~/.repogarden`.
 
-- `tui.json`: top-level app config from `src/lib/config.ts`
+- `tui.json`: v1 app config from `src/lib/config.ts` (`schemaVersion: 1`)
 - `projects/<repo-id>.json`: legacy per-repo memory from `src/lib/memory.ts`
 - `projects/<repo-id>/notes.json`: note index from `src/lib/notes.ts`
 - `projects/<repo-id>/notes/*.md`: note bodies
 - `events.jsonl`: global append-only journal event store
 - `events.meta.json`: seeded/backfill marker
 - `scan-snapshot.json`: last known vibe/branch/head per repo
+- `scan-cache.json`: cached scan details for fast startup
+- `update-check.json`: cached npm version check result
+
+For the v1 line, this layout is a supported local storage contract. Schema-less
+pre-v1 `tui.json` files are normalized on read and written back with
+`schemaVersion: 1` the next time settings are saved. Future breaking storage
+changes should add explicit migrations instead of changing these shapes in
+place.
 
 Two details matter when editing persistence code:
 

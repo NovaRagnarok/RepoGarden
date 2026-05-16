@@ -87,6 +87,20 @@ During normal operation the app reads repo paths, branch names, commit subjects 
 
 User-written notes, blockers, and journal content may contain private information. RepoGarden keeps that data local unless you explicitly copy or share it elsewhere.
 
+### Local data layout
+
+The v1 line treats the current `~/.repogarden` layout as supported local storage. Future versions may migrate it, but should keep existing installs readable.
+
+- `tui.json` — app settings, scan roots, theme, view, and feature toggles
+- `projects/<repo-id>.json` — small per-repo memory such as hidden state, last visit, blocker mirror, and garden placement
+- `projects/<repo-id>/notes.json` — per-repo note index
+- `projects/<repo-id>/notes/*.md` — note bodies
+- `events.jsonl` — append-only journal event log
+- `events.meta.json` — journal seed/backfill marker
+- `scan-snapshot.json` — last known vibe, mood, branch, and head per repo
+- `scan-cache.json` — cached scan details for faster startup
+- `update-check.json` — cached npm update-check result
+
 ### Reset local data
 
 All local app state lives under `~/.repogarden`. To wipe it and start fresh:
