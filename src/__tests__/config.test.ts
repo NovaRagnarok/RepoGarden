@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 
 import {
   loadConfig,
+  observerEnabled,
   saveConfig,
   TUI_CONFIG_SCHEMA_VERSION,
   updateConfig,
@@ -43,6 +44,18 @@ test("loadConfig returns current schema defaults when config is missing", () => 
     assert.deepEqual(config.scanRoots, []);
     assert.equal(config.view, "garden");
     assert.equal(config.observer.enabled, true);
+  });
+});
+
+test("loadConfig returns isolated default object instances", () => {
+  withFakeHome(() => {
+    const first = loadConfig();
+    first.scanRoots.push("/mutated");
+    first.observer.enabled = false;
+
+    const second = loadConfig();
+    assert.deepEqual(second.scanRoots, []);
+    assert.deepEqual(second.observer, { enabled: true });
   });
 });
 
@@ -152,4 +165,22 @@ test("updateConfig applies patches and preserves the current schema", () => {
     assert.equal(raw.themeId, "monokai");
     assert.deepEqual(raw.scanRoots, ["/new"]);
   });
+});
+
+test("observerEnabled lets per-run env override persisted config", () => {
+  const old = process.env.REPOGARDEN_DISABLE_OBSERVER;
+  try {
+    withFakeHome(() => {
+      delete process.env.REPOGARDEN_DISABLE_OBSERVER;
+      assert.equal(observerEnabled({ ...loadConfig(), observer: { enabled: true } }), true);
+      process.env.REPOGARDEN_DISABLE_OBSERVER = "1";
+      assert.equal(observerEnabled({ ...loadConfig(), observer: { enabled: true } }), false);
+    });
+  } finally {
+    if (old === undefined) {
+      delete process.env.REPOGARDEN_DISABLE_OBSERVER;
+    } else {
+      process.env.REPOGARDEN_DISABLE_OBSERVER = old;
+    }
+  }
 });

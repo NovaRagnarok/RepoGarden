@@ -1,4 +1,4 @@
-import type { Theme } from "@/components/ui/theme-provider";
+import type { Theme } from "@/components/ui/theme-types";
 
 export const defaultTheme: Theme = {
   border: {

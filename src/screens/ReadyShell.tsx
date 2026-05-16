@@ -1,11 +1,8 @@
 import { Box, Text, measureElement, type DOMElement } from "ink";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
-import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Banner } from "@/components/ui/banner";
-import { Card } from "@/components/ui/card";
-import { Markdown } from "@/components/ui/markdown";
 import { MultiProgress, type MultiProgressItem } from "@/components/ui/multi-progress";
 import { Pagination } from "@/components/ui/pagination";
 import { Panel } from "@/components/ui/panel";
@@ -21,15 +18,20 @@ import { useInput } from "@/hooks/use-input";
 import { useMouse } from "@/hooks/use-mouse";
 import { layoutMode, useTerminalSize } from "@/hooks/use-terminal-size";
 import type { RepoCreature } from "@/lib/creature";
-import type { CreatureSizeCohort } from "@/lib/sprite";
 import { tildify } from "@/lib/scanner";
 import { vibeGlyph, type Vibe } from "@/lib/vibe";
 import {
   gardenPageCapacity,
-  paginateCreatures,
   safeGardenCapacity,
   type GardenDensity
 } from "@/lib/garden-layout";
+import {
+  buildReadyFocusList,
+  clampReadyFocusIndex,
+  focusedGardenIndex,
+  followVisibleItemAfterUnhide,
+  resolveReadyPagination
+} from "@/lib/ready-shell-state";
 import { writeToSystemClipboard } from "@/lib/clipboard";
 import { exportGardenGif } from "@/lib/gif/export";
 import { renderShareableTextFrame } from "@/lib/gif/text-export";
@@ -38,7 +40,6 @@ import { buildTiles, createGardenModel, pinForExport } from "@/garden/model";
 import { renderGardenFrame } from "@/garden/render";
 import type { GardenSceneProps, GardenThemeColors } from "@/garden/types";
 import { GardenView } from "@/screens/GardenView";
-import { CreatureSprite } from "@/components/CreatureSprite";
 import { Credit } from "@/components/Credit";
 import { DitherOverlay } from "@/components/DitherOverlay";
 import { UsageBar, UsageBarPlaceholder } from "@/components/UsageBar";
@@ -82,20 +83,7 @@ export interface ReadyShellProps {
   /** Per-page slot density (garden) and per-cell breathing room (shelf).
    *  Default `comfortable`. */
   gardenDensity?: GardenDensity;
-  /** Cohort used for cohort-aware (rank-based) sizing in the focus popup
-   *  and downstream views. Built upstream from the full non-hidden creature
-   *  list so a creature renders the same size whether viewed in the garden
-   *  or as a popup. The garden internally builds its own per-page cohort
-   *  for tile placement; this prop is for non-garden consumers. */
-  sizeCohort?: CreatureSizeCohort;
 }
-
-const vibeBadgeVariant: Record<Vibe, "default" | "warning" | "error" | "info" | "success"> = {
-  sleepy: "info",
-  stuck: "error",
-  awake: "warning",
-  happy: "success"
-};
 
 export const ReadyShell = ({
   creatures: rawCreatures,
@@ -117,8 +105,7 @@ export const ReadyShell = ({
   scanProgressByRoot,
   usageBarDisabled = false,
   gardenPaginate = true,
-  gardenDensity = "comfortable",
-  sizeCohort
+  gardenDensity = "comfortable"
 }: ReadyShellProps) => {
   const theme = useTheme();
   const { reduced: reducedMotion } = useMotion();
@@ -695,19 +682,20 @@ export const ReadyShell = ({
   // When pagination is off, the whole creature list goes onto a single page
   // and the placer's graceful-degradation handles dense packing if the
   // canvas can't physically fit everyone without overlap.
-  const gardenPages = useMemo(
-    () => {
-      if (!isGardenView) return [visibleCreatures];
-      if (!gardenPaginate) return [visibleCreatures];
-      return paginateCreatures(visibleCreatures, gardenCapacity);
-    },
-    [isGardenView, gardenPaginate, visibleCreatures, gardenCapacity]
+  const gardenPagination = useMemo(
+    () =>
+      resolveReadyPagination({
+        items: visibleCreatures,
+        isGardenView,
+        paginate: gardenPaginate,
+        capacity: gardenCapacity,
+        pageIndex: gardenPageIndex
+      }),
+    [isGardenView, gardenPaginate, visibleCreatures, gardenCapacity, gardenPageIndex]
   );
-  const gardenPageCount = Math.max(1, gardenPages.length);
-  const safeGardenPageIndex = Math.min(gardenPageIndex, gardenPageCount - 1);
-  const pagedVisibleCreatures = isGardenView
-    ? (gardenPages[safeGardenPageIndex] ?? [])
-    : visibleCreatures;
+  const gardenPageCount = gardenPagination.pageCount;
+  const safeGardenPageIndex = gardenPagination.safePageIndex;
+  const pagedVisibleCreatures = gardenPagination.pageItems;
 
   // Reset page on filter change so an empty page can't strand the user.
   useEffect(() => {
@@ -725,14 +713,14 @@ export const ReadyShell = ({
   // then hidden. In garden mode the shown half is just the current page's
   // creatures; in shelf/journal it's the full visibleCreatures list.
   const focusList = useMemo(
-    () => [...pagedVisibleCreatures, ...visibleHiddenCreatures],
+    () => buildReadyFocusList(pagedVisibleCreatures, visibleHiddenCreatures),
     [pagedVisibleCreatures, visibleHiddenCreatures]
   );
-  const gardenFocusIndex = homeSelected
-    ? -1
-    : focusIndex < pagedVisibleCreatures.length
-      ? focusIndex
-      : -1;
+  const gardenFocusIndex = focusedGardenIndex({
+    homeSelected,
+    focusIndex,
+    visibleCount: pagedVisibleCreatures.length
+  });
 
   // Snapshot builder for the export keybindings (x/t/T). Refreshed every
   // render so the export keys always see the current page, focus, theme,
@@ -801,10 +789,12 @@ export const ReadyShell = ({
     const id = followAfterUnhideRef.current;
     if (!id) return;
     const globalIdx = visibleCreatures.findIndex((c) => c.id === id);
-    if (globalIdx >= 0 && gardenCapacity > 0 && isGardenView) {
-      const targetPage = Math.floor(globalIdx / gardenCapacity);
-      setGardenPageIndex(targetPage);
-      setFocusIndex(globalIdx % gardenCapacity);
+    const gardenTarget = isGardenView
+      ? followVisibleItemAfterUnhide({ globalIndex: globalIdx, capacity: gardenCapacity })
+      : null;
+    if (gardenTarget) {
+      setGardenPageIndex(gardenTarget.pageIndex);
+      setFocusIndex(gardenTarget.focusIndex);
       setHomeSelected(false);
       followAfterUnhideRef.current = null;
       return;
@@ -827,10 +817,7 @@ export const ReadyShell = ({
   }, []);
   const handleGardenFocusDelta = useCallback((delta: number) => {
     setFocusIndex((current) =>
-      Math.max(
-        0,
-        Math.min(Math.max(0, focusList.length - 1), current + delta)
-      )
+      clampReadyFocusIndex(current + delta, focusList.length)
     );
   }, [focusList.length]);
   const handleGardenCreaturePlacementChange = useCallback(
@@ -1085,8 +1072,6 @@ export const ReadyShell = ({
   const stackedGardenContentCol = 1 + 1 + 1 + 1;
 
   const sidebar = (width?: number, height?: number) => {
-    // Account for: 1 col panel border + 1 col panel pad + 1 col cursor + 1 col gap + 1 col glyph + 1 col gap + (name) + 1 col pad + 1 col border = 7 cols of chrome.
-    const nameRoom = Math.max(6, (width ?? 32) - 7);
     // Content rows = panel height minus 4 rows of chrome (top border, title
     // header, title bottom border, bottom border), (-1) for the inline status
     // row when present, and (-1) for the "home" row, which is always rendered
@@ -1492,88 +1477,6 @@ export const ReadyShell = ({
       <Box flexGrow={1} />
     </Box>
   );
-
-  const detail = (width?: number, height?: number) => {
-    if (!focus) {
-      return (
-        <Panel title="no creature" paddingY={1} width={width} height={height}>
-          <Text dimColor color={theme.colors.mutedForeground}>
-            press r to scan a folder.
-          </Text>
-        </Panel>
-      );
-    }
-
-    const subtitleParts: string[] = [];
-    if (focus.scan.branch) subtitleParts.push(`branch ${focus.scan.branch}`);
-    if (focus.scan.primaryLanguage) subtitleParts.push(focus.scan.primaryLanguage);
-    if (focus.vibe.daysSinceCommit !== undefined) {
-      subtitleParts.push(`${focus.vibe.daysSinceCommit}d ago`);
-    }
-
-    return (
-      <Card
-        title={focus.scan.name}
-        titleColor={theme.colors.primary}
-        subtitle={subtitleParts.join(" · ") || undefined}
-        width={width}
-        height={height}
-        paddingY={1}
-        footer={
-          <Text dimColor color={theme.colors.mutedForeground}>
-            {privacy.maskPath(tildify(focus.scan.path), focus.id)}
-          </Text>
-        }
-      >
-        <Box flexDirection="row" paddingBottom={1}>
-          <CreatureSprite creature={focus} cohort={sizeCohort} />
-          <Box flexDirection="column" paddingLeft={2} flexGrow={1}>
-            <Box flexShrink={0}>
-              <Badge variant={vibeBadgeVariant[focus.vibe.vibe]} bold>
-                {focus.vibe.vibe.toUpperCase()}
-              </Badge>
-            </Box>
-            <Box paddingTop={1}>
-              <Text>{focus.vibe.reason}</Text>
-            </Box>
-          </Box>
-        </Box>
-        {focus.scan.recentCommitDays && focus.scan.recentCommitDays.some((n) => n > 0) ? (
-          <Box paddingBottom={1}>
-            <Sparkline
-              data={focus.scan.recentCommitDays}
-              width={Math.max(12, Math.min(30, (width ?? 40) - 16))}
-              label="30d"
-              color={theme.colors.accent}
-            />
-          </Box>
-        ) : null}
-        {focus.scan.lastCommitSubject ? (
-          <Text dimColor color={theme.colors.mutedForeground}>
-            last: {focus.scan.lastCommitSubject}
-          </Text>
-        ) : null}
-        {focus.memory.noteToFutureSelf ? (
-          <Box paddingTop={1} flexDirection="column">
-            <Text bold color={theme.colors.primary}>
-              note to future self
-            </Text>
-            <Markdown width={width ? width - 4 : undefined}>
-              {focus.memory.noteToFutureSelf}
-            </Markdown>
-          </Box>
-        ) : null}
-        {focus.memory.currentBlocker ? (
-          <Box paddingTop={1} flexDirection="column">
-            <Alert variant="error" title="blocker" bordered={false} paddingX={0} />
-            <Markdown width={width ? width - 4 : undefined}>
-              {focus.memory.currentBlocker}
-            </Markdown>
-          </Box>
-        ) : null}
-      </Card>
-    );
-  };
 
   const compactFocusSummary = () => {
     const label = focus

@@ -1,5 +1,5 @@
 import { Box, Text } from "ink";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useTheme } from "@/components/ui/theme-provider";
 import { useFocus } from "@/hooks/use-focus";

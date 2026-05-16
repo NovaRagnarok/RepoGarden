@@ -217,7 +217,6 @@ export const buildDemoCreatures = (): RepoCreature[] =>
     const vibe = demoVibeFor(id);
     const branch = demoBranchFor(id);
     const subject = demoSubjectFor(id);
-    const author = demoAuthorFor(id);
     // Distribute ages so the vibe summary looks varied: 0-2d for happy/awake,
     // 14+ for sleepy, ~5d for stuck. Deterministic per index.
     const daysSinceCommit =

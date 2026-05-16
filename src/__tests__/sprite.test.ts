@@ -398,12 +398,6 @@ test("quadrantChar maps empty and full cells", () => {
 // eyesClosed variant
 // ---------------------------------------------------------------------------
 
-const countZeros = (matrix: SubMatrix): number => {
-  let n = 0;
-  for (const row of matrix) for (const cell of row) if (cell === 0) n += 1;
-  return n;
-};
-
 test("generateCreatureFrames reports eye cell coordinates inside sprite bounds", () => {
   // Sleepy-eye overlay paints at these cell positions; the renderer
   // assumes they are valid (0..charW-1, 0..charH-1) coordinates.

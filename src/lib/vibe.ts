@@ -1,27 +1,10 @@
-import type { ScannedRepo } from "@/lib/scanner";
-import type { ProjectMemory } from "@/lib/memory";
+import type { ProjectMemory } from "@/lib/memory-types";
+import type { ScannedRepo } from "@/lib/scanner-types";
+import type { Mood, Vibe } from "@/lib/vibe-types";
 
-// Vibe vocabulary (in display order, liveliest → quietest):
-//   awake  — recent local changes (uncommitted edits or ahead of remote)
-//   happy  — clean working tree, in sync with remote
-//   stuck  — user has written a `currentBlocker` note
-//   sleepy — no commits for SLEEPY_DAYS or more
 // Earlier versions used "noisy"/"blocked" — see `events.ts` snapshot reader
 // and `event-summary.ts` for the read-time migration of pre-rename data.
-export type Vibe = "awake" | "happy" | "stuck" | "sleepy";
-
-// Mood is an advisory descriptor layered on top of Vibe. Vibe answers
-// "which shelf does this creature stand on?"; Mood answers "what does it
-// feel like right now?". Nothing branches on Mood — it's renderer-only —
-// so adding new moods later is purely additive.
-export type Mood =
-  | "curious"   // young repo, still being explored
-  | "excited"   // recent burst of commits above its own baseline
-  | "proud"     // stacked unpushed commits, has shipped good work locally
-  | "anxious"   // behind remote — needs pull or attention
-  | "confused"  // user has written a currentBlocker
-  | "lonely"    // long idle and no recent visit
-  | "content";  // default — nothing remarkable is happening
+export type { Mood, Vibe } from "@/lib/vibe-types";
 
 const SLEEPY_DAYS = 14;
 const STALE_DAYS = 60;

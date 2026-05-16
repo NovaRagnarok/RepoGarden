@@ -1,5 +1,5 @@
 import { Text, useStdout } from "ink";
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 
 import { Panel } from "@/components/ui/panel";
 import { useMotion, useTheme } from "@/components/ui/theme-provider";

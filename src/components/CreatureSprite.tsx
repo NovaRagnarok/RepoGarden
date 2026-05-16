@@ -1,5 +1,5 @@
 import { Box, Text } from "ink";
-import React, { useMemo } from "react";
+import { useMemo } from "react";
 
 import { useTheme } from "@/components/ui/theme-provider";
 import type { RepoCreature } from "@/lib/creature";

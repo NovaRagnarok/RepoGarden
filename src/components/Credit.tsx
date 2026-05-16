@@ -1,6 +1,4 @@
 import { Box } from "ink";
-import React from "react";
-
 import { Link } from "@/components/ui/link";
 import { useTheme } from "@/components/ui/theme-provider";
 

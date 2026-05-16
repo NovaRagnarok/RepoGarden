@@ -76,6 +76,7 @@ test("loadNotes is idempotent: subsequent calls do not re-migrate", () => {
   withFakeHome(() => {
     saveMemory("gamma", { currentBlocker: "x" });
     const first = loadNotes("gamma");
+    assert.equal(first.index.order.length, 1);
     saveMemory("gamma", { currentBlocker: "y" }); // change legacy after first load
     const second = loadNotes("gamma");
     assert.equal(second.index.order.length, 1);
