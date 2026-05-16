@@ -1,7 +1,7 @@
 // Mouse support via xterm SGR mouse reporting.
 //
 // We enable the SGR (1006) protocol on top of standard click reporting (1000)
-// in cli.tsx, parse incoming sequences here, and surface them as discrete
+// in cli-main.tsx, parse incoming sequences here, and surface them as discrete
 // events. Mouse data is filtered out of the stdin stream Ink consumes so the
 // raw escape sequences don't leak into Ink's keyboard parser (where the `<`,
 // digits, `;`, and `M`/`m` chars would otherwise look like keystrokes — and

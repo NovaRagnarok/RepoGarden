@@ -198,7 +198,7 @@ export const OnboardingScreen = ({
           <>
             <Box flexDirection="column" paddingBottom={1}>
               <Text>RepoGarden turns local git repos into little creatures.</Text>
-              <Text>sleepy, blocked, or noisy creatures are the ones asking for attention.</Text>
+              <Text>awake, happy, stuck, and sleepy creatures show where each repo stands.</Text>
             </Box>
 
             <Box flexDirection="column" paddingBottom={1}>

@@ -1,6 +1,6 @@
 {
   "name": "@outsideheaven/repogarden",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": false,
   "license": "MIT",
   "author": "RepoGarden contributors",
@@ -50,10 +50,11 @@
     "THIRD_PARTY_NOTICES.md"
   ],
   "scripts": {
-    "dev": "tsx src/cli.tsx",
-    "build": "tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json -f",
-    "prepare": "tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json -f",
-    "prepack": "tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json -f",
+    "dev": "tsx src/cli.ts",
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "build": "pnpm run clean && tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json -f",
+    "prepare": "pnpm run build",
+    "prepack": "pnpm run build",
     "start": "node dist/cli.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --import tsx --test --test-concurrency=1 src/__tests__/*.test.ts",

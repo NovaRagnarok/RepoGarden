@@ -255,7 +255,7 @@ export const WorkbenchScreen = ({
 
   // Mirror the "blocker"-named note into the legacy ProjectMemory field so
   // the garden's vibe layer (inferVibe) keeps reading the creature as
-  // `blocked` when one is set. Re-reads memory from disk so we don't clobber
+  // `stuck` when one is set. Re-reads memory from disk so we don't clobber
   // unrelated fields (lastVisitedAt, hidden) updated elsewhere. Runs on
   // every notes-state change — keystroke-level edits don't touch `notes`
   // (only `editor`), so this only fires on explicit save / tab-switch /

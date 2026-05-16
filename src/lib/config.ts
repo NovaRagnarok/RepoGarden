@@ -73,6 +73,9 @@ const isGardenDensity = (value: unknown): value is GardenDensity =>
 const isReadyView = (value: unknown): value is ReadyView =>
   value === "garden" || value === "shelf" || value === "journal";
 
+const ENV_TRUE_VALUES = new Set(["1", "true"]);
+const ENV_FALSE_VALUES = new Set(["0", "false"]);
+
 const defaultConfig = (): TuiConfig => ({
   ...DEFAULT_CONFIG,
   observer: { ...DEFAULT_CONFIG.observer },
@@ -147,6 +150,27 @@ const parseObserver = (raw: unknown): ObserverConfig => {
 export const observerEnabled = (config: TuiConfig): boolean => {
   if (process.env.REPOGARDEN_DISABLE_OBSERVER === "1") return false;
   return config.observer.enabled;
+};
+
+export const reducedMotionEnvOverride = (
+  env: NodeJS.ProcessEnv = process.env
+): boolean | undefined => {
+  const raw = env.REPOGARDEN_REDUCED_MOTION;
+  if (!raw) return undefined;
+  const value = raw.trim().toLowerCase();
+  if (ENV_TRUE_VALUES.has(value)) return true;
+  if (ENV_FALSE_VALUES.has(value)) return false;
+  return undefined;
+};
+
+/** Per-run effective reduced-motion flag: env override wins over persisted config. */
+export const reducedMotionEnabled = (
+  config: TuiConfig,
+  env: NodeJS.ProcessEnv = process.env
+): boolean => {
+  const envOverride = reducedMotionEnvOverride(env);
+  if (envOverride !== undefined) return envOverride;
+  return config.reducedMotion || env.NO_MOTION === "1" || env.CI === "true";
 };
 
 export const saveConfig = (config: TuiConfig): void => {

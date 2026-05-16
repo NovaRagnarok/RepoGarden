@@ -13,6 +13,12 @@ import {
 const repoIds = (count: number, prefix = "repo"): string[] =>
   Array.from({ length: count }, (_, i) => `${prefix}-${i.toString().padStart(2, "0")}`);
 
+test("demo name roster covers the standard 32-repo demo before suffixing", () => {
+  // Keep the default demo roster large enough that a 32-repo screenshot/demo
+  // does not spill into recycled names like "name-2".
+  assert.ok(DEMO_NAMES.length >= 32, "demo roster should cover at least 32 repos");
+});
+
 test("buildDemoNameMap gives every id in a small set a unique name", () => {
   const ids = repoIds(8);
   const map = buildDemoNameMap(ids);
@@ -91,7 +97,7 @@ test("clearActiveDemoIds falls back to hash-modulo (stable per id)", () => {
 });
 
 test("buildDemoCreatures yields a populated roster suitable for the onboarding demo hook", () => {
-  // The onboarding screen's `d` hotkey (handleTryDemo in cli.tsx) seeds
+  // The onboarding screen's `d` hotkey (handleTryDemo in cli-main.tsx) seeds
   // these into state when the user has zero real creatures. Guard against
   // a future refactor that accidentally returns []: the screen would flip
   // privacy.setMode("demo") on an empty list and the user would land on

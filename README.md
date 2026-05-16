@@ -4,9 +4,9 @@ RepoGarden is a local-first pixel habitat where your repositories become tiny de
 
 The product is intentionally not dashboard-first. The default experience is a living scene that helps you notice projects, recover context, and resume with a small next move.
 
-## Early beta
+## Local-first 0.9 release candidate
 
-RepoGarden is in early beta. The core loop works, but the UI, storage shape, and provider integrations may still change. Bug reports are very welcome.
+RepoGarden 0.9 is a local-first CLI release candidate. The habitat-first loop, local storage location, and reset behavior are ready for real users, while individual views and optional provider integrations may continue to evolve before v1.
 
 RepoGarden:
 
@@ -89,7 +89,7 @@ User-written notes, blockers, and journal content may contain private informatio
 
 ### Local data layout
 
-The current `~/.repogarden` layout is now treated as supported local storage while RepoGarden moves toward a stable release. Future versions may migrate it, but should keep existing installs readable.
+The `~/.repogarden` layout is the supported local storage location for the 0.9 line. Future releases may add files, rename fields, or migrate records, and should keep 0.9 installs readable or migrate them forward without manual edits where practical. If local state ever gets into a bad shape, deleting `~/.repogarden` remains the supported reset path; it never deletes or modifies the git repositories themselves.
 
 - `tui.json` — app settings, scan roots, theme, view, and feature toggles
 - `projects/<repo-id>.json` — small per-repo memory such as hidden state, last visit, blocker mirror, and garden placement
@@ -113,7 +113,7 @@ The next launch will re-run onboarding and rebuild the journal/snapshot from a c
 
 ### Claude / Codex usage bar
 
-The Claude/Codex usage bar is off by default in this early beta build. Turn it on from Settings (`s`) with `u`.
+The Claude/Codex usage bar is off by default. Turn it on from Settings (`s`) with `u`.
 
 When the bar is enabled and the ready UI renders (garden, shelf, or journal) or the workbench screen renders, RepoGarden attempts to read local Claude Code and Codex CLI OAuth credentials, refreshes tokens if needed, and calls the providers' usage endpoints directly. Refreshed tokens may be written back to the same local file or macOS Keychain entry used by those CLIs.
 
@@ -142,10 +142,10 @@ The env var takes precedence; either path suppresses the network call entirely.
 
 ### Reduced motion
 
-The garden tween, dither cross-fade, creature wander, blink, spinner, skeleton, and the boot scene all respect a reduced-motion setting. Open Settings (`s`) and press `m` to toggle it persistently, or set `NO_MOTION=1` (or `CI=true`) for a single run:
+The garden tween, dither cross-fade, creature wander, blink, spinner, skeleton, and the boot scene all respect a reduced-motion setting. Open Settings (`s`) and press `m` to toggle it persistently, or set `REPOGARDEN_REDUCED_MOTION=1` / `NO_MOTION=1` (or `CI=true`) for a single run:
 
 ```bash
-NO_MOTION=1 repogarden
+REPOGARDEN_REDUCED_MOTION=1 repogarden
 ```
 
 ## Choose your path
@@ -162,7 +162,7 @@ Read these core docs as needed:
 2. [`docs/creature-system.md`](docs/creature-system.md)
 3. [`ARCHITECTURE.md`](ARCHITECTURE.md)
 4. [`BACKLOG.md`](BACKLOG.md) — current direction and live TODO list
-5. [`docs/legacy-not-ported.md`](docs/legacy-not-ported.md) — what survived the v1→TUI cutover
+5. [`docs/legacy-not-ported.md`](docs/legacy-not-ported.md) — what survived the desktop-to-TUI cutover
 
 ## Common commands
 

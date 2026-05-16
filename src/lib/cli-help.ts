@@ -1,6 +1,6 @@
 export const CLI_HELP_TEXT = `RepoGarden
 
-A local terminal habitat for your git repos. (early beta)
+A local-first terminal habitat for your git repos.
 
 Usage:
   repogarden                              launch the TUI
@@ -24,8 +24,10 @@ Export options:
 Environment:
   REPOGARDEN_DISABLE_USAGE=1     hide the Claude/Codex usage bar this run
                                   (opt-in toggle: Settings → u)
+  REPOGARDEN_DISABLE_OBSERVER=1  disable live git watches for this run
   REPOGARDEN_NO_UPDATE_CHECK=1   skip the once-a-day npm version check
   REPOGARDEN_DEMO=1              launch with demo data (for screenshots)
+  REPOGARDEN_REDUCED_MOTION=1    reduce motion for this run
   NO_MOTION=1                    reduce motion where supported
 
 Requirements:

@@ -18,7 +18,7 @@ import {
   type JournalEvent,
 } from "../lib/events";
 
-// Integration coverage of the *cli.tsx wiring path*: observer fires →
+// Integration coverage of the *cli-main.tsx wiring path*: observer fires →
 // the same `refreshOneCreature` / `inspectRepo + enrichScans` callbacks
 // the cli uses → journal events appear on disk. Asserts the seam, not
 // the React layer.
@@ -80,7 +80,7 @@ test("observer + cli wiring: a new commit produces a 'commit' journal event", as
         })),
         roots: [],
         onCommitDetected: (id) => {
-          // Mirror cli.tsx:240 — the single-repo refresh + enrich is what
+          // Mirror cli-main.tsx — the single-repo refresh + enrich is what
           // emits the journal event via snapshot reconcile.
           creatures = refreshOneCreature(creatures, id);
         },
@@ -138,7 +138,7 @@ test("observer + cli wiring: dropping a new repo into a scan root surfaces a 're
         roots: [workspaceRoot],
         onCommitDetected: () => {},
         onNewRepoDetected: (path) => {
-          // Mirror cli.tsx:246 — dedupe, inspectRepo, splice, enrichScans.
+          // Mirror cli-main.tsx — dedupe, inspectRepo, splice, enrichScans.
           if (creatures.some((c) => c.scan.path === path)) return;
           const fresh = inspectRepo(path);
           if (fresh.scanError) return;

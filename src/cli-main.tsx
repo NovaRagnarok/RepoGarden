@@ -5,7 +5,6 @@ import { PassThrough } from "stream";
 
 import {
   ThemeProvider,
-  isReducedMotion,
   type Theme
 } from "@/components/ui/theme-provider";
 import { DISABLE_MOUSE, ENABLE_MOUSE, parseStdinChunk } from "@/lib/mouse";
@@ -26,7 +25,7 @@ import { WorkbenchScreen } from "@/screens/WorkbenchScreen";
 import { HelpOverlay } from "@/screens/HelpOverlay";
 import { openInFileBrowser } from "@/lib/system";
 import { defaultThemeId, themeById, themeCatalogue } from "@/themes";
-import { loadConfig, updateConfig } from "@/lib/config";
+import { loadConfig, reducedMotionEnabled, updateConfig } from "@/lib/config";
 import type { GardenDensity } from "@/lib/garden-layout";
 import {
   bootPhaseForScanOutcome,
@@ -666,10 +665,10 @@ const Root = () => {
     themeById(defaultThemeId) ??
     themeCatalogue[0];
   const [activeTheme, setActiveTheme] = useState<Theme>(initialChoice.theme);
-  // NO_MOTION / CI seed the initial value when no saved preference is on;
-  // the settings toggle then writes user intent to config and wins per-session.
+  // REPOGARDEN_REDUCED_MOTION overrides saved config for one run only.
+  // NO_MOTION / CI still seed the initial value when no saved preference is on.
   const [reducedMotion, setReducedMotion] = useState<boolean>(
-    config.reducedMotion || isReducedMotion()
+    reducedMotionEnabled(config)
   );
 
   // Demo mode for headless screenshot capture. Setting REPOGARDEN_DEMO=1

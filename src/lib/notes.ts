@@ -495,7 +495,7 @@ export const setActive = (
 /**
  * Return the body of the note named "blocker" (case-insensitive, trimmed) if
  * one exists and has non-empty content. The garden's vibe layer keys off
- * `ProjectMemory.currentBlocker` to mark a creature as `blocked`; mirroring
+ * `ProjectMemory.currentBlocker` to mark a creature as `stuck`; mirroring
  * the blocker note into that field keeps the home scene reactive to the
  * notepad without making `inferVibe` aware of the notes layer.
  *
