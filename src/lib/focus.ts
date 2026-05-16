@@ -10,7 +10,7 @@
 // We use this to recover from a macOS-specific freeze: when the terminal goes
 // to another Space and back, the kernel can suspend our process mid-write —
 // long enough that the DEC 2026 Synchronized Update Mode bracket we wrap
-// every stdout write in (see cli.tsx) lands a BSU without its matching ESU.
+// every stdout write in (see cli-main.tsx) lands a BSU without its matching ESU.
 // The terminal then sits in "buffering, not painting" mode forever. On
 // focus-in we re-emit ESU defensively to release any stuck SUM state.
 

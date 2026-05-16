@@ -36,7 +36,7 @@ The implementation lives in `src/lib/update-check.ts`.
 
 ### Claude / Codex usage bar
 
-The Claude/Codex usage bar is off by default in this early beta build. Turn it on from Settings (`s`) with `u`.
+The Claude/Codex usage bar is off by default. Turn it on from Settings (`s`) with `u`.
 
 When the bar is enabled and the ready UI renders (garden, shelf, or journal) or the workbench screen renders, RepoGarden attempts to read local Claude Code and Codex CLI OAuth credentials, refreshes tokens if needed, and calls the providers' usage endpoints directly. Refreshed tokens may be written back to the same local file or macOS Keychain entry used by those CLIs.
 
@@ -65,9 +65,9 @@ The env var wins over the saved setting; either path suppresses all reads of the
 
 ## Supported versions
 
-RepoGarden is early beta software. Only the latest 0.8.x release receives security fixes.
+RepoGarden 0.9 is the supported release-candidate line. Only the latest 0.9 release receives security fixes until v1 ships.
 
 | Version | Supported |
 | ------- | --------- |
-| 0.8.x (latest) | yes |
+| 0.9.x (latest) | yes |
 | older | no |

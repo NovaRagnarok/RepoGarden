@@ -60,7 +60,7 @@ Examples of safe current slices:
 
 Higher-risk slices:
 
-- startup, boot, or recovery flow in `src/cli.tsx` and `src/screens/BootScreen.tsx`
+- startup, boot, or recovery flow in `src/cli-main.tsx` and `src/screens/BootScreen.tsx`
 - persistence format changes in `src/lib/config.ts`, `src/lib/notes.ts`, `src/lib/memory.ts`, or `src/lib/events.ts`
 - import/integration behavior, token reads, or external CLI credential handling
 - changes that make the home habitat read like a dashboard or promote the workbench into the main surface
@@ -86,7 +86,7 @@ Start with:
 
 ## Where to look next
 
-- Source is canon: `src/cli.tsx`, `src/screens/`, `src/lib/`, `src/components/` — [`ARCHITECTURE.md`](ARCHITECTURE.md) gives the high-level map, but the code is still the final authority.
+- Source is canon: `src/cli.ts`, `src/cli-main.tsx`, `src/screens/`, `src/lib/`, `src/components/` — [`ARCHITECTURE.md`](ARCHITECTURE.md) gives the high-level map, but the code is still the final authority.
 - Product context: [`docs/product-vision.md`](docs/product-vision.md), [`docs/creature-system.md`](docs/creature-system.md)
 - Manual verification: [`docs/manual-tests/`](docs/manual-tests)
 - What didn't survive v1: [`docs/legacy-not-ported.md`](docs/legacy-not-ported.md)

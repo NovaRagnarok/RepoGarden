@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import {
   loadConfig,
   observerEnabled,
+  reducedMotionEnabled,
   saveConfig,
   TUI_CONFIG_SCHEMA_VERSION,
   updateConfig,
@@ -182,6 +183,59 @@ test("observerEnabled lets per-run env override persisted config", () => {
       delete process.env.REPOGARDEN_DISABLE_OBSERVER;
     } else {
       process.env.REPOGARDEN_DISABLE_OBSERVER = old;
+    }
+  }
+});
+
+test("reducedMotionEnabled lets per-run env force reduced motion without mutating config", () => {
+  const old = process.env.REPOGARDEN_REDUCED_MOTION;
+  try {
+    withFakeHome((home) => {
+      writeRawConfig(home, { ...loadConfig(), reducedMotion: false });
+
+      process.env.REPOGARDEN_REDUCED_MOTION = "1";
+      assert.equal(reducedMotionEnabled(loadConfig()), true);
+
+      const raw = JSON.parse(readFileSync(configPath(home), "utf8")) as Partial<TuiConfig>;
+      assert.equal(raw.reducedMotion, false, "env override must not rewrite saved config");
+    });
+  } finally {
+    if (old === undefined) {
+      delete process.env.REPOGARDEN_REDUCED_MOTION;
+    } else {
+      process.env.REPOGARDEN_REDUCED_MOTION = old;
+    }
+  }
+});
+
+test("reducedMotionEnabled lets per-run env disable a saved reduced-motion preference", () => {
+  const old = process.env.REPOGARDEN_REDUCED_MOTION;
+  try {
+    withFakeHome(() => {
+      process.env.REPOGARDEN_REDUCED_MOTION = "false";
+      assert.equal(reducedMotionEnabled({ ...loadConfig(), reducedMotion: true }), false);
+    });
+  } finally {
+    if (old === undefined) {
+      delete process.env.REPOGARDEN_REDUCED_MOTION;
+    } else {
+      process.env.REPOGARDEN_REDUCED_MOTION = old;
+    }
+  }
+});
+
+test("reducedMotionEnabled preserves saved reduced-motion preference when env is absent", () => {
+  const old = process.env.REPOGARDEN_REDUCED_MOTION;
+  try {
+    delete process.env.REPOGARDEN_REDUCED_MOTION;
+    withFakeHome(() => {
+      assert.equal(reducedMotionEnabled({ ...loadConfig(), reducedMotion: true }), true);
+    });
+  } finally {
+    if (old === undefined) {
+      delete process.env.REPOGARDEN_REDUCED_MOTION;
+    } else {
+      process.env.REPOGARDEN_REDUCED_MOTION = old;
     }
   }
 });

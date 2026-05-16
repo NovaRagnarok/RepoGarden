@@ -8,6 +8,8 @@ DEFAULT_COLS="${REPOGARDEN_OBSERVE_COLUMNS:-100}"
 DEFAULT_ROWS="${REPOGARDEN_OBSERVE_ROWS:-32}"
 DEFAULT_BOOT_WAIT_MS="${REPOGARDEN_OBSERVE_BOOT_WAIT_MS:-2000}"
 DEFAULT_SCAN_WAIT_MS="${REPOGARDEN_OBSERVE_SCAN_WAIT_MS:-4000}"
+DEFAULT_SCAN_INPUT="${REPOGARDEN_OBSERVE_SCAN_INPUT:-~/repos/root}"
+HOST_COREPACK_HOME="${COREPACK_HOME:-${HOME:-}/.cache/node/corepack}"
 
 usage() {
   cat <<'EOF'
@@ -146,8 +148,8 @@ start_session() {
   local home_dir="$session_dir/home"
   local captures_dir="$session_dir/captures"
   local session="repogarden-observe-$(date +%s)-$$"
-  mkdir -p "$home_dir" "$captures_dir"
-  ln -s "$root" "$home_dir/repos"
+  mkdir -p "$home_dir/repos" "$captures_dir"
+  ln -s "$root" "$home_dir/repos/root"
 
   printf '%s\n' "$session" > "$session_dir/session-name"
   printf '%s\n' "$root" > "$session_dir/root"
@@ -158,9 +160,10 @@ start_session() {
   printf '%s\n' "$session_dir" > "$CURRENT_FILE"
 
   tmux new-session -d -s "$session" -x "$DEFAULT_COLS" -y "$DEFAULT_ROWS" \
-    "cd '$ROOT_DIR' && HOME='$home_dir' REPOGARDEN_DISABLE_USAGE=1 COLUMNS='$DEFAULT_COLS' LINES='$DEFAULT_ROWS' pnpm dev"
+    "cd '$ROOT_DIR' && HOME='$home_dir' COREPACK_HOME='$HOST_COREPACK_HOME' COREPACK_ENABLE_DOWNLOAD_PROMPT=0 REPOGARDEN_DISABLE_USAGE=1 COLUMNS='$DEFAULT_COLS' LINES='$DEFAULT_ROWS' pnpm dev"
 
   sleep_ms "$DEFAULT_BOOT_WAIT_MS"
+  tmux send-keys -l -t "$(capture_target "$session_dir")" "$DEFAULT_SCAN_INPUT"
   tmux send-keys -t "$(capture_target "$session_dir")" Enter
   sleep_ms "$DEFAULT_SCAN_WAIT_MS"
 
@@ -286,6 +289,10 @@ analyze_flicker_samples() {
 }
 
 main() {
+  if [[ "${1:-}" == "--" ]]; then
+    shift
+  fi
+
   local command="${1:-}"
   case "$command" in
     start)

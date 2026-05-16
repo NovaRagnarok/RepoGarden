@@ -252,7 +252,7 @@ test("deriveBlockerFromNotes returns undefined when no blocker note exists", () 
   });
 });
 
-test("blocker note still drives the 'blocked' vibe via memory mirror", () => {
+test("blocker note still drives the 'stuck' vibe via memory mirror", () => {
   withFakeHome(() => {
     // Simulate the workbench's sync effect: load notes, derive, write to memory.
     saveMemory("pi", { currentBlocker: "stuck on migration" });
@@ -492,7 +492,7 @@ test("workbench blocker note flips a creature's vibe to stuck via buildCreature"
 
     // Simulate the workbench flow: create a note named "blocker" with a body,
     // then mirror it into ProjectMemory exactly the way WorkbenchScreen's sync
-    // effect does. cli.tsx's handleSaveMemory then calls buildCreature, which
+    // effect does. cli-main.tsx's handleSaveMemory then calls buildCreature, which
     // re-reads memory from disk — we replay that step here.
     const initial = loadNotes(scan.id);
     const { state: withBlockerNote } = createNote(scan.id, initial, "blocker");

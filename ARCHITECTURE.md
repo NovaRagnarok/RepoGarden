@@ -11,7 +11,7 @@ not a second app.
 
 ## Runtime stack
 
-- `src/cli.tsx` is the real entrypoint for both `pnpm dev` and the built CLI.
+- `src/cli.ts` is the tiny launcher for both `pnpm dev` and the built CLI; it checks the Node version before loading the Ink runtime in `src/cli-main.tsx`.
 - React 19 + Ink render the UI.
 - `ThemeProvider` and `ToastProvider` wrap the whole app.
 - `@/*` imports resolve to `src/*`.
@@ -20,7 +20,7 @@ not a second app.
 
 ## Top-level flow
 
-`src/cli.tsx` does four things before the UI becomes interesting:
+`src/cli-main.tsx` does four things before the UI becomes interesting:
 
 1. Load config from `~/.repogarden/tui.json`.
 2. Pick the initial theme and wrap the app in providers.
@@ -28,7 +28,7 @@ not a second app.
    enable mouse reporting.
 4. Wrap `stdin` so SGR mouse sequences are stripped before Ink sees them.
 
-After that, `App` in `src/cli.tsx` owns the phase machine:
+After that, `App` in `src/cli-main.tsx` owns the phase machine:
 
 - `booting`
 - `onboarding`
@@ -63,9 +63,11 @@ Only one top-level screen is mounted at a time.
 
 The app is easiest to work on when state stays where it already belongs.
 
-### `src/cli.tsx`
+### `src/cli.ts` and `src/cli-main.tsx`
 
-Owns session-wide state and cross-screen transitions:
+`src/cli.ts` is intentionally small: it verifies the running Node version and then dynamically imports `src/cli-main.tsx`. Keep dependency-heavy imports out of the launcher so unsupported Node versions get a plain error instead of an Ink/runtime failure.
+
+`src/cli-main.tsx` owns session-wide state and cross-screen transitions:
 
 - current phase
 - configured scan roots
@@ -225,7 +227,7 @@ misses.
 ## Input and terminal plumbing
 
 Ink handles keyboard input, but RepoGarden layers its own terminal behavior on
-top in `src/cli.tsx` and `src/lib/mouse.ts`.
+top in `src/cli-main.tsx` and `src/lib/mouse.ts`.
 
 Important pieces:
 
@@ -267,7 +269,8 @@ height math before assuming the problem is in the component being rendered.
 
 Use this as the fastest starting point:
 
-- `src/cli.tsx`: app lifecycle, phase changes, terminal setup
+- `src/cli.ts`: Node-version launcher
+- `src/cli-main.tsx`: app lifecycle, phase changes, terminal setup
 - `src/screens/ReadyShell.tsx`: main habitat shell and top-level navigation
 - `src/screens/GardenView.tsx`: creature field rendering and placement/hover
 - `src/screens/JournalView.tsx`: event timeline
@@ -316,7 +319,7 @@ Start in:
 
 - `src/lib/scanner.ts`
 - `src/lib/creature.ts`
-- `src/cli.tsx`
+- `src/cli-main.tsx`
 
 ## Verification
 

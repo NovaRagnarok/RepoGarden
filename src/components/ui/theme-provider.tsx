@@ -23,8 +23,20 @@ export interface UnicodeContextValue {
 const getEnv = (name: string): string | undefined =>
   typeof process !== "undefined" && process.env ? process.env[name] : undefined;
 
-export const isReducedMotion = (): boolean =>
-  getEnv("NO_MOTION") === "1" || getEnv("CI") === "true";
+const parseReducedMotionAlias = (): boolean | undefined => {
+  const raw = getEnv("REPOGARDEN_REDUCED_MOTION");
+  if (!raw) return undefined;
+  const value = raw.trim().toLowerCase();
+  if (value === "1" || value === "true") return true;
+  if (value === "0" || value === "false") return false;
+  return undefined;
+};
+
+export const isReducedMotion = (): boolean => {
+  const alias = parseReducedMotionAlias();
+  if (alias !== undefined) return alias;
+  return getEnv("NO_MOTION") === "1" || getEnv("CI") === "true";
+};
 
 const detectUnicodeSupport = (): boolean => {
   if (typeof window !== "undefined") {

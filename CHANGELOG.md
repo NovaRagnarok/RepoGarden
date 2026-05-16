@@ -4,11 +4,30 @@ All notable changes to RepoGarden land here. Format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-05-16
+
+### Added
+
+- `REPOGARDEN_REDUCED_MOTION=1` now forces reduced motion for a single run without changing the saved setting.
+- CI now runs a real tmux-backed TUI smoke on Ubuntu so first-run/ready-screen regressions get caught outside unit tests.
+
 ### Changed
 
+- RepoGarden's user-facing docs now describe the local-first 0.9 release-candidate line, including the supported `~/.repogarden` storage location and migration expectation.
+- First-run and creature-system copy now use the current `awake` / `happy` / `stuck` / `sleepy` vocabulary.
 - Claude/Codex usage bars are now opt-in for fresh installs. The Settings `u` toggle still turns them on/off persistently, and `REPOGARDEN_DISABLE_USAGE=1` remains a single-run override.
 - Shelf dividers now explain what each vibe group means (`active changes`, `flowing`, `blockers to clear`, `quiet lately`) instead of showing only a bare vibe name and count.
 - Workbench note-save feedback now distinguishes regular notes, blocker notes, and note-to-future-self notes, including line/character deltas and clearer blocker set/clear/update hints.
+
+### Fixed
+
+- Release builds now clean `dist/` before compiling so local packs cannot include stale ignored artifacts.
+- The CLI now exits early with a clear Node 24+ requirement message on unsupported Node versions.
+- The live TUI observation harness now accepts the documented `pnpm observe:tui -- start` form and actually submits the disposable `~/repos/root` scan path on first run.
+
+### Internal
+
+- Test count: 483 → 491.
 
 ## [0.8.0] — 2026-05-15
 

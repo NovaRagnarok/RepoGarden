@@ -2,9 +2,9 @@
 
 A record of what the original Tauri/Vite/Pixi desktop client did, and which pieces the TUI consciously chose to leave behind, rebuild, or postpone.
 
-The legacy desktop tree is not included in the public alpha. Entries marked `DROPPED *for now*` or `PARTIAL *for now*` are flagged for recovery — see the "Flagged for recovery" list at the bottom. Other DROPPED items are tied to the desktop / browser substrate (Pixi, SQLite, Playwright, etc.) and aren't expected to return.
+The legacy desktop tree is not included in the public CLI line. Entries marked `DROPPED *for now*` or `PARTIAL *for now*` are flagged for recovery — see the "Flagged for recovery" list at the bottom. Other DROPPED items are tied to the desktop / browser substrate (Pixi, SQLite, Playwright, etc.) and aren't expected to return.
 
-For each item: **Was** (v1 behavior + path), **TUI** (PORTED / PARTIAL / DROPPED + closest current file), **Why**.
+For each item: **Was** (legacy desktop behavior + path), **TUI** (PORTED / PARTIAL / DROPPED + closest current file), **Why**.
 
 ## 1. Habitat / world rendering (Pixi, WebGL)
 
@@ -20,13 +20,13 @@ For each item: **Was** (v1 behavior + path), **TUI** (PORTED / PARTIAL / DROPPED
 
 ### Spatial habitat layout
 - **Was:** ~1k-line layout engine handling shelf grouping (awake / stirring / dozing / sleeping), creature radius, collision avoidance, caption footprint, natural scaling by mass tier. `legacy/src/components/habitatLayout.ts`.
-- **TUI:** PARTIAL. `src/lib/garden-layout.ts` keeps shelf grouping (now by the 4 vibes: happy / noisy / blocked / sleepy, with the blocked shelf always shown), sprite footprint/overlap math (`spriteBodyFootprintsOverlap`), dead-zone hopping for the focus card, and cohort-relative sizing via `src/lib/sprite.ts` `buildCreatureSizeCohort`. The legacy mass-tier scaling, caption-footprint reservations, and `awake/stirring/dozing/sleeping` shelves were dropped along with the richer status model.
+- **TUI:** PARTIAL. `src/lib/garden-layout.ts` keeps shelf grouping (now by the 4 vibes: awake / happy / stuck / sleepy, with the stuck shelf always shown), sprite footprint/overlap math (`spriteBodyFootprintsOverlap`), dead-zone hopping for the focus card, and cohort-relative sizing via `src/lib/sprite.ts` `buildCreatureSizeCohort`. The legacy mass-tier scaling, caption-footprint reservations, and `awake/stirring/dozing/sleeping` shelves were dropped along with the richer status model.
 - **Why:** Shelf grouping by liveliness is the part that answers "what's alive right now?" at a glance; the legacy four-state status model was the part driving Pixi-specific motion/animation.
 
 ### Emotion playback + motion model
 - **Was:** tween-driven emotion cycles (blink, excited, anxious, confused, proud, lonely) plus per-creature energy / presence / motion-amplitude / cadenceMs derived from heuristics. `legacy/src/components/habitatWorld/emotionPlayback.ts`, `legacy/src/features/inference/projectHeuristics.ts`.
-- **TUI:** DROPPED *for now*. The TUI has a 4-state vibe (happy / blocked / noisy / sleepy) in `src/lib/vibe.ts` and a single sprite per creature. Selectively bringing some emotion cues back is on the table — not committed, no concrete design yet.
-- **Why:** Smooth tweened motion has no terminal analog, and the full mood/energy axes were the most "video-game"-shaped part of v1. A narrower terminal-native subset (e.g., blink, momentary excited/anxious cues) might still earn its keep.
+- **TUI:** DROPPED *for now*. The TUI has a 4-state vibe (awake / happy / stuck / sleepy) plus advisory mood/confidence in `src/lib/vibe.ts`, and a single sprite per creature. Selectively bringing some emotion cues back is on the table — not committed, no concrete design yet.
+- **Why:** Smooth tweened motion has no terminal analog, and the full mood/energy axes were the most "video-game"-shaped part of the desktop client. A narrower terminal-native subset (e.g., blink, momentary excited/anxious cues) might still earn its keep.
 
 ### Caption renderer (mood bubbles, quick summary)
 - **Was:** in-canvas labels positioned next to each sprite — status, mood, mood confidence, emotion cue, quick summary, bubble text. `legacy/src/components/habitatWorld/captionRenderer.ts`.
@@ -56,7 +56,7 @@ For each item: **Was** (v1 behavior + path), **TUI** (PORTED / PARTIAL / DROPPED
 
 ### Sprite color palette
 - **Was:** per-creature palette selection for the canvas. `legacy/src/features/creatures/palette.ts`.
-- **TUI:** PORTED. `pickSpriteColors` in `src/lib/sprite.ts` picks a vibe-anchored theme token (happy→success/accent, noisy→warning/accent, blocked→error/warning, sleepy→info/accent) and applies a deterministic ±20° hue rotation + lightness jitter in HSL space so repos within the same vibe stay thematically related but stay visually distinct. Seeded by the existing identity hash + mulberry32, so a creature's body color is stable until its vibe shifts. Saturation/lightness floors keep sprites legible against the terminal background even on muted themes.
+- **TUI:** PORTED. `pickSpriteColors` in `src/lib/sprite.ts` picks a vibe-anchored theme token (happy→success/accent, awake→warning/accent, stuck→error/warning, sleepy→info/accent) and applies a deterministic ±20° hue rotation + lightness jitter in HSL space so repos within the same vibe stay thematically related but stay visually distinct. Seeded by the existing identity hash + mulberry32, so a creature's body color is stable until its vibe shifts. Saturation/lightness floors keep sprites legible against the terminal background even on muted themes.
 
 ## 3. Workbench / context menu / per-repo surface
 
@@ -84,11 +84,11 @@ For each item: **Was** (v1 behavior + path), **TUI** (PORTED / PARTIAL / DROPPED
 ### Tauri scan + observer pipeline
 - **Was:** Rust-side recursive repo discovery + commit observer for backfilling new repos, exposed via `scan_projects`, `load_projects`, `observe_visible_commits`, `recover_from_scan`. `legacy/src-tauri/src/scanner.rs`, `legacy/src-tauri/src/commands.rs`.
 - **TUI:** PORTED. `src/lib/scanner.ts` is a Node-side walk that queries git directly (`git ls-files`, `git log`, `git status`). The commit observer is now `src/lib/observer.ts`: `fs.watch` on each repo's `.git/logs/HEAD` triggers a single-repo `refreshOneCreature` within ~250 ms of any commit / amend / pull / reset; a non-recursive watch on each scan-root surfaces new repos within ~500 ms. The 30 s light refresh (`refreshCreaturesLight`) stays underneath as a safety net for filesystems where `fs.watch` is unreliable.
-- **Why:** The user-invoked CLI model carried the alpha, but live backfill is genuinely useful and the absence was felt. The observer reuses the existing `refreshOneCreature` + `enrichScans` seams so journal events flow through the same path as a manual rescan.
+- **Why:** The user-invoked CLI model carried the first terminal builds, but live backfill is genuinely useful and the absence was felt. The observer reuses the existing `refreshOneCreature` + `enrichScans` seams so journal events flow through the same path as a manual rescan.
 
 ### Project registry state machine
 - **Was:** centralized registry with autoscan, refresh, save, hide / restore, pull, position changes, emotion-burst queue. `legacy/src/app/useProjectRegistry{Controller,State,Actions}.ts`, `useDesktopObservers.ts`.
-- **TUI:** PARTIAL. `src/cli.tsx` keeps local React state and writes per-repo data to filesystem memory (`src/lib/memory.ts`), notes (`src/lib/notes.ts`), and the event journal (`src/lib/events.ts`). Refresh / hide / restore / position changes ported; autoscan-on-commit and new-repo backfill now ride the observer pipeline above. The emotion-burst queue is still dropped (tied to §1.4).
+- **TUI:** PARTIAL. `src/cli-main.tsx` keeps local React state and writes per-repo data to filesystem memory (`src/lib/memory.ts`), notes (`src/lib/notes.ts`), and the event journal (`src/lib/events.ts`). Refresh / hide / restore / position changes ported; autoscan-on-commit and new-repo backfill now ride the observer pipeline above. The emotion-burst queue is still dropped (tied to §1.4).
 - **Why:** Once the observer landed, the registry got back the autoscan/refresh-on-event behaviors it lost — without the desktop animation queue that wrapped them.
 
 ### Hidden projects
@@ -103,8 +103,8 @@ For each item: **Was** (v1 behavior + path), **TUI** (PORTED / PARTIAL / DROPPED
 
 ### Project heuristics (status + mood + emotion + motion)
 - **Was:** ~22KB module deriving ProjectStatus (awake / stirring / dozing / sleeping), ProjectMood (curious / excited / sleepy / anxious / confused / proud / lonely) with confidence, ProjectEmotionCue, ProjectEmotionBurst, plus energy / presenceScale / motionAmplitude / cadenceMs. `legacy/src/features/inference/projectHeuristics.ts`.
-- **TUI:** PARTIAL *for now* — flagged for recovery. `src/lib/vibe.ts` collapses to four states (happy / blocked / noisy / sleepy) derived from `lastCommitAt`, dirty state, ahead count, and the user's blocker field. Bringing back richer mood / emotion-cue / confidence axes is wanted, paired with the emotion-playback recovery in §1.4.
-- **Why:** The 4-state vibe is the floor — enough to answer "is this repo alive right now?" — but the richer inference model carries information the alpha is losing. Re-introducing mood + confidence (without the motion/animation cost) is on the roadmap.
+- **TUI:** PARTIAL *for now* — flagged for recovery. `src/lib/vibe.ts` now derives four shelf states (awake / happy / stuck / sleepy) from `lastCommitAt`, dirty state, ahead count, and the user's blocker field. It also carries advisory mood (`curious` / `excited` / `proud` / `anxious` / `confused` / `lonely` / `content`) with confidence and a mood reason, but the richer emotion-cue / burst / motion axes remain dropped.
+- **Why:** The 4-state vibe is the floor — enough to answer "is this repo alive right now?" — while mood/confidence restores some softer context without bringing back the desktop animation model. Emotion playback still needs a terminal-native shape before it returns.
 
 ## 6. Persistence
 
@@ -124,7 +124,7 @@ For each item: **Was** (v1 behavior + path), **TUI** (PORTED / PARTIAL / DROPPED
 
 ### `prefers-reduced-motion`
 - **Was:** honored the OS-level CSS media query to disable animations. `legacy/src/app/usePrefersReducedMotion.ts`.
-- **TUI:** PORTED. A `reducedMotion` flag lives in `~/.repogarden/tui.json` and is toggled with `m` on the settings screen; when on: star bloom + brightness flicker freeze and the slow starfield origin drift stops (`src/garden/stars.ts`, `src/garden/render.ts`); creature sprite wiggle holds frame A; per-creature wander offsets and the garden↔shelf placement tween are suppressed (`src/garden/model.ts`); the ReadyShell garden/shelf/journal view-transition dither and the garden↔shelf hold are skipped (`src/screens/ReadyShell.tsx`). `NO_MOTION=1` and `CI=true` still seed the initial value via `isReducedMotion()` in `src/components/ui/theme-provider.tsx`. Future emotion cues will read the same `useMotion()` context.
+- **TUI:** PORTED. A `reducedMotion` flag lives in `~/.repogarden/tui.json` and is toggled with `m` on the settings screen; when on: star bloom + brightness flicker freeze and the slow starfield origin drift stops (`src/garden/stars.ts`, `src/garden/render.ts`); creature sprite wiggle holds frame A; per-creature wander offsets and the garden↔shelf placement tween are suppressed (`src/garden/model.ts`); the ReadyShell garden/shelf/journal view-transition dither and the garden↔shelf hold are skipped (`src/screens/ReadyShell.tsx`). `REPOGARDEN_REDUCED_MOTION=1`, `NO_MOTION=1`, and `CI=true` still seed the initial value via `isReducedMotion()` in `src/components/ui/theme-provider.tsx`. Future emotion cues will read the same `useMotion()` context.
 
 ## 7. Tauri IPC / desktop chrome / native integrations
 
@@ -140,7 +140,7 @@ For each item: **Was** (v1 behavior + path), **TUI** (PORTED / PARTIAL / DROPPED
 ### Pull updates from inside the app
 - **Was:** `pull_project_updates` command that ran `git pull` on a target repo via the Tauri shell.
 - **TUI:** PORTED (fast-forward only). The PORTRAIT view exposes `u` as a two-press confirm (first press arms, second press runs); the command palette has a "pull from remote" entry that runs immediately because the palette gesture is already deliberate. Pulls run `git pull --ff-only` via `src/lib/git-pull.ts` with a 60 s timeout, surface the result as a sticky banner on failure / non-zero, and append a `pull` event to the journal (`{ ok, exitCode, branch, beforeSha, afterSha, commitsPulled, summary, durationMs, timedOut }`). Preflight blocks the action when the working tree is dirty, HEAD is detached, the branch has no upstream, or scan errored — the user sees a warning banner instead of a half-state pull.
-- **Why:** Read-only stayed the alpha default until the path back was an explicit, confirmed action with visible output. `--ff-only` is the conservative starting point — divergent histories fail with the real git message instead of dropping the user into a merge state they can't see from inside the TUI. Rebase / merge strategies are deferred; non-ff-only flows belong on a follow-up slice if they earn their keep.
+- **Why:** Read-only stayed the default until the path back was an explicit, confirmed action with visible output. `--ff-only` is the conservative starting point — divergent histories fail with the real git message instead of dropping the user into a merge state they can't see from inside the TUI. Rebase / merge strategies are deferred; non-ff-only flows belong on a follow-up slice if they earn their keep.
 
 ### File-system + clipboard shell integrations
 - **Was:** `open_repo_path`, `open_app_data_dir`, clipboard read/write.
@@ -183,7 +183,7 @@ Items the TUI is missing today. Split between **flagged for recovery** (we want 
 
 1. **Emotion / motion cues** (§1.4) — narrower terminal-native subset of mood + emotion-cue + confidence, paired with §5.1.
 2. **In-garden captions / bubbles** (§1.5) — some sprite-adjacent info, not just workbench-only.
-3. **Richer project heuristics** (§5.1) — mood / confidence axes beyond the 4-state vibe.
+3. **Richer project heuristics** (§5.1) — emotion-cue / burst / motion axes beyond the 4-state vibe and current mood layer.
 4. **App-shell / Ink integration tests** (§8.1) — end-to-end coverage on top of the existing unit suite.
 
 ### Trade-offs (not coming back)
@@ -191,4 +191,4 @@ Items the TUI is missing today. Split between **flagged for recovery** (we want 
 - **Event log richness.** The legacy schema tracked push / ship / needs-pull / remote-warning signals plus TODO / FIXME counts and a recent-burst window. The TUI journal records commits / blockers / notes / vibe / repo / branch events but not the git-signal subtypes.
 - **Tween-driven animation, face cycles, SVG icons, Nerd Fonts, Playwright, SQLite + migrations.** Tied to the desktop / browser substrate; replaced or unneeded.
 
-None of the recovery items block the alpha — they're flagged so future-us doesn't forget they were intentional pauses, not deletions.
+None of the recovery items block the stable CLI line — they're flagged so future-us doesn't forget they were intentional pauses, not deletions.

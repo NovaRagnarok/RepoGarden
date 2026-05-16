@@ -39,10 +39,10 @@ This is not a game in the traditional sense, but it should borrow game feel.
 - affectionate
 
 ### Creature behavior targets
-- awake creatures should look eager, not frantic
-- stirring creatures should look a little restless, not noisy
-- dozing creatures should look slower and more withdrawn, not broken
-- sleeping creatures should look safe and recoverable
+- awake creatures should look active, not frantic
+- happy creatures should look settled, not finished or ignored
+- stuck creatures should look like they need a small unblock, not like they are broken
+- sleepy creatures should look quiet and recoverable
 - blocker overlays should read as a small `?` pulse, not a separate creature state
 - organized mode should feel like creatures politely lining up, not being teleported into a spreadsheet
 
@@ -68,12 +68,19 @@ A single static sprite per creature is enough. Terminal cells can't fake smooth 
 - bubble overlays
 - occasional motion in the surrounding chrome (selection, scan progress)
 
-### Time-based states
-- 0–1 days since activity: awake
-- 2–4 days: stirring
-- 5–10 days: dozing
-- 11+ days: sleeping
-- `currentBlocker` present: blocker-specific summary plus `?` bubble overlay
+### Vibes, mood, and confidence
+Vibe is the shelf-level state. It decides where a creature is grouped and which accent color/glyph it carries:
+
+- `awake`: uncommitted changes or unpushed commits
+- `happy`: clean working tree, in sync with remote
+- `stuck`: user-written `currentBlocker` is present
+- `sleepy`: no commits for the sleepy threshold or longer
+
+Vibe precedence is intentionally simple: `stuck` wins first, then long-quiet repos become `sleepy`, then local changes make a repo `awake`, otherwise it is `happy`.
+
+Mood is advisory and layered on top of vibe. It can describe softer signals such as `curious`, `excited`, `proud`, `anxious`, `confused`, `lonely`, or `content`, with a 0–1 confidence score. Nothing branches on mood; renderers may surface it when confidence is high enough and it adds information.
+
+Activity is continuous, not a separate vocabulary. It decays from recent commit time and can influence subtle motion/placement, while the displayed vocabulary stays `awake` / `happy` / `stuck` / `sleepy`.
 
 ## Eyes
 Two mirrored eyes per creature, picked deterministically from a fixed vocabulary (`src/lib/sprite.ts`). The body stays flat and borderless; the readable stroke comes from the body fill around the hole, not a drawn outline. No painted eye states, no per-frame expression cycling.

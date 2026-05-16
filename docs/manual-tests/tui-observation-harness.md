@@ -16,8 +16,8 @@ mid-animation frames.
 - fixed terminal size (`100x32` by default)
 - disposable `HOME`
 - `REPOGARDEN_DISABLE_USAGE=1`
-- `~/repos` symlinked to a chosen root so first-run onboarding can scan with a
-  single `Enter`
+- `~/repos/root` symlinked to a chosen root; first-run onboarding is filled
+  with `~/repos/root` and submitted automatically
 
 The harness then reads the current visible terminal surface with
 `tmux capture-pane`, which avoids the noisy ANSI stream you get from raw PTY
@@ -33,6 +33,14 @@ pnpm observe:tui -- capture garden-baseline
 pnpm observe:tui -- sample 5 400 idle-garden
 pnpm observe:tui -- flicker 8 150 idle-garden
 pnpm observe:tui -- stop
+```
+
+The leading `--` is optional when calling the script directly:
+
+```bash
+./scripts/tui-observe.sh start
+./scripts/tui-observe.sh capture garden-baseline
+./scripts/tui-observe.sh stop
 ```
 
 You can also point the harness at another scan root:

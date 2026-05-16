@@ -21,3 +21,9 @@ test("CLI_HELP_TEXT includes the expected commands", () => {
   assert.match(CLI_HELP_TEXT, /pnpm dev/);
   assert.match(CLI_HELP_TEXT, /pnpm build/);
 });
+
+test("CLI_HELP_TEXT documents release-relevant env overrides", () => {
+  assert.match(CLI_HELP_TEXT, /REPOGARDEN_DISABLE_USAGE=1/);
+  assert.match(CLI_HELP_TEXT, /REPOGARDEN_DISABLE_OBSERVER=1/);
+  assert.match(CLI_HELP_TEXT, /REPOGARDEN_REDUCED_MOTION=1/);
+});
