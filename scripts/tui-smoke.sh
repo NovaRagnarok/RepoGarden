@@ -29,9 +29,9 @@ if printf '%s\n' "$capture" | grep -Eq "FIRST RUN|choose where your repos live|g
   exit 1
 fi
 
-if ! printf '%s\n' "$capture" | grep -Eq "RepoGarden|REPOGARDEN|repogarden"; then
+if ! printf '%s\n' "$capture" | grep -Eq "(^|[^[:alnum:]_])root([^[:alnum:]_]|$)"; then
   printf '%s\n' "$capture" >&2
-  echo "tui-smoke: captured TUI did not contain expected app text" >&2
+  echo "tui-smoke: captured TUI did not contain the expected scanned repo label" >&2
   exit 1
 fi
 
