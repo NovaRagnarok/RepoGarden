@@ -4,6 +4,22 @@ All notable changes to RepoGarden land here. Format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-05-15
+
+### Fixed
+
+- **Drag survives any mid-flight re-render.** `syncGardenModel` used to unconditionally wipe `dragPreviewPlacements` and reset every wander state's `manualOffset` to its last *committed* value. Combined with `engineProps` churning constantly — `cli.tsx` declares `handleCreaturePlacementChange` as a plain function (new ref every render) and ships several inline arrow callbacks down to `GardenView` — every parent re-render invalidated the memo, triggered `setProps` → `syncGardenModel`, and silently undid the in-flight drag. A toast appearing, a 30s background refresh, a focus change from any source, all enough to kill the drag mid-motion. `syncGardenModel` now carries `dragPreviewPlacements` across the sync (pruning entries whose creature is gone) and wander states with an active preview entry skip the `manualOffset` reset. `engine.setProps` gains a `sameSceneProps` fast-path that skips the sync entirely when only callback identities changed.
+- **Drag commit math no longer bakes in the wander bob.** Press recorded `grabX = localX - visual.x` where `visual.x` includes `wander.currentOffset`. On commit, that transient bob (up to ±2 cells horizontally, ±1 vertically) got baked into the persisted offset, so single-cell drags landed 1–2 cells off the cursor's release point and felt like the drag didn't take. Press now subtracts `wander.currentOffset` when recording `grabX/Y`, anchoring the grab to the creature's rest position; cursor delta equals committed offset exactly.
+- **Two more drag misses: stale chrome measurement and post-tick hit-test gap.** The cached chrome row height was reused after layout shifts that changed it, so the click-to-canvas coordinate translation drifted by a row or two and the press landed on the wrong creature (or nothing). And the 100ms wander tick could move a non-focused creature between when the screen was painted and when the user's click event arrived in Node — `findCreatureDragHandleAtCell` reads model state, not the last-rendered frame, so it missed. Engine now remeasures chrome on every press, and falls back to a hit-test against the last-rendered creature snapshot when the live model misses.
+- **Pre-existing scene overlap no longer vetoes unrelated drags.** When two creatures were already clipping (from a prior squishy commit, or a layout reflow), the drag solver's clean-state check refused any new motion until the overlap was resolved — even when the dragged creature was nowhere near the overlapping pair. The solver now ignores body-overlap state for creatures other than the drag's footprint and immediate neighbours.
+- **Dismissing the focus card returns the bottom-right corner to the garden.** Pressing `c` to hide the focus card used to leave the bottom-right slot reserved as a dead zone — creatures couldn't wander into it, drag wouldn't accept a release there, and the corner just sat empty. The dead zone now releases when the card is dismissed, so the corner is just garden again until the card comes back.
+- **Names no longer disappear near the bottom of the garden.** The wander/drag clamp in `visualPlacementAtOffset` reserved one row below the sprite, but the name strip is `NAME_GAP_ROWS + NAME_H` (two rows). The bottom-most clamp parked the name at row `canvasH` — outside the canvas, in the panel's bottom-padding row — where `setCell` silently dropped it. Visually: any creature that wandered or got dragged to within ~2 rows of the bottom border lost its name. `findNearestClearPlacement` had the same off-by-one in its bounds check. Both now reserve the full name strip.
+- **Selection box hugs the visible creature instead of the sprite bounding box.** The focus frame was sized to `charW × charH` (the sprite generator's full grid), but `randomBodyWindow` typically allocates only 54–74% of that height to the body and the contour walk doesn't fill every column either — so the box was puffed up with a row or two of empty cells around the actual creature. Now scans both animation frames for lit sub-pixels and shrinks the box to their union; OR-ing both frames keeps the box steady through the body-bob so it tracks the creature's range of motion rather than bobbing along with it.
+
+### Internal
+
+- Test count: 445 → 462 (regression coverage for the `syncGardenModel` preview-survival path and the wander-bob grab anchoring, plus tests for the corner-release-on-dismiss path).
+
 ## [0.7.0] — 2026-05-15
 
 ### Changed
