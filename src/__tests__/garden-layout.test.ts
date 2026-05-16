@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   computeFocusFrameCells,
+  formatShelfDividerLabel,
   gardenPageCapacity,
   lineUpCreatures,
   paginateCreatures,
@@ -206,6 +207,16 @@ test("lineUpCreatures emits a +N more overflow indicator when a shelf can't fit 
     (p) => p.tile.creature.vibe.vibe === "happy"
   ).length;
   assert.equal(happyShown + happyOverflow.hidden, 40);
+});
+
+test("formatShelfDividerLabel adds shelf meaning while keeping narrow fallbacks", () => {
+  assert.equal(formatShelfDividerLabel("awake", 3, 80), "awake · active changes · 3");
+  assert.equal(formatShelfDividerLabel("happy", 4, 80), "happy · flowing · 4");
+  assert.equal(formatShelfDividerLabel("sleepy", 2, 80), "sleepy · quiet lately · 2");
+  assert.equal(formatShelfDividerLabel("stuck", 0, 80), "stuck · no blockers");
+  assert.equal(formatShelfDividerLabel("stuck", 2, 80), "stuck · blockers to clear · 2");
+  assert.equal(formatShelfDividerLabel("awake", 3, 10), "awake · 3");
+  assert.equal(formatShelfDividerLabel("stuck", 0, 13), "stuck · clear");
 });
 
 test("lineUpCreatures gives each non-empty vibe at least one row when budgets are tight", () => {

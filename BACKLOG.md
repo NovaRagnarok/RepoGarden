@@ -26,8 +26,8 @@ Open `pnpm dev` from the repo root and the terminal should read like a little lo
 2. Pick the highest-value polish slice in Priority A.
 
 ## Priority A
-- richer SHELF view grouping labels (active vibe-divider strings already exist; copy/affordance pass)
-- memory editing polish — better diff/feedback when notes/blocker/note-to-future-self change
+<!-- richer SHELF view grouping labels — done: dividers now explain each shelf's role (active changes / flowing / blockers to clear / quiet lately) with narrow fallbacks. -->
+<!-- memory editing polish — done: note save feedback now distinguishes regular notes, blocker, and note-to-future-self edits with line/char deltas and blocker shelf-state hints. -->
 <!-- workbench mode toggle keybinding — done: ctrl+1 selects portrait, ctrl+2 selects notes (see WorkbenchScreen.tsx, listed in HelpOverlay). -->
 <!-- PORTRAIT scrollable container — done in 0.3.2 via per-section PgUp/PgDn paging (see #4). -->
 <!-- JOURNAL polish — done: fs.watch in 0.3.3 (#1); vibe-changed phrasing tune below ships separately. -->

@@ -1,9 +1,10 @@
-import { computeFocusFrameCells, NAME_GAP_ROWS } from "@/lib/garden-layout";
+import { computeFocusFrameCells, formatShelfDividerLabel, NAME_GAP_ROWS } from "@/lib/garden-layout";
 import { quadrantChar } from "@/lib/sprite";
 
 import { computeStarVisual, greyHex, starAtCell } from "@/garden/stars";
 import { blinkClosedAt, wiggleFrameAt } from "@/garden/model";
 import type { GardenCell, GardenFrame, GardenModel, GardenSpriteInfo } from "@/garden/types";
+import type { Vibe } from "@/lib/vibe";
 
 // Tightest cell rect that contains any lit sub-pixel across both animation
 // frames. Sprite bitmaps frequently leave empty cells at the top/sides of
@@ -117,12 +118,11 @@ const drawDivider = (
   frame: GardenFrame,
   model: GardenModel,
   row: number,
-  vibe: string,
+  vibe: Vibe,
   count: number
 ): void => {
   if (row < 0 || row >= frame.height) return;
-  const tail = count === 0 && vibe === "stuck" ? "all clear" : String(count);
-  const labelText = ` ${vibe} · ${tail} `;
+  const labelText = ` ${formatShelfDividerLabel(vibe, count, Math.max(0, frame.width - 4))} `;
   const labelLen = Math.min(labelText.length, frame.width - 2);
   const labelStart = Math.max(1, Math.floor((frame.width - labelLen) / 2));
   const labelEnd = labelStart + labelLen;
