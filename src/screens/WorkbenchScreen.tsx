@@ -31,6 +31,7 @@ import {
   readHeadSha,
   type PullResult,
 } from "@/lib/git-pull";
+import { buildMemoryEditFeedback, type MemoryEditFeedback } from "@/lib/memory-feedback";
 import { loadMemory, saveMemory } from "@/lib/memory";
 import { findTextMatches, pickNextMatch, positionToOffset } from "@/lib/note-search";
 import {
@@ -107,16 +108,6 @@ export const WorkbenchScreen = ({
   const usage = useUsage(undefined, { disabled: usageBarDisabled });
   const { push: pushToast } = useToasts();
 
-  // Char-delta threshold: edits smaller than this don't get a "+N chars" hint.
-  // Matches the audit-#5 spec — small typo-edits would otherwise spam the toast
-  // host. Skipping the hint (not the toast itself) keeps the save acknowledged
-  // without surfacing trivia.
-  const CHARS_DELTA_HINT_THRESHOLD = 20;
-  const formatCharsDelta = (delta: number): string => {
-    if (Math.abs(delta) < CHARS_DELTA_HINT_THRESHOLD) return "";
-    return delta > 0 ? ` · +${delta} chars` : ` · ${delta} chars`;
-  };
-
   const [notes, setNotes] = useState<NotesState>(() => loadNotes(creature.id));
   const activeId = notes.index.active;
   const activeMeta = notes.index.notes[activeId];
@@ -149,6 +140,7 @@ export const WorkbenchScreen = ({
     readEvents({ repoId: creature.id, limit: 40 })
   );
   const selectionRequestCounterRef = useRef(0);
+  const lastBlockerFeedbackRef = useRef<{ previous: string; next: string } | null>(null);
 
   // Workbench mode: PORTRAIT (read snapshot) or NOTES (write editor).
   // Default is PORTRAIT on first launch — matches notice → understand → act.
@@ -231,6 +223,17 @@ export const WorkbenchScreen = ({
     return () => clearTimeout(timer);
   }, [uiMode]);
 
+  const rememberMemoryEditFeedback = (feedback: MemoryEditFeedback): void => {
+    if (feedback.kind !== "blocker" || !feedback.changed) return;
+    lastBlockerFeedbackRef.current = {
+      previous: feedback.previousTrimmed,
+      next: feedback.nextTrimmed,
+    };
+  };
+
+  const feedbackForActiveNote = (previousBody: string, nextBody: string): MemoryEditFeedback =>
+    buildMemoryEditFeedback(notes.index.notes[activeId]?.name ?? "note", previousBody, nextBody);
+
   // Auto-save on idle: when the editor buffer diverges from the persisted
   // body, schedule a save 1s after the last keystroke. Cancelled on every
   // keystroke (the effect re-runs and the cleanup clears the prior timer),
@@ -241,11 +244,11 @@ export const WorkbenchScreen = ({
     if ((notes.bodies[activeId] ?? "") === editor) return;
     const timer = setTimeout(() => {
       const oldBody = notes.bodies[activeId] ?? "";
-      const delta = editor.length - oldBody.length;
+      const feedback = feedbackForActiveNote(oldBody, editor);
       const saved = saveNoteBody(creature.id, notes, activeId, editor, creature.scan.name);
+      rememberMemoryEditFeedback(feedback);
       setNotes(saved);
-      const name = notes.index.notes[activeId]?.name ?? "note";
-      pushToast(`saved · note "${name}"${formatCharsDelta(delta)}`, "info");
+      pushToast(feedback.toast, "info");
     }, 1000);
     return () => clearTimeout(timer);
   }, [editor, notes, activeId, creature.id, pushToast]);
@@ -264,6 +267,14 @@ export const WorkbenchScreen = ({
     const prevBlocker = current.currentBlocker?.trim() ?? "";
     const nextBlocker = blocker?.trim() ?? "";
     saveMemory(creature.id, { ...current, currentBlocker: blocker }, creature.scan.name);
+    const savedFeedback = lastBlockerFeedbackRef.current;
+    const matchingSaveFeedback =
+      savedFeedback?.previous === prevBlocker &&
+      savedFeedback?.next === nextBlocker;
+    lastBlockerFeedbackRef.current = null;
+    if (matchingSaveFeedback) {
+      return;
+    }
     // Only toast on the empty↔nonempty transitions so a typo-edit inside an
     // existing blocker note doesn't fire a "set" toast on every keystroke
     // pause. Mirrors saveMemory's own event-emit logic.
@@ -813,13 +824,13 @@ export const WorkbenchScreen = ({
     if (key.ctrl && (key.return || input === "s")) {
       const oldBody = notes.bodies[activeId] ?? "";
       const wasDirty = oldBody !== editor;
-      const delta = editor.length - oldBody.length;
+      const feedback = feedbackForActiveNote(oldBody, editor);
       const saved = persistCurrentEditor(notes);
+      if (wasDirty) rememberMemoryEditFeedback(feedback);
       setNotes(saved);
-      setUiMode({ kind: "status", message: "saved", variant: "success" });
+      setUiMode({ kind: "status", message: feedback.status, variant: "success" });
       if (wasDirty) {
-        const name = notes.index.notes[activeId]?.name ?? "note";
-        pushToast(`saved · note "${name}"${formatCharsDelta(delta)}`, "info");
+        pushToast(feedback.toast, "info");
       }
       return;
     }
@@ -869,12 +880,14 @@ export const WorkbenchScreen = ({
             ? notes
             : { ...notes, bodies: { ...notes.bodies, [activeId]: editor } };
         const clearedName = notes.index.notes[activeId]?.name ?? "note";
+        const feedback = buildMemoryEditFeedback(clearedName, editor, "");
         setEditor("");
         requestEditorSelection({ line: 0, col: 0 }, { line: 0, col: 0 });
         const saved = saveNoteBody(creature.id, stateWithEditor, activeId, "", creature.scan.name);
+        rememberMemoryEditFeedback(feedback);
         setNotes(saved);
-        setUiMode({ kind: "status", message: "cleared", variant: "success" });
-        pushToast(`cleared · note "${clearedName}"`, "info");
+        setUiMode({ kind: "status", message: feedback.status, variant: "success" });
+        pushToast(feedback.toast, "info");
       } else {
         setUiMode({ kind: "confirm-clear" });
       }
@@ -1047,9 +1060,14 @@ export const WorkbenchScreen = ({
       label: "save",
       hint: "ctrl+s",
       onSelect: () => {
+        const oldBody = notes.bodies[activeId] ?? "";
+        const wasDirty = oldBody !== editor;
+        const feedback = feedbackForActiveNote(oldBody, editor);
         const saved = persistCurrentEditor(notes);
+        if (wasDirty) rememberMemoryEditFeedback(feedback);
         setNotes(saved);
-        setUiMode({ kind: "status", message: "saved", variant: "success" });
+        setUiMode({ kind: "status", message: feedback.status, variant: "success" });
+        if (wasDirty) pushToast(feedback.toast, "info");
       },
     });
     items.push({

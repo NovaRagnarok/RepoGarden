@@ -7,6 +7,8 @@ All notable changes to RepoGarden land here. Format follows [Keep a Changelog](h
 ### Changed
 
 - Claude/Codex usage bars are now opt-in for fresh installs. The Settings `u` toggle still turns them on/off persistently, and `REPOGARDEN_DISABLE_USAGE=1` remains a single-run override.
+- Shelf dividers now explain what each vibe group means (`active changes`, `flowing`, `blockers to clear`, `quiet lately`) instead of showing only a bare vibe name and count.
+- Workbench note-save feedback now distinguishes regular notes, blocker notes, and note-to-future-self notes, including line/character deltas and clearer blocker set/clear/update hints.
 
 ## [0.8.0] — 2026-05-15
 

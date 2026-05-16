@@ -76,6 +76,38 @@ export interface ShelfLayout {
  *  shelf reads top-down as "most engaged → least." */
 export const VIBE_ORDER: readonly Vibe[] = ["awake", "happy", "stuck", "sleepy"];
 
+const SHELF_LABELS: Record<Vibe, { long: (count: number) => string; short: (count: number) => string }> = {
+  awake: {
+    long: (count) => `awake · active changes · ${count}`,
+    short: (count) => `awake · ${count}`
+  },
+  happy: {
+    long: (count) => `happy · flowing · ${count}`,
+    short: (count) => `happy · ${count}`
+  },
+  stuck: {
+    long: (count) => count === 0 ? "stuck · no blockers" : `stuck · blockers to clear · ${count}`,
+    short: (count) => count === 0 ? "stuck · clear" : `stuck · ${count}`
+  },
+  sleepy: {
+    long: (count) => `sleepy · quiet lately · ${count}`,
+    short: (count) => `sleepy · ${count}`
+  }
+};
+
+export const formatShelfDividerLabel = (
+  vibe: Vibe,
+  count: number,
+  maxWidth = Number.POSITIVE_INFINITY
+): string => {
+  const copy = SHELF_LABELS[vibe] ?? SHELF_LABELS.happy;
+  const long = copy.long(count);
+  if (long.length <= maxWidth) return long;
+  const short = copy.short(count);
+  if (short.length <= maxWidth) return short;
+  return short.slice(0, Math.max(0, maxWidth));
+};
+
 // Scene/layout seeds should depend on the creature set, not the current sort
 // order. The UI re-sorts creatures as vibes change, and any order-sensitive
 // seed turns those routine updates into visible scene resets.
