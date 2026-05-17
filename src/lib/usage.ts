@@ -41,6 +41,10 @@ export interface ProviderUsage {
   weekly: UsageWindow | null;
   /** Short error message when status !== "ok". */
   error?: string;
+  /** Wall-clock time the value (or its error) was recorded. Stamped inside
+   *  `getProvider` so every branch — success, stale, error — shares the same
+   *  freshness signal regardless of which fetcher produced it. */
+  fetchedAt: Date;
 }
 
 type JsonMap = Record<string, unknown>;
@@ -71,9 +75,13 @@ export const readClaudeUsage = (): Promise<ProviderUsage> =>
 export const readCodexUsage = (): Promise<ProviderUsage> =>
   getProvider("codex", fetchCodexUsage, true);
 
+/** Fetchers return everything except the freshness stamp — `getProvider` is
+ *  the single chokepoint that knows "this just resolved" and adds it. */
+type FetchedProviderUsage = Omit<ProviderUsage, "fetchedAt">;
+
 const getProvider = async (
   source: ProviderUsage["source"],
-  refresh: () => Promise<ProviderUsage>,
+  refresh: () => Promise<FetchedProviderUsage>,
   force = false
 ): Promise<ProviderUsage> => {
   // Coalesce concurrent calls so the file system / network is only hit once
@@ -82,14 +90,20 @@ const getProvider = async (
   const p = (async () => {
     try {
       const fresh = await refresh();
-      cache[source] = fresh;
-      return fresh;
+      const stamped: ProviderUsage = { ...fresh, fetchedAt: new Date() };
+      cache[source] = stamped;
+      return stamped;
     } catch (err) {
       const message = safeError(err);
       const isAuth = isAuthLike(message);
       const prior = cache[source];
       if (prior && prior.status === "ok") {
-        const stale: ProviderUsage = { ...prior, status: "stale", error: message };
+        const stale: ProviderUsage = {
+          ...prior,
+          status: "stale",
+          error: message,
+          fetchedAt: new Date(),
+        };
         cache[source] = stale;
         return stale;
       }
@@ -99,6 +113,7 @@ const getProvider = async (
         fiveHour: null,
         weekly: null,
         error: message,
+        fetchedAt: new Date(),
       };
       cache[source] = errored;
       return errored;
@@ -220,7 +235,7 @@ const readCodexKeychain = async (): Promise<{ authData: JsonMap; account: string
   return { authData: parsePossiblyHexJson(output, CODEX_KEYCHAIN_SERVICE), account };
 };
 
-const fetchCodexUsage = async (): Promise<ProviderUsage> => {
+const fetchCodexUsage = async (): Promise<FetchedProviderUsage> => {
   const credential = await readCodexCredential();
   const { authData, tokens } = credential;
   if (authData["auth_mode"] && authData["auth_mode"] !== "chatgpt") {
@@ -528,7 +543,7 @@ const readClaudeKeychain = async (): Promise<{ raw: JsonMap; account?: string }>
   throw new Error(`Claude Code Keychain not found. ${errors.join(" | ")}`);
 };
 
-const fetchClaudeUsage = async (): Promise<ProviderUsage> => {
+const fetchClaudeUsage = async (): Promise<FetchedProviderUsage> => {
   let credential = await readClaudeCredential();
   if (!credential.accessToken) {
     throw new Error("Claude Code OAuth token not found. Run claude and log in.");

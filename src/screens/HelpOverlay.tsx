@@ -41,6 +41,7 @@ const shortcuts: Shortcut[] = [
   { key: "ctrl+p", description: "notes: command palette", category: "workbench" },
   { key: "s", description: "settings", category: "anywhere" },
   { key: "m", description: "mask names + sensitive content", category: "anywhere" },
+  { key: "U", description: "claude / codex usage details", category: "anywhere" },
   { key: "?", description: "this help", category: "anywhere" },
   { key: "esc", description: "back / close", category: "anywhere" },
   { key: "q", description: "quit", category: "anywhere" },

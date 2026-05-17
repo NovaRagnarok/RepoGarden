@@ -64,6 +64,7 @@ export interface ReadyShellProps {
     offset: { offsetX: number; offsetY: number };
   }>) => void;
   onOpenHelp?: () => void;
+  onOpenUsage?: () => void;
   onEditRoots?: () => void;
   onRescan?: () => void;
   onToggleHidden?: (creature: RepoCreature) => void;
@@ -95,6 +96,7 @@ export const ReadyShell = ({
   onOpenFolder,
   onCreaturePlacementChange,
   onOpenHelp,
+  onOpenUsage,
   onEditRoots,
   onRescan,
   onToggleHidden,
@@ -373,6 +375,10 @@ export const ReadyShell = ({
         onOpenHelp();
         return;
       }
+      if (input === "U" && onOpenUsage) {
+        onOpenUsage();
+        return;
+      }
       if (input === "p" && onEditRoots) {
         onEditRoots();
         return;
@@ -508,6 +514,10 @@ export const ReadyShell = ({
     }
     if (input === "?" && onOpenHelp) {
       onOpenHelp();
+      return;
+    }
+    if (input === "U" && onOpenUsage) {
+      onOpenUsage();
       return;
     }
     if (input === "p" && onEditRoots) {

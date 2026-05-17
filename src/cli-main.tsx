@@ -23,6 +23,7 @@ import { buildCreatureSizeCohort } from "@/lib/sprite";
 import { SettingsScreen } from "@/screens/SettingsScreen";
 import { WorkbenchScreen } from "@/screens/WorkbenchScreen";
 import { HelpOverlay } from "@/screens/HelpOverlay";
+import { UsageOverlay } from "@/screens/UsageOverlay";
 import { openInFileBrowser } from "@/lib/system";
 import { defaultThemeId, themeById, themeCatalogue } from "@/themes";
 import { loadConfig, reducedMotionEnabled, updateConfig } from "@/lib/config";
@@ -583,6 +584,10 @@ const App = ({
     return <HelpOverlay onClose={() => setPhase("ready")} />;
   }
 
+  if (phase === "usage") {
+    return <UsageOverlay onClose={() => setPhase("ready")} />;
+  }
+
   if (phase === "edit-roots") {
     return (
       <OnboardingScreen
@@ -642,6 +647,7 @@ const App = ({
       onCreaturePlacementChange={handleCreaturePlacementChange}
       onToggleHidden={handleToggleHidden}
       onOpenHelp={() => setPhase("help")}
+      onOpenUsage={() => setPhase("usage")}
       onEditRoots={() => setPhase("edit-roots")}
       onRescan={() => void handleRescan()}
       onQuit={() => exit()}
