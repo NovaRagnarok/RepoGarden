@@ -49,6 +49,10 @@ export interface SettingsScreenProps {
   onToggleGardenPaginate?: () => void;
   onCycleGardenDensity?: () => void;
   onToggleBellOnVibeChange?: () => void;
+  /** Fire a single BEL right now so the user can verify their terminal
+   *  passes `\x07` through audibly (or visibly). Independent of the
+   *  toggle state — the test rings even when the persistent bell is off. */
+  onTestBell?: () => void;
   onClose: () => void;
 }
 
@@ -371,6 +375,7 @@ export const SettingsScreen = ({
   onToggleGardenPaginate,
   onCycleGardenDensity,
   onToggleBellOnVibeChange,
+  onTestBell,
   onClose
 }: SettingsScreenProps) => {
   const appliedTheme = useTheme();
@@ -463,6 +468,10 @@ export const SettingsScreen = ({
       onToggleBellOnVibeChange();
       return;
     }
+    if (input === "B" && onTestBell) {
+      onTestBell();
+      return;
+    }
     if (key.escape || input === "q") {
       onClose();
     }
@@ -488,7 +497,7 @@ export const SettingsScreen = ({
   });
 
   const hitZones = useMemo(() => {
-    type PrefKind = "motion" | "usage" | "observer" | "paginate" | "density" | "bell";
+    type PrefKind = "motion" | "usage" | "observer" | "paginate" | "density" | "bell" | "test-bell";
     type TabKind = "tab-themes" | "tab-prefs";
     type Zone =
       | {
@@ -511,7 +520,7 @@ export const SettingsScreen = ({
 
     const innerLeft = 2;
     const innerRight = Math.max(innerLeft, innerLeft + innerContentW - 1);
-    const prefKinds: PrefKind[] = ["motion", "usage", "observer", "paginate", "density", "bell"];
+    const prefKinds: PrefKind[] = ["motion", "usage", "observer", "paginate", "density", "bell", "test-bell"];
 
     if (compactMode) {
       // Tab bar lives in a single row directly below the header. Labels are
@@ -680,6 +689,9 @@ export const SettingsScreen = ({
                 case "bell":
                   onToggleBellOnVibeChange?.();
                   break;
+                case "test-bell":
+                  onTestBell?.();
+                  break;
                 case "tab-themes":
                   setCompactSection("themes");
                   break;
@@ -701,7 +713,8 @@ export const SettingsScreen = ({
         onToggleObserver,
         onToggleGardenPaginate,
         onCycleGardenDensity,
-        onToggleBellOnVibeChange
+        onToggleBellOnVibeChange,
+        onTestBell
       ]
     )
   );
@@ -799,6 +812,13 @@ export const SettingsScreen = ({
         indicatorColor={
           bellOnVibeChange ? previewTheme.colors.success : previewTheme.colors.mutedForeground
         }
+        labelColor={previewTheme.colors.foreground}
+      />
+      <PrefRow
+        hotkey="B"
+        label="test bell · ring once to check this terminal passes BEL through"
+        indicator="♪ ring"
+        indicatorColor={previewTheme.colors.mutedForeground}
         labelColor={previewTheme.colors.foreground}
       />
     </Panel>
