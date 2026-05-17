@@ -38,8 +38,19 @@ const HIGH_CONTRAST_PALETTE: CreaturePalette = {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
 const TARGET = join(ROOT, "docs/index.html");
+const FAVICON_TARGET = join(ROOT, "docs/favicon.svg");
 const START = "<!-- REPOGARDEN-CREATURES:START";
 const END = "<!-- REPOGARDEN-CREATURES:END -->";
+
+// The favicon is the project's own deterministic creature — same generator,
+// rendered into a square viewBox sized to align cleanly with the 16/32/48-px
+// favicon slots browsers ask for. Color is overridden (not pickSpriteColors)
+// so the icon reads as a brand mark rather than an instance of the cohort.
+const FAVICON_SEED = "dewdrop";
+const FAVICON_CHAR_W = 6;
+const FAVICON_CHAR_H = 4;
+const FAVICON_COLOR = "#66ddff"; // sky
+const FAVICON_BG = "#001133";    // deep navy
 
 const NAMES = [
   "glassmark",
@@ -173,6 +184,55 @@ const buildBlock = (): string => {
   return lines.join("\n");
 };
 
+const buildFavicon = (): string => {
+  const grid = generateCreature(FAVICON_SEED, FAVICON_CHAR_W, FAVICON_CHAR_H);
+  const body = FAVICON_COLOR;
+  const subH = grid.length;
+  const subW = grid[0]?.length ?? 0;
+
+  // Trim empty rows top/bottom so creatures without antennae (or without
+  // feet on a foot-reserve row) don't drift to one half of the icon. The
+  // generator already centres horizontally via setMirrored, so the trim
+  // here is vertical-only — preserving the silhouette's symmetry.
+  let top = 0;
+  while (top < subH && grid[top].every((v) => v === 0)) top += 1;
+  let bottom = subH - 1;
+  while (bottom > top && grid[bottom].every((v) => v === 0)) bottom -= 1;
+  const trimmedH = bottom - top + 1;
+
+  // Centre the (potentially narrower) creature in a 16×16 box and stretch
+  // each sub-pixel 1 wide × 2 tall so the silhouette matches the site's
+  // creature proportions.
+  const stretched = { w: subW, h: trimmedH * 2 };
+  const box = Math.max(16, stretched.w, stretched.h);
+  const offsetX = Math.floor((box - stretched.w) / 2);
+  const offsetY = Math.floor((box - stretched.h) / 2);
+
+  const rects: string[] = [];
+  for (let y = top; y <= bottom; y += 1) {
+    let runStart = -1;
+    for (let x = 0; x <= subW; x += 1) {
+      const filled = x < subW && grid[y][x] === 1;
+      if (filled && runStart < 0) runStart = x;
+      if (!filled && runStart >= 0) {
+        rects.push(
+          `<rect x="${runStart + offsetX}" y="${(y - top) * 2 + offsetY}" ` +
+            `width="${x - runStart}" height="2"/>`
+        );
+        runStart = -1;
+      }
+    }
+  }
+
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${box} ${box}" ` +
+    `shape-rendering="crispEdges">` +
+    `<rect width="${box}" height="${box}" fill="${FAVICON_BG}"/>` +
+    `<g fill="${body}">${rects.join("")}</g>` +
+    `</svg>\n`
+  );
+};
+
 const splice = (): void => {
   const src = readFileSync(TARGET, "utf8");
   const startIdx = src.indexOf(START);
@@ -189,3 +249,5 @@ const splice = (): void => {
 };
 
 splice();
+writeFileSync(FAVICON_TARGET, buildFavicon());
+console.log(`updated ${FAVICON_TARGET}`);
