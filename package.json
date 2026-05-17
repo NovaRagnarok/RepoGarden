@@ -58,7 +58,8 @@
     "start": "node dist/cli.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --import tsx --test --test-concurrency=1 src/__tests__/*.test.ts",
-    "observe:tui": "./scripts/tui-observe.sh"
+    "observe:tui": "./scripts/tui-observe.sh",
+    "gen:site-creatures": "tsx scripts/gen-site-creatures.ts"
   },
   "dependencies": {
     "chalk": "^5.6.2",
