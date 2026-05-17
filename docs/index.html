@@ -1,0 +1,807 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RepoGarden — a little local habitat</title>
+    <meta
+      name="description"
+      content="RepoGarden is a local-first pixel habitat where your repositories become tiny deterministic invader creatures. A TUI for noticing projects, recovering context, and resuming with a small next move."
+    />
+    <meta property="og:title" content="RepoGarden — a little local habitat" />
+    <meta
+      property="og:description"
+      content="A local-first pixel habitat where your repositories become tiny deterministic invader creatures."
+    />
+    <meta property="og:image" content="images/preview.png" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23000'/%3E%3Cg fill='%2310B981'%3E%3Crect x='6' y='3' width='4' height='1'/%3E%3Crect x='5' y='4' width='6' height='1'/%3E%3Crect x='4' y='5' width='8' height='3'/%3E%3Crect x='3' y='6' width='1' height='1'/%3E%3Crect x='12' y='6' width='1' height='1'/%3E%3Crect x='5' y='8' width='6' height='1'/%3E%3Crect x='4' y='9' width='2' height='2'/%3E%3Crect x='10' y='9' width='2' height='2'/%3E%3Crect x='3' y='11' width='2' height='1'/%3E%3Crect x='11' y='11' width='2' height='1'/%3E%3C/g%3E%3C/svg%3E" />
+    <style>
+      :root {
+        --bg: #000000;
+        --fg: #ffffff;
+        --muted: #9ca3af;
+        --dim: #6b7280;
+        --border: #2a3340;
+        --border-bright: #4b5563;
+        --green: #10b981;
+        --green-soft: #34d399;
+        --teal: #5eead4;
+        --purple: #8b5cf6;
+        --purple-soft: #a78bfa;
+        --yellow: #f59e0b;
+        --pink: #f472b6;
+        --blue: #60a5fa;
+        --orange: #fb923c;
+        --red: #f87171;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code",
+          "DejaVu Sans Mono", Menlo, Consolas, monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      body {
+        min-height: 100vh;
+        background-color: var(--bg);
+        background-image:
+          radial-gradient(1px 1px at 12% 18%, #ffffff 50%, transparent 51%),
+          radial-gradient(1px 1px at 27% 73%, #cbd5e1 50%, transparent 51%),
+          radial-gradient(1px 1px at 44% 31%, #ffffff 50%, transparent 51%),
+          radial-gradient(1px 1px at 61% 86%, #94a3b8 50%, transparent 51%),
+          radial-gradient(1px 1px at 78% 11%, #ffffff 50%, transparent 51%),
+          radial-gradient(1px 1px at 89% 54%, #cbd5e1 50%, transparent 51%),
+          radial-gradient(1px 1px at 7% 92%, #94a3b8 50%, transparent 51%),
+          radial-gradient(1px 1px at 33% 6%, #ffffff 50%, transparent 51%),
+          radial-gradient(1px 1px at 56% 47%, #64748b 50%, transparent 51%),
+          radial-gradient(1px 1px at 71% 64%, #ffffff 50%, transparent 51%),
+          radial-gradient(1.2px 1.2px at 19% 41%, #ffffff 50%, transparent 51%),
+          radial-gradient(1px 1px at 84% 79%, #cbd5e1 50%, transparent 51%),
+          radial-gradient(1px 1px at 38% 88%, #ffffff 50%, transparent 51%),
+          radial-gradient(1px 1px at 96% 23%, #94a3b8 50%, transparent 51%),
+          radial-gradient(1.4px 1.4px at 49% 13%, #ffffff 50%, transparent 51%);
+        background-size: 480px 480px;
+        background-repeat: repeat;
+      }
+
+      a {
+        color: var(--green-soft);
+        text-decoration: none;
+        border-bottom: 1px dotted var(--border-bright);
+      }
+      a:hover {
+        color: var(--green);
+        border-bottom-color: var(--green);
+      }
+
+      .wrap {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 1.25rem 1.5rem 5rem;
+      }
+
+      /* ---------- top bar (mimics the TUI title row) ---------- */
+      .tabbar {
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+        border-bottom: 1px solid var(--border);
+        padding-bottom: 0.5rem;
+        margin-bottom: 1.75rem;
+      }
+      .tab {
+        border: 1px solid var(--border);
+        border-bottom: none;
+        border-radius: 6px 6px 0 0;
+        padding: 0.25rem 0.75rem;
+        color: var(--muted);
+        font-size: 0.85rem;
+        background: rgba(255, 255, 255, 0.02);
+      }
+      .tab.active {
+        color: var(--fg);
+        background: rgba(255, 255, 255, 0.04);
+      }
+      .tab .glyph {
+        color: var(--green);
+        margin-right: 0.35rem;
+      }
+      .tabbar .grow {
+        flex: 1;
+      }
+
+      /* ---------- hero ---------- */
+      .hero {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 1.5rem;
+        align-items: start;
+        margin-bottom: 2.5rem;
+      }
+      .flavor {
+        color: var(--teal);
+        font-style: italic;
+        font-size: 0.95rem;
+      }
+      .title {
+        font-size: clamp(2rem, 6vw, 3.5rem);
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        margin: 0.25rem 0 0.15rem;
+        line-height: 1;
+      }
+      .subtitle {
+        color: var(--muted);
+        font-size: 1rem;
+      }
+      .subtitle .mask {
+        color: var(--purple-soft);
+        background: rgba(139, 92, 246, 0.12);
+        border: 1px solid rgba(139, 92, 246, 0.4);
+        border-radius: 4px;
+        padding: 0 0.4em;
+        font-size: 0.85em;
+        margin-left: 0.4em;
+      }
+      .pills {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+      }
+      .pill {
+        border: 1px solid var(--border-bright);
+        border-radius: 6px;
+        padding: 0.45rem 0.85rem;
+        font-size: 0.85rem;
+        color: var(--muted);
+        background: transparent;
+      }
+      .pill:hover {
+        color: var(--fg);
+        border-color: var(--green);
+      }
+      .pill.primary {
+        color: var(--green);
+        border-color: var(--green);
+        background: rgba(16, 185, 129, 0.06);
+      }
+
+      /* ---------- meta row (mimics roots / mood counts) ---------- */
+      .metarow {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem 1.5rem;
+        color: var(--muted);
+        font-size: 0.85rem;
+        margin: -1rem 0 1.75rem;
+      }
+      .metarow .happy::before { content: "●"; color: var(--green); margin-right: 0.35em; }
+      .metarow .noisy::before { content: "!"; color: var(--yellow); margin-right: 0.4em; font-weight: 700; }
+      .metarow .sleepy::before { content: "z"; color: var(--blue); margin-right: 0.4em; font-style: italic; }
+
+      /* ---------- creature habitat ---------- */
+      .creatures {
+        position: relative;
+        height: clamp(260px, 34vw, 380px);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background-color: rgba(0, 0, 0, 0.55);
+        background-image:
+          radial-gradient(1px 1px at 8% 22%, #ffffff 50%, transparent 51%),
+          radial-gradient(1px 1px at 23% 78%, #94a3b8 50%, transparent 51%),
+          radial-gradient(1px 1px at 41% 14%, #cbd5e1 50%, transparent 51%),
+          radial-gradient(1px 1px at 59% 63%, #ffffff 50%, transparent 51%),
+          radial-gradient(1.4px 1.4px at 72% 31%, #ffffff 50%, transparent 51%),
+          radial-gradient(1px 1px at 88% 81%, #cbd5e1 50%, transparent 51%),
+          radial-gradient(1px 1px at 17% 51%, #64748b 50%, transparent 51%),
+          radial-gradient(1px 1px at 36% 39%, #ffffff 50%, transparent 51%),
+          radial-gradient(1px 1px at 51% 88%, #94a3b8 50%, transparent 51%),
+          radial-gradient(1.2px 1.2px at 78% 9%, #ffffff 50%, transparent 51%),
+          radial-gradient(1px 1px at 93% 47%, #cbd5e1 50%, transparent 51%),
+          radial-gradient(1px 1px at 65% 19%, #ffffff 50%, transparent 51%);
+        background-size: 320px 320px;
+        background-repeat: repeat;
+        margin-bottom: 2.5rem;
+        overflow: hidden;
+      }
+      .creature {
+        position: absolute;
+        text-align: center;
+        font-size: 0.74rem;
+        color: var(--muted);
+        white-space: nowrap;
+        transform: translate(-50%, -50%);
+      }
+      .creature pre {
+        margin: 0 0 0.35rem;
+        font: 700 18px/1 var(--mono);
+        white-space: pre;
+        letter-spacing: 0;
+      }
+
+      .creature .tag {
+        display: inline-block;
+        margin-right: 0.25em;
+        font-weight: 700;
+      }
+      .creature .tag.happy { color: var(--green); }
+      .creature .tag.noisy { color: var(--yellow); }
+      .creature .tag.sleepy { color: var(--blue); font-style: italic; }
+
+      /* drift animations — each applied to the inner pre so the wrapper keeps its anchor */
+      @keyframes drift-a {
+        0%   { transform: translate(0, 0); }
+        25%  { transform: translate(6px, -4px); }
+        50%  { transform: translate(2px, 3px); }
+        75%  { transform: translate(-5px, -2px); }
+        100% { transform: translate(0, 0); }
+      }
+      @keyframes drift-b {
+        0%   { transform: translate(0, 0); }
+        33%  { transform: translate(-7px, 2px); }
+        66%  { transform: translate(4px, -5px); }
+        100% { transform: translate(0, 0); }
+      }
+      @keyframes drift-c {
+        0%, 100% { transform: translate(0, 0); }
+        50%      { transform: translate(0, -6px); }
+      }
+      @keyframes drift-d {
+        0%   { transform: translate(0, 0); }
+        20%  { transform: translate(3px, -3px); }
+        40%  { transform: translate(-2px, -1px); }
+        60%  { transform: translate(-4px, 2px); }
+        80%  { transform: translate(2px, 4px); }
+        100% { transform: translate(0, 0); }
+      }
+      @keyframes drift-e {
+        0%, 100% { transform: translate(0, 0); }
+        50%      { transform: translate(8px, 2px); }
+      }
+      .creature pre { animation: drift-a 5.5s ease-in-out infinite; }
+      .creature.m-b pre { animation: drift-b 6.8s ease-in-out infinite; }
+      .creature.m-c pre { animation: drift-c 3.4s ease-in-out infinite; }
+      .creature.m-d pre { animation: drift-d 7.2s ease-in-out infinite; }
+      .creature.m-e pre { animation: drift-e 4.6s ease-in-out infinite; }
+
+      /* ---------- terminal boxes ---------- */
+      .term {
+        border: 1px solid var(--border-bright);
+        border-radius: 8px;
+        background: rgba(0, 0, 0, 0.6);
+        overflow: hidden;
+        margin: 1.25rem 0;
+      }
+      .term-head {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.4rem 0.75rem;
+        border-bottom: 1px solid var(--border);
+        color: var(--muted);
+        font-size: 0.78rem;
+        background: rgba(255, 255, 255, 0.02);
+      }
+      .term-head .dot {
+        width: 0.55rem;
+        height: 0.55rem;
+        border-radius: 50%;
+        background: var(--border-bright);
+      }
+      .term-head .dot.g { background: var(--green); }
+      .term-head .dot.y { background: var(--yellow); }
+      .term-head .dot.r { background: var(--red); }
+      .term-head .label { margin-left: 0.4rem; }
+      .term-body {
+        padding: 0.9rem 1rem;
+        font-size: 0.92rem;
+        line-height: 1.6;
+        overflow-x: auto;
+      }
+      .term-body pre,
+      .term-body code {
+        font-family: var(--mono);
+        margin: 0;
+        white-space: pre;
+      }
+      .prompt { color: var(--green); user-select: none; }
+      .flag { color: var(--purple-soft); }
+      .str { color: var(--teal); }
+
+      .install {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+      }
+      .install code {
+        flex: 1;
+        font-size: 1.02rem;
+      }
+      .copy-btn {
+        background: transparent;
+        border: 1px solid var(--border-bright);
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 0.78rem;
+        padding: 0.3rem 0.65rem;
+        border-radius: 4px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .copy-btn:hover {
+        color: var(--green);
+        border-color: var(--green);
+      }
+      .copy-btn.copied {
+        color: var(--green);
+        border-color: var(--green);
+      }
+
+      /* ---------- sections ---------- */
+      h2 {
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.18em;
+        color: var(--muted);
+        font-weight: 700;
+        margin: 2.75rem 0 1rem;
+        border-bottom: 1px dashed var(--border);
+        padding-bottom: 0.4rem;
+      }
+      h2 .count {
+        color: var(--green);
+        font-weight: 400;
+        letter-spacing: 0.05em;
+        text-transform: none;
+        font-size: 0.78rem;
+        margin-left: 0.5rem;
+      }
+      p { margin: 0.6rem 0; color: #d1d5db; }
+      .lede { font-size: 1.05rem; color: var(--fg); }
+
+      /* ---------- three lenses grid ---------- */
+      .lenses {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 1rem;
+      }
+      .lens {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 1rem 1.1rem 1.1rem;
+        background: rgba(0, 0, 0, 0.45);
+      }
+      .lens h3 {
+        margin: 0 0 0.45rem;
+        font-size: 0.95rem;
+        color: var(--green);
+        font-weight: 700;
+        letter-spacing: 0.06em;
+      }
+      .lens h3 .key {
+        font-size: 0.7rem;
+        color: var(--muted);
+        font-weight: 400;
+        margin-left: 0.4rem;
+        border: 1px solid var(--border-bright);
+        padding: 0.05rem 0.35rem;
+        border-radius: 3px;
+        letter-spacing: 0;
+      }
+      .lens p { font-size: 0.88rem; color: #cbd5e1; margin: 0; }
+
+      /* ---------- demo image ---------- */
+      .demo {
+        margin: 1.25rem 0;
+        border: 1px solid var(--border-bright);
+        border-radius: 8px;
+        overflow: hidden;
+        background: #000;
+      }
+      .demo img {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+
+      /* ---------- numbered steps ---------- */
+      ol.steps {
+        list-style: none;
+        padding: 0;
+        margin: 0.5rem 0 0;
+        counter-reset: step;
+      }
+      ol.steps li {
+        counter-increment: step;
+        padding: 0.45rem 0 0.45rem 2.5rem;
+        position: relative;
+        color: #d1d5db;
+        font-size: 0.92rem;
+      }
+      ol.steps li::before {
+        content: counter(step, decimal-leading-zero);
+        position: absolute;
+        left: 0;
+        top: 0.45rem;
+        color: var(--green);
+        font-weight: 700;
+        opacity: 0.85;
+      }
+      ol.steps kbd {
+        display: inline-block;
+        font-family: var(--mono);
+        font-size: 0.78rem;
+        border: 1px solid var(--border-bright);
+        border-radius: 3px;
+        padding: 0.02rem 0.35rem;
+        color: var(--fg);
+        background: rgba(255, 255, 255, 0.05);
+        margin: 0 0.1rem;
+      }
+
+      /* ---------- guardrails callout ---------- */
+      .callout {
+        border-left: 2px solid var(--green);
+        background: rgba(16, 185, 129, 0.05);
+        padding: 0.8rem 1rem;
+        border-radius: 0 6px 6px 0;
+        margin: 1rem 0;
+      }
+      .callout .lbl {
+        color: var(--green);
+        font-size: 0.78rem;
+        letter-spacing: 0.15em;
+        text-transform: uppercase;
+        margin-bottom: 0.3rem;
+      }
+      .callout ul { margin: 0.2rem 0 0; padding-left: 1.1rem; }
+      .callout li { color: #d1d5db; font-size: 0.9rem; }
+
+      /* ---------- privacy bullets ---------- */
+      ul.bullets { padding-left: 1.1rem; margin: 0.6rem 0; }
+      ul.bullets li {
+        color: #d1d5db;
+        font-size: 0.92rem;
+        margin: 0.25rem 0;
+      }
+
+      /* ---------- status bar footer (mimics the TUI bottom bar) ---------- */
+      .statusbar {
+        position: sticky;
+        bottom: 0;
+        margin: 3rem -1.5rem -5rem;
+        padding: 0.6rem 1.5rem;
+        background: rgba(0, 0, 0, 0.85);
+        backdrop-filter: blur(6px);
+        border-top: 1px solid var(--border);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem 1.4rem;
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
+      .statusbar a { border-bottom: none; color: var(--muted); }
+      .statusbar a:hover { color: var(--green); }
+      .statusbar .k { color: var(--fg); margin-right: 0.4em; font-weight: 700; }
+      .statusbar .star { color: var(--green); margin-left: auto; }
+
+      /* ---------- small screen ---------- */
+      @media (max-width: 640px) {
+        .hero {
+          grid-template-columns: 1fr;
+        }
+        .pills { justify-content: flex-start; }
+        .statusbar .star { margin-left: 0; width: 100%; }
+      }
+
+      /* Reduced motion (respect the TUI's own value) */
+      @media (prefers-reduced-motion: reduce) {
+        .creature pre { animation: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <!-- top tab bar (matches the TUI title) -->
+      <div class="tabbar" aria-hidden="true">
+        <span class="tab active"><span class="glyph">▸</span>RepoGarden</span>
+        <span class="tab">+</span>
+        <span class="grow"></span>
+      </div>
+
+      <!-- hero -->
+      <section class="hero">
+        <div>
+          <div class="flavor">a little local habitat</div>
+          <h1 class="title">REPOGARDEN</h1>
+          <div class="subtitle">
+            where your repos live <span class="mask">○ mask</span>
+          </div>
+        </div>
+        <div class="pills">
+          <a class="pill primary" href="https://www.npmjs.com/package/@outsideheaven/repogarden"
+            >npm</a
+          >
+          <a class="pill" href="https://github.com/NovaRagnarok/RepoGarden">GitHub</a>
+          <a class="pill" href="https://github.com/NovaRagnarok/RepoGarden#readme">README</a>
+        </div>
+      </section>
+
+      <div class="metarow">
+        <span>roots: <code style="color: var(--fg)">~/repos</code></span>
+        <span class="happy">noticed</span>
+        <span class="noisy">dirty</span>
+        <span class="sleepy">stale</span>
+      </div>
+
+      <!-- creature habitat -->
+      <div class="creatures" aria-hidden="true">
+        <!-- REPOGARDEN-CREATURES:START — generated by scripts/gen-site-creatures.ts, do not edit by hand -->
+        <div class="creature" style="top: 28%; left: 11%; color: #51aaea">
+          <pre>  ▄▖▖▄▄▗▗▄
+▄█▚▜▛██▜▛▞█▄
+▐▄█▐████▌█▄▌</pre>
+          <span><span class="tag happy">●</span>glassmark</span>
+        </div>
+        <div class="creature m-b" style="top: 22%; left: 30%; color: #e98e4d">
+          <pre> ▗▐█▌▖
+ ▝▛█▜▘
+ █▜▀▛█</pre>
+          <span><span class="tag sleepy">z</span>habit-fossil</span>
+        </div>
+        <div class="creature m-c" style="top: 62%; left: 18%; color: #e65437">
+          <pre>  ▌ ▐
+ ▟▛█▜▙
+  ▛█▜
+ ▐▛▀▜▌</pre>
+          <span><span class="tag sleepy">z</span>pocket-cron</span>
+        </div>
+        <div class="creature m-d" style="top: 34%; left: 46%; color: #a5eb5f">
+          <pre> ▄ ▄
+ ▛█▜
+ ▜█▛</pre>
+          <span><span class="tag sleepy">z</span>salt-and-paper</span>
+        </div>
+        <div class="creature m-e" style="top: 58%; left: 52%; color: #3ce7a0">
+          <pre> ▖▄▄▄▗
+▐█▛█▜█▌
+ ▜███▛</pre>
+          <span><span class="tag sleepy">z</span>thornbush</span>
+        </div>
+        <div class="creature" style="top: 18%; left: 64%; color: #a1ea57">
+          <pre>   █
+  ███
+  ▙█▟
+  █▀█</pre>
+          <span><span class="tag happy">●</span>minnow</span>
+        </div>
+        <div class="creature m-b" style="top: 70%; left: 74%; color: #e65134">
+          <pre>▖     ▗
+▀▙▛█▜▟▀
+ █▜█▛█</pre>
+          <span><span class="tag sleepy">z</span>lantern-rs</span>
+        </div>
+        <div class="creature m-c" style="top: 40%; left: 84%; color: #35e635">
+          <pre>█ ▗▄▖ █
+▀▜▛█▜▛▀
+ ▝▜█▛▘</pre>
+          <span><span class="tag noisy">!</span>dewdrop</span>
+        </div>
+        <div class="creature m-d" style="top: 78%; left: 38%; color: #eb745c">
+          <pre>  ▐ ▌
+▗▙▐█▌▟▖
+▐█▛█▜█▌
+▝ ▀▀▀ ▘</pre>
+          <span><span class="tag sleepy">z</span>briar</span>
+        </div>
+        <div class="creature m-e" style="top: 14%; left: 84%; color: #eac452">
+          <pre>  █
+▐▛█▜▌
+▝███▘</pre>
+          <span><span class="tag happy">●</span>kettle</span>
+        </div>
+        <div class="creature" style="top: 82%; left: 86%; color: #e86247">
+          <pre> ▄███▄
+ ▗▛█▜▖
+ ▐▜█▛▌</pre>
+          <span><span class="tag happy">●</span>moss-cms</span>
+        </div>
+        <div class="creature m-b" style="top: 80%; left: 10%; color: #8ee635">
+          <pre>▐▘▐█▌▝▌
+▐▀▛█▜▀▌
+▝▜▀▀▀▛▘</pre>
+          <span><span class="tag happy">●</span>rivertown</span>
+        </div>
+        <div class="creature m-c" style="top: 48%; left: 26%; color: #9c63ec">
+          <pre>▗▗▄▄▖▄▄▗▄▄▖▖
+▐█▖▙▛██▜▟▗█▌
+ ▀█▙▀██▀▟█▀</pre>
+          <span><span class="tag happy">●</span>pinecone-press</span>
+        </div>
+        <div class="creature m-d" style="top: 50%; left: 68%; color: #eb985d">
+          <pre>  ▄ ▄
+ ▝▛█▜▘
+  ▜█▛
+ ▝▜▀▛▘</pre>
+          <span><span class="tag noisy">!</span>amberline</span>
+        </div>
+        <!-- REPOGARDEN-CREATURES:END -->
+      </div>
+
+      <p class="lede">
+        RepoGarden is a local-first pixel habitat where your repositories become
+        tiny deterministic invader creatures. The default isn't a dashboard —
+        it's a living scene that helps you notice projects, recover context, and
+        resume with a small next move.
+      </p>
+
+      <!-- install -->
+      <h2>install <span class="count">· one line</span></h2>
+      <div class="term">
+        <div class="term-head">
+          <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="label">~ — bash</span>
+        </div>
+        <div class="term-body install">
+          <code><span class="prompt">$</span> npm install -g @outsideheaven/repogarden &amp;&amp; repogarden</code>
+          <button class="copy-btn" type="button" data-copy="npm install -g @outsideheaven/repogarden && repogarden">
+            copy
+          </button>
+        </div>
+      </div>
+      <p style="color: var(--muted); font-size: 0.85rem">
+        Needs Node 24+, <code style="color: var(--fg)">git</code> on PATH, and a
+        terminal at least 80×24.
+      </p>
+
+      <!-- demo -->
+      <h2>preview <span class="count">· the habitat, populated</span></h2>
+      <figure class="demo" style="margin: 0">
+        <img
+          src="images/demo.gif"
+          alt="RepoGarden TUI — onboarding, then a starry habitat fills with pixel-art repo creatures, then cycles through shelf and journal views"
+        />
+      </figure>
+
+      <!-- three lenses -->
+      <h2>three lenses on the same set of repos</h2>
+      <div class="lenses">
+        <div class="lens">
+          <h3>Garden <span class="key">g</span></h3>
+          <p>
+            Repos as wandering pixel creatures in a starry field. Each look —
+            shape, color, blink — reflects branch state, recency, and dirty
+            files. Press <kbd>↵</kbd> to drop into one.
+          </p>
+        </div>
+        <div class="lens">
+          <h3>Shelf <span class="key">g g</span></h3>
+          <p>
+            The same repos as a tidy list — sortable, scannable, the answer to
+            "wait, what was I working on last week?"
+          </p>
+        </div>
+        <div class="lens">
+          <h3>Journal <span class="key">g g g</span></h3>
+          <p>
+            An append-only log of what happened across your projects. Commits,
+            branch hops, notes. A breadcrumb trail back into context.
+          </p>
+        </div>
+      </div>
+
+      <!-- first 5 minutes -->
+      <h2>first 5 minutes</h2>
+      <ol class="steps">
+        <li>Run <kbd>repogarden</kbd>.</li>
+        <li>
+          When asked, give it a folder that contains git repos — e.g.
+          <kbd>~/repos</kbd> or <kbd>~/code</kbd>. Multiple paths work too.
+        </li>
+        <li>
+          The garden fills with one creature per repo. Use <kbd>↑</kbd>
+          <kbd>↓</kbd> to move between them.
+        </li>
+        <li>
+          Press <kbd>g</kbd> to cycle Garden → Shelf → Journal.
+        </li>
+        <li>
+          Press <kbd>↵</kbd> on a creature to drop into its workbench: portrait,
+          notes, recent commits.
+        </li>
+        <li>
+          Press <kbd>?</kbd> for the keymap, <kbd>s</kbd> for settings,
+          <kbd>q</kbd> to quit.
+        </li>
+      </ol>
+
+      <!-- guardrails -->
+      <h2>product guardrails</h2>
+      <div class="callout">
+        <div class="lbl">house rules</div>
+        <ul>
+          <li>The habitat is the product.</li>
+          <li>The workbench is a utility room, not the main surface.</li>
+          <li>If the home screen starts reading like a dashboard, the work is drifting.</li>
+        </ul>
+      </div>
+
+      <!-- privacy / local-first -->
+      <h2>local-first <span class="count">· nothing leaves your machine</span></h2>
+      <p>
+        RepoGarden stores app state under <code style="color: var(--fg)">~/.repogarden</code>
+        and never modifies your git repositories. No repository contents are
+        sent to any RepoGarden-operated server.
+      </p>
+      <ul class="bullets">
+        <li>scans only the roots you configure</li>
+        <li>reads branch names, commit subjects, dirty file names, and small diff previews — for display, locally</li>
+        <li>can be reset entirely with <code style="color: var(--fg)">rm -rf ~/.repogarden</code></li>
+        <li>
+          the optional Claude / Codex usage bar is off by default; when enabled
+          it calls those providers' usage endpoints directly using their local
+          CLI credentials
+        </li>
+      </ul>
+      <p style="color: var(--muted); font-size: 0.88rem">
+        Details: <a href="https://github.com/NovaRagnarok/RepoGarden/blob/main/SECURITY.md">SECURITY.md</a>.
+      </p>
+
+      <!-- support -->
+      <h2>support</h2>
+      <p>
+        If RepoGarden makes exploring your repos a little more delightful, a
+        star helps other people find it. If it's useful to you, you can support
+        development via
+        <a href="https://github.com/sponsors/NovaRagnarok">GitHub Sponsors</a>
+        or
+        <a href="https://ko-fi.com/outsideheaven">Ko-fi</a>.
+      </p>
+
+      <!-- status bar (mimics the TUI bottom bar) -->
+      <nav class="statusbar" aria-label="links">
+        <span><span class="k">↵</span><a href="https://www.npmjs.com/package/@outsideheaven/repogarden">install</a></span>
+        <span><span class="k">/</span><a href="https://github.com/NovaRagnarok/RepoGarden">source</a></span>
+        <span><span class="k">?</span><a href="https://github.com/NovaRagnarok/RepoGarden#readme">readme</a></span>
+        <span><span class="k">s</span><a href="https://github.com/NovaRagnarok/RepoGarden/blob/main/SECURITY.md">security</a></span>
+        <span><span class="k">+</span><a href="https://github.com/sponsors/NovaRagnarok">sponsor</a></span>
+        <span class="star">★ RepoGarden 0.9</span>
+      </nav>
+    </main>
+
+    <script>
+      // copy install command
+      document.querySelectorAll(".copy-btn").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const text = btn.getAttribute("data-copy") || "";
+          try {
+            await navigator.clipboard.writeText(text);
+            const prev = btn.textContent;
+            btn.textContent = "copied ✓";
+            btn.classList.add("copied");
+            setTimeout(() => {
+              btn.textContent = prev;
+              btn.classList.remove("copied");
+            }, 1400);
+          } catch {
+            btn.textContent = "select & copy";
+          }
+        });
+      });
+    </script>
+  </body>
+</html>
