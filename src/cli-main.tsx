@@ -437,6 +437,19 @@ const App = ({
     pushToast(`bell on vibe flip · ${next ? "on" : "off"}`, "info");
   };
 
+  // One-shot BEL so the user can confirm their terminal interprets `\x07`
+  // before they wait for a real vibe flip to fire. Independent of the
+  // toggle. Non-TTY environments get a toast explaining the silence rather
+  // than writing garbage into a pipe.
+  const handleTestBell = () => {
+    if (process.stdout.isTTY) {
+      process.stdout.write("\x07");
+      pushToast("rang the bell once · if silent, your terminal isn't passing BEL through", "info");
+    } else {
+      pushToast("can't ring · stdout isn't a TTY", "warning");
+    }
+  };
+
   // Cycle through cozy → comfortable → dense → cozy so a single hotkey can
   // walk the user across the whole spectrum.
   const handleCycleGardenDensity = () => {
@@ -574,6 +587,7 @@ const App = ({
         onToggleGardenPaginate={handleToggleGardenPaginate}
         onCycleGardenDensity={handleCycleGardenDensity}
         onToggleBellOnVibeChange={handleToggleBellOnVibeChange}
+        onTestBell={handleTestBell}
         onPickTheme={handlePickTheme}
         onClose={() => setPhase("ready")}
       />

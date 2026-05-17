@@ -44,5 +44,5 @@ Open `pnpm dev` from the repo root and the terminal should read like a little lo
   - **If we do it, do it tight.** JOURNAL-only, metadata-only: "Claude session in this repo, N tool calls, files X/Y/Z touched" with no prompt content. Sidesteps both the privacy issue and the dashboard risk. Even this waits until the polish target is cleared.
 
 ## Priority C
-- optional terminal-bell on noteworthy events
+<!-- optional terminal-bell on noteworthy events — done: `bellOnVibeChange` config + `b` toggle in Settings; emitter at `cli-main.tsx:251` writes a single `\x07` per render batch when any existing repo's vibe flips. Gated on `phase === "ready"` + `!isRescanning` + `isTTY` via `shouldRingVibeBell` in `app-shell-state.ts`. New-repo discoveries and user-triggered rescans are intentionally suppressed; ambient 30s background refresh + fs.watch observer DO fire. Default off. Tested in `app-shell-state.test.ts`. -->
 - local notification hook (e.g. shell out to `notify-send` / `osascript` when a vibe flips)
