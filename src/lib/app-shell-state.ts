@@ -7,6 +7,7 @@ export type AppPhase =
   | "settings"
   | "workbench"
   | "help"
+  | "usage"
   | "edit-roots";
 
 export interface ScanStatus {

@@ -22,6 +22,11 @@ export interface UseUsageOptions {
    *  toggle). Combined with the env-driven `isUsageFeatureDisabled()` —
    *  either one suppresses the network call. */
   disabled?: boolean;
+  /** When true, error/auth providers reach the caller too. The chrome row
+   *  hides them (ambient context shouldn't shout at a half-configured
+   *  setup), but the on-demand `/usage` overlay is exactly the place where
+   *  the user wants to see "claude: auth required" spelled out. */
+  includeAll?: boolean;
 }
 
 export const useUsage = (
@@ -29,7 +34,7 @@ export const useUsage = (
   opts: UseUsageOptions = {}
 ): ProviderUsage[] => {
   const [data, setData] = useState<ProviderUsage[]>([]);
-  const { disabled = false } = opts;
+  const { disabled = false, includeAll = false } = opts;
   useEffect(() => {
     if (disabled || isUsageFeatureDisabled()) {
       setData([]);
@@ -44,7 +49,11 @@ export const useUsage = (
         try {
           const next = await loadAllUsage();
           if (!cancelled) {
-            setData(next.filter((u) => u.status !== "error" && u.status !== "auth"));
+            setData(
+              includeAll
+                ? next
+                : next.filter((u) => u.status !== "error" && u.status !== "auth")
+            );
           }
         } catch {
           // loadAllUsage already converts per-provider failure into a status
@@ -58,6 +67,6 @@ export const useUsage = (
       cancelled = true;
       clearInterval(id);
     };
-  }, [intervalMs, disabled]);
+  }, [intervalMs, disabled, includeAll]);
   return data;
 };
