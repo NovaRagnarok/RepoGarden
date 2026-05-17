@@ -21,8 +21,19 @@ import {
   hashString,
   mulberry32,
   pickSpriteColors,
+  type CreaturePalette,
   type SubMatrix
 } from "../src/lib/sprite";
+
+// Mirrors the high-contrast theme's palette (src/themes/high-contrast.ts):
+// same arcade hue list as the default, but pushed to near-max saturation and
+// slightly higher lightness so creatures pop on pure black.
+const HIGH_CONTRAST_PALETTE: CreaturePalette = {
+  hues: [355, 10, 25, 45, 60, 90, 120, 155, 180, 205, 235, 265],
+  saturation: 0.95,
+  lightness: 0.62,
+  lightnessJitter: 0.05
+};
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -146,7 +157,7 @@ const buildBlock = (): string => {
   NAMES.forEach((name, i) => {
     const { charW, charH } = sizeForIdentity(name);
     const grid = generateCreature(name, charW, charH);
-    const { body } = pickSpriteColors(name);
+    const { body } = pickSpriteColors(name, HIGH_CONTRAST_PALETTE);
     const { svg } = renderSpriteSvg(grid, body);
     const mood = moodForIdentity(name);
     const [top, left] = POSITIONS[i % POSITIONS.length];
