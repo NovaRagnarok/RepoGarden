@@ -1420,8 +1420,12 @@ export const ReadyShell = ({
         {/* Status pinned to the very bottom of the panel: the spacer
             consumes any remaining content rows so the status sits flush
             against the bottom border, regardless of how many creatures
-            the windowing renders. */}
-        {latestStatus ? (
+            the windowing renders. Hidden while a floating toast is on
+            screen — otherwise the same message renders twice (the
+            cyan-bordered toast above the panel, plus a truncated copy
+            at the panel bottom). The sticky row is meant to show what
+            *just happened* after the toast dismisses, not concurrently. */}
+        {latestStatus && activeToasts.length === 0 ? (
           <>
             <Box flexGrow={1} />
             <Box>

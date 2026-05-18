@@ -34,8 +34,13 @@ Sleep 3500ms
 # the synthetic demo roster (32 creatures, four vibes, varied sprite
 # sizes via DEMO_SIZE_ARCHETYPES) and flips privacy to demo mode in one
 # keystroke — far more populated than scanning the 8 stub repos.
+#
+# 6s settle: the cross-fade to garden (TRANSITION_MS = 1400ms) plus the
+# direct-stdout sprite painter need a full beat to populate the canvas;
+# at 4s the captured frame caught a half-painted garden with no
+# creatures visible (manual-qa-report on the prior demo recording).
 Type "d"
-Sleep 4s
+Sleep 6s
 
 Down
 Sleep 600ms
