@@ -35,6 +35,7 @@ export interface GardenViewProps {
   placementMode?: "organic" | "rooms";
   density?: GardenDensity;
   roomsPageIndex?: Partial<Record<Vibe, number>>;
+  disableWander?: boolean;
 }
 
 const toGardenTheme = (colors: GardenThemeColors): GardenThemeColors => colors;
@@ -54,7 +55,8 @@ const GardenViewInner = ({
   paintExclusions,
   placementMode = "organic",
   density = "comfortable",
-  roomsPageIndex
+  roomsPageIndex,
+  disableWander = false
 }: GardenViewProps) => {
   const theme = useTheme();
   const { reduced: reducedMotion } = useMotion();
@@ -103,6 +105,7 @@ const GardenViewInner = ({
       density,
       roomsPageIndex,
       reducedMotion,
+      disableWander,
       theme: toGardenTheme({
         foreground: theme.colors.foreground,
         background: theme.colors.background,
@@ -137,6 +140,7 @@ const GardenViewInner = ({
     placementMode,
     density,
     roomsPageIndexKey,
+    disableWander,
     reducedMotion,
     theme.colors.foreground,
     theme.colors.background,

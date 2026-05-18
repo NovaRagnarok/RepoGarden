@@ -74,6 +74,11 @@ export interface GardenSceneProps {
    *  flipping pages without affecting the happy / stuck / sleepy rooms.
    *  Garden mode ignores this. */
   roomsPageIndex?: Partial<Record<Vibe, number>>;
+  /** Freeze per-creature wander animation regardless of the user's
+   *  `reducedMotion` setting. Used by rooms view, where creatures sit
+   *  in a uniform grid — wander would re-introduce the "messy" feel
+   *  the grid is meant to remove. */
+  disableWander?: boolean;
 }
 
 export interface GardenEngineProps extends GardenSceneProps {

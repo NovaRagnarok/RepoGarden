@@ -89,6 +89,7 @@ const sameSceneProps = (left: GardenEngineProps, right: GardenEngineProps): bool
   left.placementMode === right.placementMode &&
   left.density === right.density &&
   left.reducedMotion === right.reducedMotion &&
+  left.disableWander === right.disableWander &&
   left.theme === right.theme &&
   sameDeadZone(left.deadZone, right.deadZone) &&
   sameTopRightDeadZone(left.topRightDeadZone, right.topRightDeadZone) &&

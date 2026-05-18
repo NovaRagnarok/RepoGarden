@@ -966,6 +966,7 @@ export const ReadyShell = ({
       placementMode: habitatPlacementMode,
       theme: gardenThemeColors,
       reducedMotion: false,
+      disableWander: isRoomsView,
       roomsPageIndex: roomsPageByVibe
     };
     const safeCapacity = safeGardenCapacity(
@@ -1033,12 +1034,12 @@ export const ReadyShell = ({
     }
     return pagedVisibleCreatures;
   }, [isRoomsCompact, compactCurrentVibe, pagedVisibleCreatures]);
-  // Final placement mode — "organic" everywhere except true rooms view
-  // with enough room to actually split into quadrants. The compact
-  // fallback uses organic so the chosen vibe fills the canvas without
-  // dividers / separators.
+  // Final placement mode. Rooms view always uses the "rooms" placer —
+  // even in compact mode, where `creaturesForEngine` is filtered to one
+  // vibe and the placer treats it as a single full-canvas room (no
+  // dividers, grid layout). Garden / journal use "organic".
   const habitatPlacementMode: "organic" | "rooms" =
-    displayView === "rooms" && !isRoomsCompact ? "rooms" : "organic";
+    displayView === "rooms" ? "rooms" : "organic";
   // In rooms-compact mode the engine only sees one vibe's creatures,
   // so the focus index has to be translated from "index in
   // pagedVisibleCreatures" to "index in creaturesForEngine". -1 means
@@ -1990,6 +1991,7 @@ export const ReadyShell = ({
               placementMode={habitatPlacementMode}
               density={gardenDensity}
               roomsPageIndex={roomsPageByVibe}
+              disableWander={isRoomsView}
             />
             {overlayCardSlot.reserved ? (
               <Box
@@ -2031,6 +2033,7 @@ export const ReadyShell = ({
             placementMode={habitatPlacementMode}
             density={gardenDensity}
             roomsPageIndex={roomsPageByVibe}
+            disableWander={isRoomsView}
           />
         </Box>
       ) : responsive.showSidebar ? (

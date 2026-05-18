@@ -1090,11 +1090,16 @@ export const stepGardenModel = (
   model: GardenModel,
   now: number = performance.now()
 ): void => {
-  if (model.props.reducedMotion) {
+  if (model.props.reducedMotion || model.props.disableWander) {
     // Freeze decorative motion (origin drift + per-creature wander). Manual
     // drag offsets persist through wander state's manualOffset and still
     // apply via syncVisualPlacements; nudge nextShiftAt forward so toggling
     // motion back on doesn't fire a burst of catch-up shifts.
+    //
+    // `disableWander` (set by rooms view) shares this code path so the
+    // gridded layout doesn't slowly drift back into a messy organic feel.
+    // Star / origin drift is technically also frozen here; that's a small
+    // sacrifice for the simplicity of one freeze path.
     for (const placement of model.scene.placements) {
       const state = ensureWanderState(model, placement, now);
       state.currentOffset = { x: 0, y: 0 };

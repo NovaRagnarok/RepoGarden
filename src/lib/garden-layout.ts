@@ -371,6 +371,69 @@ const clipTopRightZone = (
   return { width: localW, height: localH };
 };
 
+// Grid placer used inside each room. Like `placeCreatures` but with
+// jitter removed — every tile lands at the centre of its slot, so
+// adjacent rooms feel uniformly lined up rather than the loose
+// scatter the organic placer produces. Saves vertical and horizontal
+// space too (no jitter slack inside each slot).
+const placeTilesGridded = (
+  tiles: SizedTile[],
+  canvasW: number,
+  canvasH: number,
+  deadZone?: { width: number; height: number },
+  topRightDeadZone?: { width: number; height: number }
+): Placement[] => {
+  if (tiles.length === 0) return [];
+
+  const maxSpriteCols = Math.max(...tiles.map((t) => t.spriteCols));
+  const maxSpriteRows = Math.max(...tiles.map((t) => t.charRows));
+  const maxLabelCols = Math.max(
+    ...tiles.map((t) => t.creature.scan.name.length + 2)
+  );
+
+  const slotW = Math.max(maxSpriteCols, maxLabelCols) + SLOT_PAD_X;
+  const slotH = maxSpriteRows + NAME_GAP_ROWS + NAME_H;
+
+  const NAME_RESERVE = NAME_GAP_ROWS + NAME_H;
+  const usableW = Math.max(slotW, canvasW - 1);
+  const usableH = Math.max(slotH, canvasH - SKY_ROWS - GROUND_ROWS - NAME_RESERVE);
+  const cols = Math.max(1, Math.floor(usableW / slotW));
+  const rows = Math.max(1, Math.floor(usableH / slotH));
+
+  const gridLeft = Math.max(0, Math.floor((canvasW - cols * slotW) / 2));
+  const gridTop = SKY_ROWS;
+
+  const deadLeft = deadZone ? canvasW - deadZone.width : Number.POSITIVE_INFINITY;
+  const deadTop = deadZone ? canvasH - deadZone.height : Number.POSITIVE_INFINITY;
+  const trLeft = topRightDeadZone
+    ? canvasW - topRightDeadZone.width
+    : Number.POSITIVE_INFINITY;
+  const trBottom = topRightDeadZone ? topRightDeadZone.height : 0;
+
+  const placements: Placement[] = [];
+  for (let i = 0; i < tiles.length; i += 1) {
+    const r = Math.floor(i / cols);
+    const c = i % cols;
+    if (r >= rows) break;
+    const slotX = gridLeft + c * slotW;
+    const slotY = gridTop + r * slotH;
+    const slotRight = slotX + slotW;
+    const slotBottom = slotY + slotH;
+    if (deadZone && slotRight > deadLeft && slotBottom + NAME_RESERVE > deadTop) {
+      continue;
+    }
+    if (topRightDeadZone && slotRight > trLeft && slotY < trBottom) continue;
+    const tile = tiles[i];
+    // Bottom-align sprites within the slot so the name row (one
+    // row below `charY + charRows`) lines up across creatures of
+    // different heights — the visual baseline stays consistent.
+    const x = slotX + Math.floor((slotW - tile.spriteCols) / 2);
+    const charY = slotY + (maxSpriteRows - tile.charRows);
+    placements.push({ tile, x, charY });
+  }
+  return placements;
+};
+
 // Header height per room: 1 row for the divider label + 1 spacer row
 // before the room's content starts.
 const ROOM_HEADER_ROWS = 2;
@@ -398,7 +461,10 @@ export const placeInRooms = (
   tiles: SizedTile[],
   canvasW: number,
   canvasH: number,
-  seedKey: string,
+  // `_seedKey` kept for signature compatibility with the previous
+  // organic-per-room placer. The current grid placer is deterministic
+  // and doesn't need a randomness seed.
+  _seedKey: string,
   pageIndexByVibe: Partial<Record<Vibe, number>>,
   deadZone?: { width: number; height: number },
   topRightDeadZone?: { width: number; height: number }
@@ -470,15 +536,19 @@ export const placeInRooms = (
     const absX = rect.x;
     const absY = innerY + rect.y;
 
-    // Sub-canvas for the organic placer: room rect minus its header
+    // Sub-canvas for the grid placer: room rect minus its header
     // AND a footer buffer (so names land at least ROOM_FOOTER_ROWS
-    // above the room's bottom edge).
+    // above the room's bottom edge). When there's only one room the
+    // header is skipped (no divider is drawn), so the full rect
+    // goes to creatures.
+    const headerRows = rooms.length > 1 ? ROOM_HEADER_ROWS : 0;
+    const footerRows = rooms.length > 1 ? ROOM_FOOTER_ROWS : 0;
     const subW = rect.width;
-    const subH = Math.max(0, rect.height - ROOM_HEADER_ROWS - ROOM_FOOTER_ROWS);
+    const subH = Math.max(0, rect.height - headerRows - footerRows);
 
     const roomCanvas: RoomRect = {
       x: absX,
-      y: absY + ROOM_HEADER_ROWS,
+      y: absY + headerRows,
       width: subW,
       height: subH
     };
@@ -516,26 +586,37 @@ export const placeInRooms = (
     // width — adjacent rooms each get their own dashes-around-the-label.
     // Page metadata is attached when the cohort spans more than one page
     // so the renderer can append `(N/M)` to the label.
-    dividers.push({
-      vibe: room.vibe,
-      count: room.tiles.length,
-      canvasRow: absY,
-      canvasCol: absX,
-      width: rect.width,
-      ...(pageCount > 1
-        ? { pageIndex: pageIndex + 1, pageCount }
-        : {})
-    });
+    //
+    // Skipped entirely when there's only one room: in that case the
+    // section header / compact-mode navigator already names the vibe,
+    // and an inline divider just labels the obvious. Single-room is
+    // either rooms-compact (filtered to one vibe by the caller) or
+    // a roster where only one vibe is populated.
+    if (rooms.length > 1) {
+      dividers.push({
+        vibe: room.vibe,
+        count: room.tiles.length,
+        canvasRow: absY,
+        canvasCol: absX,
+        width: rect.width,
+        ...(pageCount > 1
+          ? { pageIndex: pageIndex + 1, pageCount }
+          : {})
+      });
+    }
 
     // Pathologically small rooms (e.g. a 2×2 split on a tiny terminal):
     // skip placement rather than crash the organic placer's minSlot math.
     if (pathologicallySmall) return;
 
-    const sub = placeCreatures(
+    // Grid placement (not the organic placer) — uniform spacing across
+    // the room, no jitter, tighter packing than the slot-jittered
+    // garden layout. Drops the seed argument since there's no
+    // randomness to seed anymore.
+    const sub = placeTilesGridded(
       pagedTiles,
       subW,
       subH,
-      `${seedKey}:${room.vibe}:${pageIndex}`,
       localBR,
       localTR
     );
@@ -552,9 +633,9 @@ export const placeInRooms = (
     // Reserve ROOM_FOOTER_ROWS at the bottom for visual breathing room
     // before the next room's divider, so the last name row of THIS
     // room can't visually merge with the divider of the NEXT room.
-    const safeBottom = absY + rect.height - ROOM_FOOTER_ROWS;
+    const safeBottom = absY + rect.height - footerRows;
     for (const placement of sub) {
-      const translatedY = placement.charY + absY + ROOM_HEADER_ROWS;
+      const translatedY = placement.charY + absY + headerRows;
       const nameRowBottom =
         translatedY + placement.tile.charRows + NAME_GAP_ROWS + NAME_H - 1;
       if (nameRowBottom >= safeBottom) continue;
@@ -607,20 +688,22 @@ export const computeRoomPageCounts = (
   );
 
   const result: Partial<Record<Vibe, number>> = {};
+  const headerRows = rooms.length > 1 ? ROOM_HEADER_ROWS : 0;
+  const footerRows = rooms.length > 1 ? ROOM_FOOTER_ROWS : 0;
   rooms.forEach((room, idx) => {
     const rect = rects[idx];
     if (!rect) return;
     const absX = rect.x;
     const absY = innerY + rect.y;
     const subW = rect.width;
-    const subH = Math.max(0, rect.height - ROOM_HEADER_ROWS - ROOM_FOOTER_ROWS);
+    const subH = Math.max(0, rect.height - headerRows - footerRows);
     if (subW < 6 || subH < 4) {
       result[room.vibe] = 1;
       return;
     }
     const roomCanvas: RoomRect = {
       x: absX,
-      y: absY + ROOM_HEADER_ROWS,
+      y: absY + headerRows,
       width: subW,
       height: subH
     };
