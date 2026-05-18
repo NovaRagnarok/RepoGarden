@@ -2043,9 +2043,26 @@ const PortraitMode = ({
         return (
           <Box flexDirection="column">
             <Panel title="snapshot" paddingY={0} width={panelWidth}>
-              <Box flexDirection={fullWidth >= 82 ? "row" : "column"} columnGap={4}>
+              {/* flexShrink={0} on both the row container and each stat
+                  column is the manual-qa B2 fix: without it, when the
+                  enclosing workbench is height-pressed Yoga shrinks the
+                  inner column-Boxes from 3 rows down to 2, dropping the
+                  *label* row entirely. The render then shows value-on-top-
+                  of-label (e.g. "75%lth" where "health" was) because the
+                  label characters from the original layout pass linger in
+                  the cell buffer underneath the now-top-aligned value. */}
+              <Box
+                flexDirection={fullWidth >= 82 ? "row" : "column"}
+                columnGap={4}
+                flexShrink={0}
+              >
                 {model.stats.map((stat) => (
-                  <Box key={stat.key} flexDirection="column" width={fullWidth >= 82 ? Math.floor((panelWidth - 10) / 4) : undefined}>
+                  <Box
+                    key={stat.key}
+                    flexDirection="column"
+                    width={fullWidth >= 82 ? Math.floor((panelWidth - 10) / 4) : undefined}
+                    flexShrink={0}
+                  >
                     <Text dimColor color={theme.colors.mutedForeground}>{stat.label}</Text>
                     <Text color={toneColor(stat.severity, theme)} bold={stat.severity !== "muted"}>
                       {stat.value}
@@ -2092,7 +2109,11 @@ const PortraitMode = ({
         </Box>
       </Box>
 
-      <Box paddingTop={1} flexDirection="row" gap={1} flexWrap="wrap">
+      {/* flexShrink={0} on the row wrappers keeps the bordered Badges at
+          their full 3-row height when the workbench is height-pressed
+          (manual-qa B3). Without it the row was being collapsed to 2 rows
+          and the badge bottom border fused with the next sibling. */}
+      <Box paddingTop={1} flexDirection="row" gap={1} flexWrap="wrap" flexShrink={0}>
         {model.chips.map((chip) => (
           <Badge
             key={chip.key}
@@ -2105,7 +2126,7 @@ const PortraitMode = ({
         ))}
       </Box>
 
-      <Box paddingTop={1} flexDirection="row" gap={1} flexWrap="wrap">
+      <Box paddingTop={1} flexDirection="row" gap={1} flexWrap="wrap" flexShrink={0}>
         {PORTRAIT_SECTIONS.map((section, index) => {
           const active = section === activeSection;
           return (
@@ -2122,12 +2143,12 @@ const PortraitMode = ({
       </Box>
 
       {status ? (
-        <Box paddingTop={1}>
+        <Box paddingTop={1} flexShrink={0}>
           <Badge variant={status.variant} bold>{status.message}</Badge>
         </Box>
       ) : null}
 
-      <Box paddingTop={1}>
+      <Box paddingTop={1} flexShrink={0}>
         <Alert
           variant={model.score.severity}
           title={model.score.reasons.length > 0 ? model.score.reasons.join(" · ") : creature.vibe.reason}
@@ -2138,7 +2159,7 @@ const PortraitMode = ({
         </Alert>
       </Box>
 
-      <Box paddingTop={1}>{renderSection()}</Box>
+      <Box paddingTop={1} flexShrink={0}>{renderSection()}</Box>
 
       <Box paddingTop={1}>
         <Text dimColor color={theme.colors.mutedForeground} wrap="truncate-end">

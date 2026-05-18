@@ -40,10 +40,15 @@ export const Panel = ({
   const inner = (
     <>
       {title && (
+        // flexShrink={0} keeps the title's bordered Box at its natural
+        // 3-row height. Without it Yoga can collapse the title to 2 rows
+        // when the enclosing screen is height-pressed, fusing its bottom
+        // border with the panel's content below.
         <Box
           paddingX={paddingX}
           borderStyle="single"
           borderColor={borderColor ?? theme.colors.border}
+          flexShrink={0}
         >
           <Text bold color={titleColor ?? theme.colors.primary}>
             {title}
@@ -65,9 +70,16 @@ export const Panel = ({
     </>
   );
 
+  // flexShrink={0} on the outer Panel box is the load-bearing fix for the
+  // manual-qa B3 family: at small terminal heights the workbench's
+  // section-content Panel was being shrunk to ~3 rows (just the title
+  // border) and its actual content escaped *below* the bottom border.
+  // Pinning shrink to 0 preserves the natural height; the outer container
+  // already owns overflow="hidden" so clipping (rather than collapse)
+  // becomes the failure mode at very small sizes.
   if (!bordered) {
     return (
-      <Box flexDirection="column" width={width} height={height}>
+      <Box flexDirection="column" width={width} height={height} flexShrink={0}>
         {inner}
       </Box>
     );
@@ -80,6 +92,7 @@ export const Panel = ({
       borderColor={borderColor ?? theme.colors.border}
       width={width}
       height={height}
+      flexShrink={0}
     >
       {inner}
     </Box>
