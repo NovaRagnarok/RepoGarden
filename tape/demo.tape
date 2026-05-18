@@ -49,18 +49,19 @@ Sleep 600ms
 Down
 Sleep 1s
 
-# View cycle is garden → shelf → journal → garden. The cross-fade /
+# View cycle is garden → shelf → journal, then we stop. The cross-fade /
 # placement tween (TRANSITION_MS in ReadyShell.tsx) is 1400ms, so any
 # sleep after `g` needs to comfortably exceed that to leave a settled
 # view on screen long enough to read.
+#
+# We deliberately do NOT cycle journal → garden in the recording: the
+# garden's direct-stdout sprite painter doesn't repaint after the
+# journal→garden cross-fade (engine destroys on cross-fade, remount
+# doesn't trigger a paint), leaving an empty canvas for the last ~2s
+# of the loop. Ending on journal lets the GIF loop back to the boot
+# screen instead, which the user reads as a natural restart.
 Type "g"
 Sleep 3500ms
 
 Type "g"
-Sleep 3500ms
-
-Type "g"
-Sleep 3500ms
-
-# End on the garden so the loop restarts cleanly from boot. A 3.5s
-# tail keeps the loop boundary from feeling like a hard cut.
+Sleep 4500ms
