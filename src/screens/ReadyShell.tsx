@@ -23,7 +23,10 @@ import { vibeColor, vibeGlyph, type Vibe } from "@/lib/vibe";
 import {
   computeRoomPageCountsForCreatures,
   gardenPageCapacity,
+  ROOM_COMPACT_TRIGGER_H,
+  ROOM_COMPACT_TRIGGER_W,
   safeGardenCapacity,
+  VIBE_ORDER,
   type GardenDensity
 } from "@/lib/garden-layout";
 import {
@@ -656,6 +659,31 @@ export const ReadyShell = ({
       return;
     }
     if (displayView === "rooms" && (input === "[" || input === "]")) {
+      // Rooms-compact fallback: `[` / `]` jump focus to the first
+      // creature of the previous / next populated vibe, which makes
+      // the canvas show that vibe instead. No room-pagination here —
+      // each vibe is its own "page" in compact mode.
+      if (isRoomsCompact) {
+        if (populatedVibes.length <= 1) return;
+        const currentVibe = compactCurrentVibe ?? populatedVibes[0];
+        const idx = populatedVibes.indexOf(currentVibe);
+        const nextIdx =
+          input === "["
+            ? (idx - 1 + populatedVibes.length) % populatedVibes.length
+            : (idx + 1) % populatedVibes.length;
+        const nextVibe = populatedVibes[nextIdx];
+        const firstInVibe = pagedVisibleCreatures.findIndex(
+          (c) => c.vibe.vibe === nextVibe
+        );
+        const focusListIdx = focusList.findIndex(
+          (c) => c.id === pagedVisibleCreatures[firstInVibe]?.id
+        );
+        if (focusListIdx >= 0) {
+          setFocusIndex(focusListIdx);
+          setHomeSelected(false);
+        }
+        return;
+      }
       // Pick the vibe to paginate: focused creature's vibe if any,
       // otherwise the first room that has more than one page.
       const targetVibe: Vibe | undefined =
@@ -779,7 +807,10 @@ export const ReadyShell = ({
     [responsive.showOverlayCard, cardVisible, gardenWidth, gardenHeight]
   );
   const showOverlayCard = overlayCardSlot.visible;
-  const habitatPlacementMode = displayView === "rooms" ? "rooms" : "organic";
+  // `habitatPlacementMode` is finalised further down once the
+  // rooms-compact fallback condition is known (it forces "organic"
+  // even when displayView === "rooms"). See `compactCurrentVibe` and
+  // `isRoomsCompact` definitions below.
   const overlayDeadZone = overlayCardSlot.deadZone;
   const overlayCardWidth = overlayCardSlot.width;
   const overlayCardHeight = overlayCardSlot.height;
@@ -839,6 +870,31 @@ export const ReadyShell = ({
     overlayDeadZone?.width,
     overlayDeadZone?.height
   ]);
+  // Rooms-compact fallback: when the canvas is small enough that the
+  // 2×2 / 3-room / side-by-side split would force individual rooms
+  // below the minimum size their sub-canvas needs to fit even one
+  // creature, the user reported seeing "labels + boxes but zero
+  // creatures." In that case rooms view drops the split entirely and
+  // shows one populated vibe at a time using the full canvas; `[` / `]`
+  // cycle between vibes instead of paginating within a vibe.
+  const populatedVibes = useMemo(
+    () =>
+      VIBE_ORDER.filter((v) =>
+        visibleCreatures.some((c) => c.vibe.vibe === v)
+      ),
+    [visibleCreatures]
+  );
+  const isRoomsCompact = useMemo(() => {
+    if (!isRoomsView || populatedVibes.length <= 1) return false;
+    if (gardenInnerWidth < 2 * ROOM_COMPACT_TRIGGER_W) return true;
+    if (
+      populatedVibes.length >= 3 &&
+      gardenInnerHeight < 2 * ROOM_COMPACT_TRIGGER_H
+    ) {
+      return true;
+    }
+    return false;
+  }, [isRoomsView, populatedVibes.length, gardenInnerWidth, gardenInnerHeight]);
 
   // Reset page on filter change so an empty page can't strand the user.
   useEffect(() => {
@@ -903,7 +959,7 @@ export const ReadyShell = ({
     // we leave reducedMotion=false here so the body wiggle still animates.
     const draftProps: GardenSceneProps = {
       creatures: canonicalCreatures,
-      focusIndex: gardenFocusIndex,
+      focusIndex: gardenFocusIndexForEngine,
       innerWidth,
       canvasH,
       deadZone: responsive.showSidebar ? overlayDeadZone : undefined,
@@ -956,6 +1012,43 @@ export const ReadyShell = ({
   // UI element (focus ring, overlay card, detail card, status text, etc.)
   // sees `focus` as undefined and gracefully renders an empty/calm state.
   const focus = homeSelected ? undefined : focusList[focusIndex];
+  // The vibe shown in rooms-compact fallback. Tracks the focused
+  // creature's vibe so navigating to a creature of a different vibe
+  // (e.g. via sidebar Up/Down) auto-switches which room is on screen.
+  // Falls back to the first populated vibe when nothing is focused.
+  const compactCurrentVibe: Vibe | null = useMemo(() => {
+    if (!isRoomsCompact || populatedVibes.length === 0) return null;
+    const focusVibe = focus?.vibe.vibe;
+    if (focusVibe && populatedVibes.includes(focusVibe)) return focusVibe;
+    return populatedVibes[0] ?? null;
+  }, [isRoomsCompact, populatedVibes, focus]);
+  // Creatures actually fed to the engine. In rooms-compact mode this
+  // is just one vibe's creatures (rendered organically on the full
+  // canvas); in every other mode it's `pagedVisibleCreatures`.
+  const creaturesForEngine = useMemo(() => {
+    if (isRoomsCompact && compactCurrentVibe) {
+      return pagedVisibleCreatures.filter(
+        (c) => c.vibe.vibe === compactCurrentVibe
+      );
+    }
+    return pagedVisibleCreatures;
+  }, [isRoomsCompact, compactCurrentVibe, pagedVisibleCreatures]);
+  // Final placement mode — "organic" everywhere except true rooms view
+  // with enough room to actually split into quadrants. The compact
+  // fallback uses organic so the chosen vibe fills the canvas without
+  // dividers / separators.
+  const habitatPlacementMode: "organic" | "rooms" =
+    displayView === "rooms" && !isRoomsCompact ? "rooms" : "organic";
+  // In rooms-compact mode the engine only sees one vibe's creatures,
+  // so the focus index has to be translated from "index in
+  // pagedVisibleCreatures" to "index in creaturesForEngine". -1 means
+  // no creature is focused on the current vibe's canvas (focus is on
+  // home or a creature in a different vibe).
+  const gardenFocusIndexForEngine = useMemo(() => {
+    if (!isRoomsCompact) return gardenFocusIndex;
+    if (!focus) return -1;
+    return creaturesForEngine.findIndex((c) => c.id === focus.id);
+  }, [isRoomsCompact, focus, creaturesForEngine, gardenFocusIndex]);
 
   const handleGardenCreatureSelect = useCallback((index: number) => {
     setFocusIndex(index);
@@ -1883,8 +1976,8 @@ export const ReadyShell = ({
           </Box>
           <Box flexGrow={1} flexDirection="column">
             <GardenView
-              creatures={pagedVisibleCreatures}
-              focusIndex={gardenFocusIndex}
+              creatures={creaturesForEngine}
+              focusIndex={gardenFocusIndexForEngine}
               width={gardenWidth}
               height={gardenHeight}
               originRow={gardenContentRow}
@@ -1925,8 +2018,8 @@ export const ReadyShell = ({
         <Box flexDirection="column">
           {compactFocusSummary()}
           <GardenView
-            creatures={pagedVisibleCreatures}
-            focusIndex={gardenFocusIndex}
+            creatures={creaturesForEngine}
+            focusIndex={gardenFocusIndexForEngine}
             width={stackedWidth}
             height={gardenHeight}
             originRow={gardenContentRow + 1}
@@ -2090,6 +2183,28 @@ export const ReadyShell = ({
           marginLeft={Math.max(0, wideGardenContentCol - 2)}
         >
           <Pagination total={gardenPageCount} current={safeGardenPageIndex + 1} />
+        </Box>
+      ) : null}
+      {/* Rooms-compact indicator: replaces the per-vibe divider labels
+          (which the compact layout suppresses) so the user still knows
+          which vibe is on screen and that `[` / `]` cycle to the next
+          one. Lives in the same border-row slot as garden pagination. */}
+      {!isRescanning && isRoomsCompact && compactCurrentVibe && mode !== "narrow" ? (
+        <Box
+          position="absolute"
+          marginTop={Math.max(0, gardenContentRow - 3)}
+          marginLeft={Math.max(0, wideGardenContentCol - 2)}
+          flexDirection="row"
+          gap={1}
+        >
+          <Text color={theme.colors.mutedForeground}>‹</Text>
+          <Text color={vibeColor(compactCurrentVibe, theme.colors)} bold>
+            {vibeGlyph(compactCurrentVibe)} {compactCurrentVibe}
+          </Text>
+          <Text dimColor color={theme.colors.mutedForeground}>
+            {populatedVibes.indexOf(compactCurrentVibe) + 1}/{populatedVibes.length}
+          </Text>
+          <Text color={theme.colors.mutedForeground}>›</Text>
         </Box>
       ) : null}
       {/* Spacer absorbs the gap between the natural-height list content and

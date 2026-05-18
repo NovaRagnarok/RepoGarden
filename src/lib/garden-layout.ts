@@ -222,8 +222,18 @@ interface RoomRect {
 // divider label + a single sprite + name. Picked from the organic
 // placer's own minimums: SKY (1) + GROUND (1) + NAME_RESERVE (2) +
 // sprite (≥2) for height; sprite (≥4) + slot pad for width.
-const MIN_ROOM_W = 16;
-const MIN_ROOM_H = 8;
+export const MIN_ROOM_W = 16;
+export const MIN_ROOM_H = 8;
+// Functional thresholds for the compact-fallback trigger: at these
+// per-room sizes there's enough room AFTER header / footer reservations
+// AND the organic placer's SKY+GROUND+NAME_RESERVE for at least a
+// modestly-sized creature + name. Below these the rooms render
+// labels + boxes but drop all creatures — exactly the state the user
+// flagged. Higher than `MIN_ROOM_W` / `MIN_ROOM_H` because those values
+// are the splitLen absolute floor (which can still be empty in
+// practice).
+export const ROOM_COMPACT_TRIGGER_W = 20;
+export const ROOM_COMPACT_TRIGGER_H = 13;
 
 // Proportionally split `length` into N chunks weighted by `weights`,
 // clamped to >= `min` each. When the sum of weights is zero (shouldn't
