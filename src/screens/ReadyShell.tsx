@@ -435,14 +435,15 @@ export const ReadyShell = ({
         return;
       }
 
-      // Enter always opens the workbench for whatever creature the sidebar
-      // currently has selected, regardless of which pane has keyboard
-      // focus. `home` is a no-op (it isn't a workbench target).
-      if (key.return && onOpenWorkbench) {
-        if (homeSelected) return;
-        const creature = focusList[focusIndex];
-        const target = creature ? (unmaskById(creature.id) ?? creature) : undefined;
-        if (target) onOpenWorkbench(target);
+      // Enter drills into the journal pane from the sidebar — the
+      // sidebar picks the scope (home → all events; a repo → scoped to
+      // it), Enter says "go read the events." From the pane, Enter is
+      // a no-op (already inside). Opening the workbench from journal
+      // mode was previously bound to Enter; users found that
+      // confusing — go via `g` to garden/shelf if you want the
+      // workbench, where Enter still opens it.
+      if (key.return) {
+        if (journalFocus === "sidebar") setJournalFocus("pane");
         return;
       }
 
@@ -2042,7 +2043,7 @@ export const ReadyShell = ({
         <Box flexShrink={1}>
           <Text dimColor color={theme.colors.mutedForeground} wrap="truncate-end">
             {journalActive
-              ? "↑↓/jk scroll · esc switch pane · ↵ workbench · / search · g view · s settings · ? help"
+              ? "↑↓/jk scroll · ↵ enter journal · esc back to sidebar · / search · g view · s settings · ? help"
               : isGardenView && gardenPageCount > 1
                 ? "↑↓ move · ↵ open · / filter · g view · [] page · s settings · ? help · q quit"
                 : "↑↓ move · ↵ open · / filter · g view · s settings · ? help · q quit"}
