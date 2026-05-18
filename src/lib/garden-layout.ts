@@ -399,10 +399,30 @@ const placeTilesGridded = (
   const NAME_RESERVE = NAME_GAP_ROWS + NAME_H;
   const usableW = Math.max(slotW, canvasW - 1);
   const usableH = Math.max(slotH, canvasH - SKY_ROWS - GROUND_ROWS - NAME_RESERVE);
-  const cols = Math.max(1, Math.floor(usableW / slotW));
-  const rows = Math.max(1, Math.floor(usableH / slotH));
+  const maxCols = Math.max(1, Math.floor(usableW / slotW));
+  const maxRows = Math.max(1, Math.floor(usableH / slotH));
 
-  const gridLeft = Math.max(0, Math.floor((canvasW - cols * slotW) / 2));
+  // Balance the layout instead of always packing max-cols-first. Filling
+  // left-to-right with N=6 in a 4x4 capacity grid would leave rows 2-3
+  // entirely empty; aim for a roughly square arrangement so the cohort
+  // uses the vertical space it's been given.
+  const N = tiles.length;
+  let useCols = Math.max(1, Math.min(maxCols, Math.ceil(Math.sqrt(N))));
+  if (Math.ceil(N / useCols) > maxRows) {
+    useCols = Math.max(1, Math.ceil(N / maxRows));
+  }
+  useCols = Math.max(1, Math.min(maxCols, useCols));
+  const useRows = Math.max(1, Math.ceil(N / useCols));
+
+  // Stretch the slot pitch to spread the chosen useCols × useRows over the
+  // full canvas. With N=4 in a 4x4 capacity, pitch grows so the four
+  // creatures sit at the corners of the room instead of huddling top-left.
+  // Floor-divide keeps placements integer-aligned; the residual is absorbed
+  // by gridLeft / gridTop centering.
+  const colPitch = Math.max(slotW, Math.floor(usableW / useCols));
+  const rowPitch = Math.max(slotH, Math.floor(usableH / useRows));
+
+  const gridLeft = Math.max(0, Math.floor((canvasW - colPitch * useCols) / 2));
   const gridTop = SKY_ROWS;
 
   const deadLeft = deadZone ? canvasW - deadZone.width : Number.POSITIVE_INFINITY;
@@ -414,11 +434,13 @@ const placeTilesGridded = (
 
   const placements: Placement[] = [];
   for (let i = 0; i < tiles.length; i += 1) {
-    const r = Math.floor(i / cols);
-    const c = i % cols;
-    if (r >= rows) break;
-    const slotX = gridLeft + c * slotW;
-    const slotY = gridTop + r * slotH;
+    const r = Math.floor(i / useCols);
+    const c = i % useCols;
+    if (r >= useRows) break;
+    // Center each slot within its cell so a stretched colPitch doesn't
+    // leave creatures stuck to the left edge of their cell.
+    const slotX = gridLeft + c * colPitch + Math.floor((colPitch - slotW) / 2);
+    const slotY = gridTop + r * rowPitch;
     const slotRight = slotX + slotW;
     const slotBottom = slotY + slotH;
     if (deadZone && slotRight > deadLeft && slotBottom + NAME_RESERVE > deadTop) {
