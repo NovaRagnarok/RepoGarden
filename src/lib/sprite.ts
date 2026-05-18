@@ -923,16 +923,22 @@ export const creatureCharSize = (
   const targetArea = minArea + (maxArea - minArea) * sizeT;
 
   // Cell aspect (charW / charH). Terminal cells are roughly 2:1 tall:wide,
-  // so visual aspect ≈ cellAspect / 2. Most repos land portrait/square here;
-  // the last bucket exists so ~15% of creatures look genuinely wider-than-
-  // tall, breaking the "everything's a vertical rectangle" feel that the
-  // first three buckets alone produce.
-  const aspectRoll = rng();
-  let aspect: number;
-  if (aspectRoll < 0.10) aspect = 1.15 + rng() * 0.22;      // 10% squat (very portrait)
-  else if (aspectRoll < 0.45) aspect = 1.65 + rng() * 0.72; // 35% wide-cell (square-ish)
-  else if (aspectRoll < 0.85) aspect = 1.32 + rng() * 0.42; // 40% mid (portrait)
-  else aspect = 3.2 + rng() * 1.2;                          // 15% horizontal (3.2-4.4, visually 1.6-2.2 — sausage cats)
+  // so visual aspect ≈ cellAspect / 2. Sampled from a continuous
+  // distribution across [1.15, 4.4] rather than the 4 discrete buckets it
+  // used to use — the old buckets left a visible gap between "square-ish"
+  // (cell ≤ 2.37) and "sausage" (cell ≥ 3.2), so no real creature ever
+  // landed on a mid-letterbox shape.
+  //
+  // Distribution shape: average of two uniforms gives a triangular peak
+  // at 0.5; pow(_, 1.25) shifts that peak slightly toward the low end
+  // and stretches the right tail. Net result peaks around cell aspect
+  // ~2.4 (visual ~1.2 — gently wide-square, today's most common shape)
+  // and thins out toward 4.4 (genuine letterbox, rare). The 4 visible
+  // archetypes give way to a smooth shape spectrum with the same
+  // overall "mostly squarish, occasionally sausage" feel.
+  const aspectMean = (rng() + rng()) / 2;
+  const aspectT = Math.pow(aspectMean, 1.25);
+  const aspect = 1.15 + aspectT * (4.4 - 1.15);
 
   let charW = Math.round(Math.sqrt(targetArea * aspect));
   let charH = Math.round(targetArea / Math.max(1, charW));
