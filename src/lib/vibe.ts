@@ -268,35 +268,42 @@ export interface VibePalette {
   info: string;
   success: string;
   error: string;
-  mutedForeground: string;
 }
+
+// Electric cyan anchor used to push awake's blue toward the alive /
+// energetic end of the blue family. Hardcoded rather than pulled from
+// the theme because no standard theme token represents "more electric
+// than info" — and we want the same characterful tint across themes.
+const ELECTRIC_ANCHOR = "#22D3EE";
+// Pure white anchor used to pull sleepy's blue toward washed-out pale.
+// Hardcoded for the same reason — themes don't carry a "wash this
+// toward" token, and "near-white" is the visual intent regardless of
+// whether the theme background is dark or light.
+const WASH_ANCHOR = "#FFFFFF";
 
 /** Color associated with a vibe across the entire UI — sprite bodies,
  *  divider labels, sidebar glyphs, journal kind chips. Centralized here
  *  so a change like "awake should read as positive, not warning"
  *  propagates everywhere at once.
  *
- *  - `awake`   — `info` (bright blue): in-flight work, but no longer
- *    treated as a warning state. Reads as alert, not alarm.
+ *  - `awake`   — bright cyan-leaning blue: in-flight work. The 40%
+ *    blend toward `ELECTRIC_ANCHOR` pushes the theme's `info` past
+ *    "calm blue" into "alive / electric" territory.
  *  - `happy`   — `success` (green): in sync, calm.
  *  - `stuck`   — `error` (red): blocked, needs attention.
- *  - `sleepy`  — washed-out blue (info × mutedForeground @ 55%):
- *    dormant. Same hue family as awake but desaturated, so the eye
- *    reads "low-energy version of the active state" rather than a
- *    completely separate signal. */
+ *  - `sleepy`  — washed-out pale blue: same hue family as awake but
+ *    pulled 65% toward white, so it reads as "low-energy version of
+ *    the active state" with significantly less saturation than
+ *    awake's vivid version. */
 export const vibeColor = (vibe: Vibe, palette: VibePalette): string => {
   switch (vibe) {
     case "awake":
-      return palette.info;
+      return blendHex(palette.info, ELECTRIC_ANCHOR, 0.4);
     case "happy":
       return palette.success;
     case "stuck":
       return palette.error;
     case "sleepy":
-      // Same hue as awake but pulled halfway toward the muted
-      // foreground so it reads as a washed-out, low-energy variant —
-      // baby blue vs awake's bright blue, distinguishable without
-      // leaving the blue family.
-      return blendHex(palette.info, palette.mutedForeground, 0.55);
+      return blendHex(palette.info, WASH_ANCHOR, 0.65);
   }
 };
