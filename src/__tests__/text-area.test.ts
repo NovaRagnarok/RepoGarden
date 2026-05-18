@@ -283,7 +283,7 @@ test("right-arrow simulation: col 1 → col 2 across an emoji lands past the clu
 });
 
 test("applyBackspace on a ZWJ family emoji deletes the whole cluster (Intl.Segmenter)", () => {
-  // Only meaningful when grapheme-cluster splitting is available — Node>=24
+  // Only meaningful when grapheme-cluster splitting is available — Node>=22
   // ships `Intl.Segmenter` unconditionally, so we exercise the upgrade path
   // here. The family is multiple codepoints joined by U+200D; a codepoint-
   // only fix would leave dangling joiners after a single backspace.

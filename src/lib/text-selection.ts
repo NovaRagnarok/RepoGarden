@@ -29,7 +29,7 @@ export const normalizeLineEndings = (text: string): string =>
  * editor (cursor positions, selection ranges, backspace/forward-delete) is
  * done in this unit so a 4-byte emoji or ZWJ family counts as one cell —
  * never landing the caret between surrogate halves or splitting a cluster
- * mid-character. Node >=24 ships `Intl.Segmenter` in every build, so we use
+ * mid-character. Node >=22 ships `Intl.Segmenter` in every build, so we use
  * it unconditionally; the fallback is codepoint splitting via `Array.from`
  * (still strictly better than `.split("")`, which yields code units).
  *

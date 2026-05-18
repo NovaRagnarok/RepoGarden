@@ -4,6 +4,12 @@ All notable changes to RepoGarden land here. Format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+## [0.9.2] — 2026-05-17
+
+### Changed
+
+- Minimum Node runtime lowered from 24 to 22. `ink@7` (the heaviest dep) only requires Node ≥22, and `Intl.Segmenter` — the original driver for the Node-24 floor — ships in every Node 22 build, so the bump was stricter than necessary. CI matrix now exercises both Node 22 and 24 on Linux/macOS/Windows. (Pack-smoke job stays on 24.)
+
 ## [0.9.1] — 2026-05-17
 
 ### Added

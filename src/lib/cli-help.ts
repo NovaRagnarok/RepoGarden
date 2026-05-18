@@ -31,7 +31,7 @@ Environment:
   NO_MOTION=1                    reduce motion where supported
 
 Requirements:
-  Node 24+, git on PATH, terminal at least 80x24
+  Node 22+, git on PATH, terminal at least 80x24
 
 Data:
   App state lives under ~/.repogarden. Reset with: rm -rf ~/.repogarden
