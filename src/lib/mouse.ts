@@ -37,6 +37,22 @@ const emit = (event: MouseEvent): void => {
 // can resume parsing on the next chunk instead of dropping incomplete events.
 let pending = "";
 
+// A bare `\x1b` that lands at the tail of a chunk is held back in `pending`
+// (it might be the first byte of a split SGR-mouse sequence). Without a
+// follow-up that disambiguates it, the held ESC never reaches Ink — so a user
+// pressing Escape alone in workbench/help/usage gets no response until they
+// type another key. flushPending() releases the buffered prefix; the wrapped
+// stdin in cli-main.tsx schedules it on a short timer after each chunk so a
+// lone Escape resolves within ~30ms instead of never.
+export const flushPending = (): string => {
+  const out = pending;
+  pending = "";
+  return out;
+};
+
+/** True if the partial buffer currently holds bytes. */
+export const hasPending = (): boolean => pending.length > 0;
+
 const SGR_RE = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/;
 
 // Length of a partial SGR-mouse prefix we should hold back across chunk

@@ -204,11 +204,24 @@ send_keys() {
       BSpace|Backspace|backspace)
         tmux send-keys -t "$target" BSpace
         ;;
-      g|j|k|h|o|p|q|r|s|t|f|d|c|/|\?)
+      Tab|tab)
+        tmux send-keys -t "$target" Tab
+        ;;
+      Space|space)
+        tmux send-keys -t "$target" Space
+        ;;
+      C-*)
         tmux send-keys -t "$target" "$key"
         ;;
+      text:*)
+        tmux send-keys -l -t "$target" "${key#text:}"
+        ;;
       *)
-        fail "unsupported key: $key"
+        if [[ "${#key}" -eq 1 ]]; then
+          tmux send-keys -l -t "$target" "$key"
+        else
+          fail "unsupported key: $key"
+        fi
         ;;
     esac
   done

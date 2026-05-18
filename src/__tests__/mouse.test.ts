@@ -1,7 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { parseStdinChunk, subscribeMouse, type MouseEvent } from "../lib/mouse";
+import {
+  flushPending,
+  hasPending,
+  parseStdinChunk,
+  subscribeMouse,
+  type MouseEvent,
+} from "../lib/mouse";
 
 const captureEvents = (run: () => void): MouseEvent[] => {
   const events: MouseEvent[] = [];
@@ -156,4 +162,17 @@ test("parseStdinChunk holds partial SGR prefixes across chunk boundaries", () =>
       row: 7
     });
   }
+});
+
+test("flushPending releases a buffered lone Escape so a paused Esc keypress still reaches Ink", () => {
+  // A bare `\x1b` arrives, parser holds it back as a possible SGR-mouse
+  // prefix, no follow-up ever comes. cli-main schedules flushPending on a
+  // ~30ms timer after each chunk; the held Esc must be released verbatim so
+  // screens can close on a single Escape keypress.
+  parseStdinChunk("\x1b");
+  assert.equal(hasPending(), true);
+  assert.equal(flushPending(), "\x1b");
+  assert.equal(hasPending(), false);
+  // A second flush against an empty buffer is a no-op.
+  assert.equal(flushPending(), "");
 });
