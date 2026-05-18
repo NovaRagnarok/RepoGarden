@@ -90,14 +90,12 @@ export interface ReadyShellProps {
 // mask the garden engine consumes. Single source of truth — drift between
 // the two used to produce a mask that missed the toast by N rows.
 //
-// TOASTER_MARGIN_TOP feeds the absolute Toaster Box's `marginTop = rows - N`,
-// putting the toast stack inside the garden Panel rather than across its
-// bottom border. The mask reads the same constant to compute the toast's
-// top screen row.
+// The Toaster Box's vertical position is now derived from gardenContentRow
+// (top-right of the garden frame) rather than from a fixed offset; the
+// mask reads the same expression, so there's no constant to keep in sync.
 //
 // TOAST_WIDTH_PADDING matches `Toast`'s Yoga box with showProgress=false:
 // border(2) + paddingX(2) + icon(1) + gap(1).
-const TOASTER_MARGIN_TOP = 9;
 const TOAST_MAX_VISIBLE = 3;
 const TOAST_ROWS_EACH = 3;
 const TOAST_WIDTH_PADDING = 6;
@@ -128,6 +126,34 @@ export const ReadyShell = ({
   const theme = useTheme();
   const { reduced: reducedMotion } = useMotion();
   const { latest: latestStatus, push: pushToast, active: activeToasts } = useToasts();
+  // Toast / status variant → color + icon mapping. Hoisted from the
+  // sidebar render path so the top-right notification slot (below) can
+  // reuse the same swatch/glyph for sticky-status text without
+  // re-declaring the lookup.
+  const statusVariantColor = (variant: string): string => {
+    switch (variant) {
+      case "success":
+        return theme.colors.success;
+      case "error":
+        return theme.colors.error;
+      case "warning":
+        return theme.colors.warning;
+      default:
+        return theme.colors.info;
+    }
+  };
+  const statusIcon = (variant: string): string => {
+    switch (variant) {
+      case "success":
+        return "✓";
+      case "error":
+        return "✗";
+      case "warning":
+        return "⚠";
+      default:
+        return "ℹ";
+    }
+  };
   const { columns, rows } = useTerminalSize();
   const responsive = getTerminalLayout(columns, rows);
   const usage = useUsage(undefined, { disabled: usageBarDisabled });
@@ -899,11 +925,11 @@ export const ReadyShell = ({
     // clickable, even when there are no creatures.
     if (!responsive.showSidebar) return [];
     if (displayView !== "garden" && displayView !== "shelf" && displayView !== "journal") return [];
-    // Mirror the sidebar function: status row + home row each eat 1 row of
-    // content area.
-    const statusRowCost = latestStatus ? 1 : 0;
+    // Mirror the sidebar function: the home row eats 1 row of content
+    // area. (Status notifications used to reserve a sidebar row too, but
+    // they now live in the top-right of the garden frame instead.)
     const homeRowCost = 1;
-    const totalContent = Math.max(1, gardenHeight - 4 - statusRowCost - homeRowCost);
+    const totalContent = Math.max(1, gardenHeight - 4 - homeRowCost);
     const creatureFocusActive = !homeSelected;
     const shownFocus =
       creatureFocusActive && focusIndex < pagedVisibleCreatures.length ? focusIndex : -1;
@@ -1143,7 +1169,7 @@ export const ReadyShell = ({
   // direct-stdout star/sprite painter doesn't overpaint Ink's toast.
   //
   // The toast is positioned by the absolutely-placed Toaster Box at the
-  // bottom of this component (`marginTop = rows - TOASTER_MARGIN_TOP`).
+  // top-right of this component (`marginTop = gardenContentRow - 2`).
   // Its `position="absolute"` resolves against the outer shell Box
   // (`flexDirection="column" paddingX={1} paddingY={1}` further down in
   // this file), so the toast's screen origin is shell-padding +
@@ -1179,20 +1205,21 @@ export const ReadyShell = ({
     );
     const boxWidth = widestMessage + TOAST_WIDTH_PADDING;
     const stackHeight = visibleToasts.length * TOAST_ROWS_EACH;
-    // Outer shell Box has paddingY=1 — content origin is row 2
-    // (1-indexed); Toaster wrapper's marginTop pushes further from there.
-    const screenTopRow = 1 + 1 + (rows - TOASTER_MARGIN_TOP);
-    // The Toaster's `alignSelf="flex-end"` in toast-host.tsx LOOKS like
-    // it should right-align the box, but the wrapping Box uses
-    // `position="absolute"` with the default row-direction, and
-    // alignSelf on the cross axis of a row container moves things
-    // vertically — not horizontally. Net: the toast renders at the
-    // shell Box's left content edge (paddingX=1 → col 2, 1-indexed).
-    //
-    // !! If you "fix" the alignSelf in toast-host.tsx so toasts actually
-    // !! right-align, this mask will point at the wrong half of the
-    // !! garden — re-derive screenLeftCol from `columns - boxWidth - …`.
-    const screenLeftCol = 1 + 1;
+    // Toaster wrapper sits at marginTop = gardenContentRow - 3, plus the
+    // outer shell paddingY (1) and the 1-indexed conversion (1). Net:
+    // the toast's first row equals gardenContentRow - 1, which is the
+    // panel's top border row. Anchoring on the border means an active
+    // toast's top edge merges with the panel border (both `─`), and a
+    // sticky single-line status reads as a label tucked into the border
+    // — overlaying decoration rather than the first row of content
+    // (which in shelf/journal views holds cohort headers / stats text).
+    const screenTopRow = Math.max(1, gardenContentRow - 1);
+    // The Toaster wrapper is `flexDirection="row" justifyContent="flex-end"`
+    // with width = columns - 3, so the toast box sits one cell inside the
+    // outer shell's right content edge. Right edge in 1-indexed coords =
+    // (paddingX + width - 1 + 1) = columns - 2. Left edge = right edge -
+    // boxWidth + 1 = columns - boxWidth - 1.
+    const screenLeftCol = Math.max(1, columns - boxWidth - 1);
     const localX = screenLeftCol - gardenContentCol;
     const localY = screenTopRow - gardenContentRowForCanvas;
     // Clamp to canvas — over-wide rects waste no work but keep
@@ -1212,8 +1239,8 @@ export const ReadyShell = ({
     return [{ x: clampedX, y: clampedY, width: clampedW, height: clampedH }];
   }, [
     visibleToastSig,
-    rows,
     columns,
+    gardenContentRow,
     gardenContentCol,
     gardenContentRowForCanvas,
     gardenCanvasInnerWidth,
@@ -1222,14 +1249,14 @@ export const ReadyShell = ({
 
   const sidebar = (width?: number, height?: number, borderColor?: string) => {
     // Content rows = panel height minus 4 rows of chrome (top border, title
-    // header, title bottom border, bottom border), (-1) for the inline status
-    // row when present, and (-1) for the "home" row, which is always rendered
-    // at the top of wide ready sidebars.
-    const statusRowCost = latestStatus ? 1 : 0;
+    // header, title bottom border, bottom border) and (-1) for the "home"
+    // row, which is always rendered at the top of wide ready sidebars.
+    // Status notifications are now floated in the top-right of the garden
+    // frame, so no longer cost the sidebar a row.
     const homeRowCost = 1;
     const totalContent =
       height !== undefined
-        ? Math.max(1, height - 4 - statusRowCost - homeRowCost)
+        ? Math.max(1, height - 4 - homeRowCost)
         : pagedVisibleCreatures.length + visibleHiddenCreatures.length + 2 + homeRowCost;
 
     // When "home" is selected no creature is highlighted — the cursor lives
@@ -1276,30 +1303,6 @@ export const ReadyShell = ({
     const title = creatureFilter
       ? `creatures · ${visibleCreatures.length}/${shownCreatures.length}`
       : `creatures · ${shownCreatures.length}`;
-    const statusVariantColor = (variant: string): string => {
-      switch (variant) {
-        case "success":
-          return theme.colors.success;
-        case "error":
-          return theme.colors.error;
-        case "warning":
-          return theme.colors.warning;
-        default:
-          return theme.colors.info;
-      }
-    };
-    const statusIcon = (variant: string): string => {
-      switch (variant) {
-        case "success":
-          return "✓";
-        case "error":
-          return "✗";
-        case "warning":
-          return "⚠";
-        default:
-          return "ℹ";
-      }
-    };
 
     const homeRowFocused = homeSelected;
     const homeRow = (
@@ -1416,23 +1419,6 @@ export const ReadyShell = ({
               </Text>
             ) : null}
           </Box>
-        ) : null}
-        {/* Status pinned to the very bottom of the panel: the spacer
-            consumes any remaining content rows so the status sits flush
-            against the bottom border, regardless of how many creatures
-            the windowing renders. */}
-        {latestStatus ? (
-          <>
-            <Box flexGrow={1} />
-            <Box>
-              <Text
-                color={statusVariantColor(latestStatus.variant)}
-                wrap="truncate-end"
-              >
-                {statusIcon(latestStatus.variant)} {latestStatus.message}
-              </Text>
-            </Box>
-          </>
         ) : null}
       </Panel>
     );
@@ -1742,16 +1728,11 @@ export const ReadyShell = ({
               </>
             )}
           </Box>
-          {/* Pagination strip: visual indicator that mirrors the gardenPageIndex
-              state ReadyShell already owns. Renders only when there's actually
-              more than one page so single-page gardens look untouched, and
-              only in wide layouts — narrow mode shows the "page N/M" hint
-              inline in the compact focus summary instead. */}
-          {!isRescanning && isGardenView && gardenPageCount > 1 && mode !== "narrow" ? (
-            <Box marginTop={0}>
-              <Pagination total={gardenPageCount} current={safeGardenPageIndex + 1} />
-            </Box>
-          ) : null}
+          {/* Pagination indicator was here; it now lives as an
+              absolutely-positioned overlay on the garden panel's top
+              border row (further down in this JSX). Keeping it out of
+              the chrome flow is what stops the viewport shifting when
+              the indicator appears/disappears. */}
           {/* Mask-mode indicator lives in the title tagline now (left
               column) so toggling it doesn't shift the viewport — see the
               tagline row above. */}
@@ -1989,26 +1970,29 @@ export const ReadyShell = ({
       )}
 
       {/*
-        Toaster floats absolutely at the bottom-right so its appearance and
-        dismissal can't shove the rest of the column around. When it lived
-        in flow, a 3-row toast pushed the garden up by 3 rows; the
-        starfield + sprite painters write to absolute screen coords, so they
-        ended up painting at stale positions until the next layout settled —
-        the visible "flicker" on startup the user reported.
+        Notifications float absolutely in the top-right of the garden frame
+        so their appearance and dismissal can't shove the rest of the
+        column around. When the toast lived in flow, a 3-row toast pushed
+        the garden up by 3 rows; the starfield + sprite painters write to
+        absolute screen coords, so they ended up painting at stale
+        positions until the next layout settled — the visible "flicker" on
+        startup the user reported.
 
-        marginTop bumped up by 2 rows (rows-7 → rows-9) so the toast sits
-        clearly inside the garden panel instead of straddling its bottom
-        border — the toast box is 3 rows tall, the footer below the panel
-        is 1–2 rows, so rows-7 put the toast bottom border on the same row
-        as the panel bottom border (manual-qa-report B8).
+        Single slot for both kinds of status:
+          - active toasts render via <Toaster /> (bordered, auto-dismissing)
+          - when no toast is active, the latest sticky status renders as
+            plain colored text in the same slot so the most recent
+            announcement stays visible (e.g. "demo mode") without
+            duplicating itself elsewhere on screen.
+
+        marginTop = gardenContentRow - 3 lands the slot's top row exactly
+        on the panel's top border row (gardenContentRow - 1), so the toast
+        / sticky text overlays the decorative `─` rather than the first
+        row of content (which in shelf/journal views holds cohort headers
+        and stat lines). flexDirection=row + justifyContent=flex-end
+        right-aligns the inner Toast/text against the outer shell's right
+        content edge.
       */}
-      <Box
-        position="absolute"
-        marginTop={Math.max(0, rows - TOASTER_MARGIN_TOP)}
-        width={Math.max(0, columns - 2)}
-      >
-        <Toaster />
-      </Box>
       {ditherStartedAt !== null ? (
         // Inset by one cell on every side so the Panel border stays clean —
         // gardenContentRow/wideGardenContentCol are 1-indexed absolute
@@ -2017,6 +2001,11 @@ export const ReadyShell = ({
         // its parent (ReadyShell's outer shell Box), so we subtract 1.
         // The −2 on width/height drops just the Panel borders, keeping
         // the sweep inside the visible content area.
+        //
+        // Rendered BEFORE the toast / pagination wrappers below so those
+        // absolute slots come later in the tree and paint on top — the
+        // sweep then doesn't overwrite the toast's border or the page
+        // indicator during a cross-fade.
         <DitherOverlay
           originRow={(responsive.showSidebar ? gardenContentRow : gardenContentRow + 1) - 1}
           originCol={(responsive.showSidebar ? wideGardenContentCol : stackedGardenContentCol) - 1}
@@ -2025,6 +2014,45 @@ export const ReadyShell = ({
           startedAt={ditherStartedAt}
           durationMs={TRANSITION_MS}
         />
+      ) : null}
+      {/* Notification slot. `columns - 3` (rather than columns - 2) pulls
+          the right edge inward by one cell so the toast's rounded corner
+          doesn't sit flush with the panel's right border — both used to
+          land on the same column and the cells would visibly fight each
+          other across re-renders, sometimes leaving the toast looking
+          borderless. The extra column of breathing room makes the border
+          show cleanly every time. */}
+      <Box
+        position="absolute"
+        marginTop={Math.max(0, gardenContentRow - 3)}
+        width={Math.max(0, columns - 3)}
+        flexDirection="row"
+        justifyContent="flex-end"
+      >
+        {activeToasts.length > 0 ? (
+          <Toaster />
+        ) : latestStatus ? (
+          <Box>
+            <Text color={statusVariantColor(latestStatus.variant)} wrap="truncate-end">
+              {statusIcon(latestStatus.variant)} {latestStatus.message}
+            </Text>
+          </Box>
+        ) : null}
+      </Box>
+      {/* Pagination indicator: overlays the panel's top border row at the
+          left side (mirroring the notification slot on the right). Out of
+          chrome flow so its appearance/disappearance doesn't shift the
+          garden viewport — the user's complaint when the indicator was a
+          conditional row above the panel. Narrow mode is handled by the
+          inline `page N/M` hint in the compact summary instead. */}
+      {!isRescanning && isGardenView && gardenPageCount > 1 && mode !== "narrow" ? (
+        <Box
+          position="absolute"
+          marginTop={Math.max(0, gardenContentRow - 3)}
+          marginLeft={Math.max(0, wideGardenContentCol - 2)}
+        >
+          <Pagination total={gardenPageCount} current={safeGardenPageIndex + 1} />
+        </Box>
       ) : null}
       {/* Spacer absorbs the gap between the natural-height list content and
           the footer so Ink emits blank lines for the remainder of the

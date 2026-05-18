@@ -82,10 +82,12 @@ JSON
   esac
 done
 
-# Seed the TUI config so the demo recording shows the dense, no-pagination
-# layout — every demo creature lands on a single screen instead of paging.
-# `gardenPaginate: false` + `gardenDensity: "dense"` are the two 0.5.0
-# settings that drive this. The MEMORY_DIR was already created above.
+# Seed the TUI config so the demo recording paginates and renders the
+# garden with breathing room. `gardenPaginate: true` plus
+# `gardenDensity: "comfortable"` together give creatures enough cell
+# spacing that names sit cleanly under their bodies and sprites don't
+# overlap each other on the canvas. "dense" + pagination still crams
+# 16 sprites onto the page; "comfortable" is the sweet spot for 1200x720.
 mkdir -p "$DEMO_HOME/.repogarden"
 cat > "$DEMO_HOME/.repogarden/tui.json" <<EOF
 {
@@ -95,9 +97,31 @@ cat > "$DEMO_HOME/.repogarden/tui.json" <<EOF
   "reducedMotion": false,
   "usageBarDisabled": false,
   "observer": { "enabled": true },
-  "gardenPaginate": false,
-  "gardenDensity": "dense"
+  "gardenPaginate": true,
+  "gardenDensity": "comfortable"
 }
+EOF
+
+# Seed a synthetic journal so the Journal view in the recording shows
+# real-looking activity instead of the empty-state copy. Demo creature
+# ids are `demo:<name>` (see src/lib/demo-roster.ts buildDemoCreatures);
+# events that target those ids will appear in the journal because the
+# JournalView reads events.jsonl via readEvents (src/lib/events.ts).
+NOW="$(date --iso-8601=seconds)"
+H1="$(date -d '1 hour ago'  --iso-8601=seconds)"
+H4="$(date -d '4 hours ago' --iso-8601=seconds)"
+D1="$(date -d '1 day ago'   --iso-8601=seconds)"
+D2="$(date -d '2 days ago'  --iso-8601=seconds)"
+D5="$(date -d '5 days ago'  --iso-8601=seconds)"
+cat > "$DEMO_HOME/.repogarden/events.jsonl" <<EOF
+{"ts":"$NOW","repoId":"demo:driftlog","repoName":"driftlog","kind":"commit","payload":{"subject":"tighten the dither overlay paint mask","author":"demo"}}
+{"ts":"$H1","repoId":"demo:moss-cms","repoName":"moss-cms","kind":"vibe-changed","payload":{"from":"stuck","to":"happy"}}
+{"ts":"$H4","repoId":"demo:tidepool","repoName":"tidepool","kind":"note-edited","payload":{"title":"refresh live mobile data on focus"}}
+{"ts":"$D1","repoId":"demo:pinecone-press","repoName":"pinecone-press","kind":"branch-switched","payload":{"from":"main","to":"feat/theme-lab"}}
+{"ts":"$D1","repoId":"demo:nestwatch","repoName":"nestwatch","kind":"blocker-added","payload":{"text":"waiting on review"}}
+{"ts":"$D2","repoId":"demo:lantern-rs","repoName":"lantern-rs","kind":"commit","payload":{"subject":"cache repo colors between paints","author":"demo"}}
+{"ts":"$D2","repoId":"demo:reed-cli","repoName":"reed-cli","kind":"pull","payload":{"commits":3}}
+{"ts":"$D5","repoId":"demo:salt-and-paper","repoName":"salt-and-paper","kind":"mood-changed","payload":{"from":"flowing","to":"resting"}}
 EOF
 
 # Stage a launcher inside the demo home so the tape can invoke RepoGarden
