@@ -497,7 +497,49 @@ const placeTilesGridded = (
     placements = tryLayout(useRows, useCols);
   }
 
-  return placements;
+  // Per-row x redistribution. After the cell loop, a row whose right
+  // cells fell inside the dead zone ends up with all its tiles bunched
+  // on the LEFT side (since cell-skip skips dead cells, leaving the row
+  // shorter). The shared global colStride was sized for full-canvas
+  // width, so those tiles cluster between x=0 and ~deadLeft/2 with a
+  // visible gap between them and the workbench card.
+  //
+  // Fix: regroup placements by row (slotY) and respread each row's
+  // tiles across the row's safe x-range only. Rows that don't overlap
+  // the dead zone keep their existing positions (their safeRight ==
+  // canvasW so the recomputation matches what they already had).
+  if (!deadZone && !topRightDeadZone) return placements;
+  const byRow = new Map<number, Placement[]>();
+  for (const p of placements) {
+    const list = byRow.get(p.charY);
+    if (list) list.push(p);
+    else byRow.set(p.charY, [p]);
+  }
+  const respread: Placement[] = [];
+  for (const [slotY, rowP] of byRow) {
+    rowP.sort((a, b) => a.x - b.x);
+    const slotBottom = slotY + slotH;
+    let safeRight = canvasW;
+    if (deadZone && slotBottom + NAME_RESERVE > deadTop) {
+      safeRight = Math.min(safeRight, deadLeft);
+    }
+    if (topRightDeadZone && slotY < trBottom) {
+      safeRight = Math.min(safeRight, trLeft);
+    }
+    const rowN = rowP.length;
+    const colSpanRow = Math.max(0, safeRight - slotW);
+    const strideRow =
+      rowN > 1 ? Math.max(slotW, Math.floor(colSpanRow / (rowN - 1))) : 0;
+    const rowLeft =
+      rowN > 1 ? 0 : Math.max(0, Math.floor((safeRight - slotW) / 2));
+    for (let i = 0; i < rowN; i += 1) {
+      const tile = rowP[i].tile;
+      const slotX = rowLeft + i * strideRow;
+      const x = slotX + Math.floor((slotW - tile.spriteCols) / 2);
+      respread.push({ tile, x, charY: slotY });
+    }
+  }
+  return respread;
 };
 
 // Header height per room: 1 row for the divider label + 1 spacer row
@@ -627,34 +669,35 @@ export const placeInRooms = (
 
     // Per-room pagination: rooms on small terminals can't fit all of
     // their cohort, so each vibe's room flips through its own pages
-    // independently. We run the placer FIRST with all tiles — it caps
-    // naturally via its grow loop / dead-zone skipping. Only if it
-    // couldn't fit them all do we paginate.
+    // independently.
     //
-    // The previous version pre-sliced tiles by `safeGardenCapacity`,
-    // which used a conservative min-slot formula and overcounted dead
-    // cells — so it would slice tiles BELOW what the spread-layout
-    // placer could actually fit, and the room rendered with visible
-    // empty space the placer would have happily filled.
+    // Run the placer FIRST with all tiles — it caps naturally via its
+    // grow loop / dead-zone skipping. Page 0 (the common case) uses
+    // that result directly; only an actual overflow + non-zero page
+    // costs a second placer run with the paged slice. Capacity used to
+    // come from `safeGardenCapacity`, but its min-slot formula
+    // overcounts dead cells vs. the spread layout and would slice tiles
+    // below what the placer can actually fit, leaving the room visibly
+    // emptier than it had to be.
+    const pathologicallySmall = subW < 6 || subH < 4;
+    let placerResult: Placement[] = pathologicallySmall
+      ? []
+      : placeTilesGridded(room.tiles, subW, subH, localBR, localTR);
     let pageCount = 1;
     let pageIndex = 0;
-    let pagedTiles = room.tiles;
-    let placerResult: Placement[] = [];
-    const pathologicallySmall = subW < 6 || subH < 4;
-    if (!pathologicallySmall) {
-      placerResult = placeTilesGridded(room.tiles, subW, subH, localBR, localTR);
-      if (placerResult.length < room.tiles.length) {
-        const capacity = Math.max(1, placerResult.length);
-        pageCount = Math.max(1, Math.ceil(room.tiles.length / capacity));
-        const requested = pageIndexByVibe[room.vibe] ?? 0;
-        pageIndex = Math.max(0, Math.min(pageCount - 1, requested));
-        if (pageIndex !== 0) {
-          pagedTiles = room.tiles.slice(
-            pageIndex * capacity,
-            pageIndex * capacity + capacity
-          );
-          placerResult = placeTilesGridded(pagedTiles, subW, subH, localBR, localTR);
-        }
+    if (placerResult.length < room.tiles.length) {
+      const capacity = Math.max(1, placerResult.length);
+      pageCount = Math.max(1, Math.ceil(room.tiles.length / capacity));
+      pageIndex = Math.max(
+        0,
+        Math.min(pageCount - 1, pageIndexByVibe[room.vibe] ?? 0)
+      );
+      if (pageIndex !== 0) {
+        const pagedTiles = room.tiles.slice(
+          pageIndex * capacity,
+          pageIndex * capacity + capacity
+        );
+        placerResult = placeTilesGridded(pagedTiles, subW, subH, localBR, localTR);
       }
     }
 
@@ -888,8 +931,11 @@ export const safeGardenCapacity = (
   const minSlotW = Math.max(maxSpriteCols, maxLabelCols) + SLOT_PAD_X;
   const minSlotH = maxSpriteRows + NAME_GAP_ROWS + NAME_H;
   const usableW = Math.max(minSlotW, canvasW - 1);
+  // minSlotH already covers sprite + name strip; don't subtract it again
+  // (the old `- nameReserve` over-reserved a second name row and shrank
+  // the capacity report by one full grid row).
   const nameReserve = NAME_GAP_ROWS + NAME_H;
-  const usableH = Math.max(minSlotH, canvasH - SKY_ROWS - GROUND_ROWS - nameReserve);
+  const usableH = Math.max(minSlotH, canvasH - SKY_ROWS - GROUND_ROWS);
   const cols = Math.max(1, Math.floor(usableW / minSlotW));
   const rows = Math.max(1, Math.floor(usableH / minSlotH));
   const grid = cols * rows;
@@ -931,13 +977,11 @@ export const gardenPageCapacity = (
 ): number => {
   const slot = PAGE_SLOT_DIMS[density];
   const usableW = Math.max(slot.w, canvasW - 1);
-  // Match placeCreatures: reserve the name strip at the bottom so capacity
-  // math agrees with what the placer actually accepts. Without this match
-  // pagination would pack the last row tight and the placer would reject
-  // those slots, forcing overlap-packing — the exact thing pagination is
-  // here to prevent.
+  // slot.h already covers sprite + name strip; the previous `- nameReserve`
+  // double-counted the name reservation (slot.h includes it) and shrank
+  // capacity by one row, forcing premature pagination on tall sprites.
   const nameReserve = NAME_GAP_ROWS + NAME_H;
-  const usableH = Math.max(slot.h, canvasH - SKY_ROWS - GROUND_ROWS - nameReserve);
+  const usableH = Math.max(slot.h, canvasH - SKY_ROWS - GROUND_ROWS);
   const cols = Math.max(1, Math.floor(usableW / slot.w));
   const rows = Math.max(1, Math.floor(usableH / slot.h));
   const grid = cols * rows;
@@ -1052,12 +1096,13 @@ export const placeCreatures = (
   const minSlotH = maxSpriteRows + NAME_GAP_ROWS + NAME_H;
 
   const usableW = Math.max(minSlotW, canvasW - 1);
-  // Reserve enough rows at the bottom for the name strip beneath every
-  // sprite (NAME_GAP_ROWS + NAME_H). Without this the lowest row of sprites
-  // pushes its name row into the GROUND row — the name silently clips
-  // against the panel's content edge.
+  // `minSlotH = maxSpriteRows + NAME_GAP_ROWS + NAME_H` already includes
+  // the name strip inside each slot, so we only need SKY/GROUND headroom.
+  // The earlier `- NAME_RESERVE` was reserving a second name strip and
+  // dropping one full grid row of capacity (e.g. h=11 sprites in a 28-row
+  // canvas got maxGridRows=1 instead of 2).
   const NAME_RESERVE = NAME_GAP_ROWS + NAME_H;
-  const usableH = Math.max(minSlotH, canvasH - SKY_ROWS - GROUND_ROWS - NAME_RESERVE);
+  const usableH = Math.max(minSlotH, canvasH - SKY_ROWS - GROUND_ROWS);
   const maxGridCols = Math.max(1, Math.floor(usableW / minSlotW));
   const maxGridRows = Math.max(1, Math.floor(usableH / minSlotH));
   const maxGridCapacity = maxGridCols * maxGridRows;
