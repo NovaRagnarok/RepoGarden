@@ -1,5 +1,10 @@
 # Manual QA Report — feat/usage-overlay (2026-05-17)
 
+> **Status:** all eight bugs fixed. Verification captures recorded
+> end-to-end. Three parallel subagents owned the follow-up work after
+> the initial sweep; see "App fixes" at the bottom for the merge
+> sequence.
+
 End-to-end sweep of every UI surface, driven by `scripts/tui-observe.sh`
 (tmux + `capture-pane`). Default terminal 100×32; resized to 140×50 and
 40×12 where it mattered. Scan root: `/home/outsideheaven/repos/CleverCat`
@@ -28,7 +33,7 @@ End-to-end sweep of every UI surface, driven by `scripts/tui-observe.sh`
 
 ## Bugs found
 
-### B1 — DitherOverlay corrupts journal text on transition (high, deferred)
+### B1 — DitherOverlay corrupts journal text on transition (high) ✅ fixed
 
 **Repro:** With `reducedMotion=false`, cycle to journal view via `g`. After
 the transition completes, lines inside the journal box have random missing
@@ -49,23 +54,19 @@ left with permanent holes.
 `NO_MOTION=1` / `CI=true`). With dither disabled the journal renders
 perfectly (see `journal-rmot.txt`).
 
-**Why deferred:** the proper fix is bigger than a sweep change. Three
-options, none trivial:
+**Fix applied (Option A):** `src/components/DitherOverlay.tsx` rewritten
+to render stars as Ink children (`<Box position="absolute">` with one
+`<Text>` per row of the overlay area, each containing a width-W string
+of glyphs/spaces). The public API (`originRow`, `originCol`, `width`,
+`height`, `startedAt`, `durationMs`) is unchanged so `ReadyShell.tsx`
+needed no surgery. When the overlay unmounts, Ink's normal
+reconciliation repaints the underlying cells — no more space-on-content
+corruption. Verified by cycling garden ↔ journal with `reducedMotion=false`
+(`verify-journal` capture): hotbar reads `↑↓ pick repo · f all events ·
+t all time · d details · jk scroll · ↵ workbench` with every character
+intact.
 
-- **A.** Render stars as Ink children (absolute-positioned `Box`/`Text`)
-  so Ink owns the reconciliation; the overlay unmounting naturally
-  triggers Ink to repaint underlying cells. Cleanest but is a rewrite of
-  the overlay.
-- **B.** Force Ink to invalidate its lastOutput cache on overlay cleanup.
-  Ink has no public lever for this; would need monkey-patching the
-  log-update writer.
-- **C.** Append an invisible-but-changing character to the rendered tree
-  on cleanup so Ink's diff sees a different frame and re-emits all lines.
-  Hacky and fragile.
-
-Option A is the recommended path; tracking as a follow-up.
-
-### B2 — Workbench `overview` section renders value over label (high)
+### B2 — Workbench `overview` section renders value over label (high) ✅ fixed
 
 **Repro:** Open any creature in the workbench (`Enter`). Look at the
 `snapshot` panel. At any terminal size where the panel renders both rows
@@ -91,7 +92,7 @@ two — likely because the row-direction parent's cross-axis sizing is
 collapsing the children, or because `alignItems` is defaulting in a way
 that overlays the first two Texts. Not yet root-caused.
 
-### B3 — Workbench layout overflows at 32 rows (medium)
+### B3 — Workbench layout overflows at 32 rows (medium) ✅ fixed
 
 **Repro:** Open workbench at 100×32 (default observe size). Multiple
 artefacts:
@@ -116,7 +117,7 @@ toggles + chips + section tabs + alert) is taller than expected and
 leaves too little room for the section content. A height budget check
 on the section panels, or a more compact header, would help.
 
-### B4 — HelpOverlay key/description boxes overlap (high)
+### B4 — HelpOverlay key/description boxes overlap (high) ✅ fixed
 
 **Repro:** From the ready shell, press `?`. The shortcuts panel
 renders with multiple `┌──┐` key boxes' top borders appearing on the
@@ -154,7 +155,7 @@ the existing held-then-released behaviour and the new flush path.
 After the fix, single Escape closes Settings, Workbench, Help, Usage,
 and Edit-roots reliably (`esc-after-fix.txt`).
 
-### B6 — Credit footer wraps and leaves stale chars on shorter hotbars (medium)
+### B6 — Credit footer wraps and leaves stale chars on shorter hotbars (medium) ✅ fixed
 
 **Repro:** Settings and other narrow-hotbar screens show:
 
@@ -175,7 +176,7 @@ Reproduced in `settings-pre-motion.txt`, `settings-prefs.txt`,
 `settings-prefs-clean.txt`. Not yet root-caused; may share a root with
 B2/B4 (Yoga sizing) or be its own line-wrap quirk.
 
-### B7 — Onboarding scan-path input collapses to its borders (low)
+### B7 — Onboarding scan-path input collapses to its borders (low) ✅ fixed
 
 **Repro:** First run (no `~/.repogarden/tui.json`). The path input
 renders as two adjacent border lines with the prompt and cursor on the
@@ -190,7 +191,7 @@ It's still usable (typing fills the box, Enter scans) but the interior
 content row is missing. Likely an explicit `height={2}` or `minHeight`
 mismatch on the input field's surrounding Box.
 
-### B8 — Pre-existing toast overlaps garden panel border (cosmetic)
+### B8 — Pre-existing toast overlaps garden panel border (cosmetic) ✅ fixed
 
 When a toast fires (e.g. "reduced motion · on", "demo mode · synthetic
 repos…"), it floats absolutely positioned 7 rows above the bottom and
@@ -219,26 +220,36 @@ ctrl chords, or arbitrary text input. Extended to:
 
 ## App fixes (applied)
 
-| Change | File | Reason |
+| Bug | Fix | Files |
 | --- | --- | --- |
-| Export `flushPending` + `hasPending` from mouse/focus parsers | `src/lib/mouse.ts`, `src/lib/focus.ts` | Lets the stdin pipeline release held bytes once it's clear no completion is coming. |
-| Schedule a 30 ms `setTimeout` after each stdin chunk to flush both parsers' pending buffers | `src/cli-main.tsx` | Bare Escape resolves within 30 ms instead of waiting indefinitely for a follow-up keystroke. |
-| Test the flush path | `src/__tests__/mouse.test.ts` | Locks in B5 fix; 497/497 tests still pass. |
+| B1 | Render dither stars as Ink children (Box `position="absolute"` + per-row Text) so Ink owns reconciliation. | `src/components/DitherOverlay.tsx` |
+| B2 / B3 / B4 | Single shared root cause: Yoga's default `flexShrink=1` was letting a height-constrained ancestor (`overflow="hidden"`) squeeze multi-row bordered children below their natural row count. Set `flexShrink={0}` on every multi-row bordered building block. | `src/components/ui/panel.tsx`, `src/components/ui/badge.tsx`, `src/components/ui/keyboard-shortcuts.tsx`, `src/screens/WorkbenchScreen.tsx` |
+| B5 | Schedule a 30 ms `setTimeout` after each stdin chunk to flush both parsers' pending buffers; bare Escape resolves without a follow-up key. Regression test added. | `src/lib/mouse.ts`, `src/lib/focus.ts`, `src/cli-main.tsx`, `src/__tests__/mouse.test.ts` |
+| B6 | Pass `fallback={false}` to `<Link>` so non-OSC-8 terminals don't append the inline URL; the hotbar fits cleanly on one line. Hyperlink-capable terminals still get the clickable link. | `src/components/Credit.tsx` |
+| B7 | `minHeight={3}` on the scan-path input wrapper so Yoga can't collapse its content row to 0. | `src/screens/OnboardingScreen.tsx` |
+| B8 | Bump the absolute Toaster `marginTop` from `rows - 7` to `rows - 9` so the toast sits inside the garden panel instead of straddling its bottom border. | `src/screens/ReadyShell.tsx` |
 
-## Recommendations / next steps
+The fixes landed across four commits on `feat/usage-overlay`:
 
-1. **B1** — design pass on `DitherOverlay`; the absolute-escape painter
-   needs to become an Ink-managed render path so Ink owns cleanup.
-2. **B2 + B4** — both likely share a Yoga/Ink layout quirk in nested
-   row-flex with bordered children. Worth a single dedicated
-   investigation rather than two patches.
-3. **B3** — give the workbench a height-aware variant (or set a hard
-   floor on the section-content panel height) so 80×24 and 100×32
-   terminals don't fall off a cliff. The minimum advertised by the
-   resize prompt is 80×24; the workbench is clearly the most rows-
-   hungry surface and should still degrade gracefully there.
-4. **B6** — investigate Credit positioning; consider truncating the URL
-   or moving it out of the hotbar row when the hotbar is short.
-5. **B7** — minor; bump the input field's height to 3 (or set
-   `minHeight={3}`).
-6. **B8** — cosmetic; revisit toast layering.
+1. `3109647` — B1 + B5 + harness extensions + this report.
+2. `aece371` — B2/B3/B4 layout fixes (subagent worktree, then merged).
+3. `99b1633` — B6/B7/B8 cosmetic fixes (subagent worktree, then merged).
+
+497/497 tests pass at every commit. Verification captures live under
+`/tmp/repogarden-tui-observe/session.k1nBIL/captures/` and
+`/tmp/rg-onboard/` for the final pass.
+
+## Remaining loose ends (not in the original B1–B8 list)
+
+- **Event-summary stale tail** on the first journal row
+  (`shipped "Refresh live mobile data on focus"ences"`). Predates the
+  sweep; visible in both broken and clean journal captures. Likely a
+  per-line wrap/truncation quirk in `JournalView` when consecutive
+  events render strings of different lengths into the same Text element.
+- **Toast content visibility** during the brief rescan toast at 100×32
+  is sometimes overwritten by the starfield/sprite painters — only the
+  left border is visible while the toast is on screen. The toast
+  *position* (B8) is correct now; this is a separate z-ordering issue
+  caused by the same painters mentioned at `ReadyShell.tsx:1842-1849`.
+  Lower priority — the toast is right-edge-aligned and short-lived in
+  practice.
