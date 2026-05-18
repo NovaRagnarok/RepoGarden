@@ -80,6 +80,29 @@ const isInPaintExclusion = (model: GardenModel, x: number, y: number): boolean =
   return false;
 };
 
+// Blend two `#rrggbb` hex colors at the given mix ratio (0 = pure `a`,
+// 1 = pure `b`). Used to dial a room-separator color sitting halfway
+// between the theme's dark `muted` and brighter `mutedForeground` —
+// `muted` alone reads too dim for the boundary to register, but
+// `mutedForeground` competes with sprite art.
+const blendHex = (a: string, b: string, mix: number): string => {
+  const parse = (hex: string): [number, number, number] => {
+    const h = hex.replace("#", "");
+    if (h.length !== 6) return [0, 0, 0];
+    return [
+      parseInt(h.slice(0, 2), 16),
+      parseInt(h.slice(2, 4), 16),
+      parseInt(h.slice(4, 6), 16),
+    ];
+  };
+  const [ar, ag, ab] = parse(a);
+  const [br, bg, bb] = parse(b);
+  const t = Math.max(0, Math.min(1, mix));
+  const lerp = (x: number, y: number): number => Math.round(x + (y - x) * t);
+  const toHex = (n: number): string => n.toString(16).padStart(2, "0");
+  return `#${toHex(lerp(ar, br))}${toHex(lerp(ag, bg))}${toHex(lerp(ab, bb))}`;
+};
+
 const setCell = (
   frame: GardenFrame,
   x: number,
@@ -137,6 +160,13 @@ const dividerLabelColor = (model: GardenModel, vibe: string): string => {
   }
 };
 
+// Mid-tone separator color: 40% of the way from the theme's dark `muted`
+// toward the brighter `mutedForeground`. Sits clearly below the sprite
+// art but is still visible — pure `muted` reads too dim for the
+// boundary to register, `mutedForeground` competes with the creatures.
+const separatorColor = (model: GardenModel): string =>
+  blendHex(model.props.theme.muted, model.props.theme.mutedForeground, 0.4);
+
 const drawDivider = (
   frame: GardenFrame,
   model: GardenModel,
@@ -162,7 +192,7 @@ const drawDivider = (
   const labelStart = left + Math.max(1, Math.floor((span - labelLen) / 2));
   const labelEnd = labelStart + labelLen;
   for (let x = left; x < labelStart; x += 1) {
-    setCell(frame, x, row, { char: "─", fg: model.props.theme.muted });
+    setCell(frame, x, row, { char: "─", fg: separatorColor(model) });
   }
   for (let x = labelStart; x < labelEnd; x += 1) {
     setCell(frame, x, row, {
@@ -172,7 +202,7 @@ const drawDivider = (
     });
   }
   for (let x = labelEnd; x < right; x += 1) {
-    setCell(frame, x, row, { char: "─", fg: model.props.theme.muted });
+    setCell(frame, x, row, { char: "─", fg: separatorColor(model) });
   }
 };
 
@@ -223,7 +253,7 @@ export const renderGardenFrame = (
       if (separator.canvasCol < 0 || separator.canvasCol >= frame.width) continue;
       setCell(frame, separator.canvasCol, row, {
         char: "│",
-        fg: model.props.theme.muted
+        fg: separatorColor(model)
       });
     }
   }
