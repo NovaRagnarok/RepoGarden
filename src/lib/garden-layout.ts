@@ -71,10 +71,23 @@ export interface ShelfOverflow {
   hidden: number;
 }
 
+export interface RoomSeparator {
+  /** Canvas col (0-indexed) where the vertical line sits. */
+  canvasCol: number;
+  /** Top-most canvas row the line covers. */
+  canvasRow: number;
+  /** Number of rows the line spans. */
+  length: number;
+}
+
 export interface ShelfLayout {
   placements: Placement[];
   dividers: DividerPlacement[];
   overflows: ShelfOverflow[];
+  /** Vertical separators between adjacent rooms on the same row.
+   *  Horizontal separators are unnecessary — each room's divider line
+   *  doubles as the separator from the room above. */
+  separators?: RoomSeparator[];
 }
 
 /** Display order for shelf groups: liveliest at the top, sleepy at the bottom.
@@ -316,6 +329,7 @@ export const placeInRooms = (
   // Reserve the panel's sky / ground rows the same way the shelf placer
   // and the organic placer both expect; the rooms live inside that
   // chrome.
+  const innerX = 0;
   const innerY = SKY_ROWS;
   const innerH = Math.max(0, canvasH - SKY_ROWS - GROUND_ROWS);
   const innerW = canvasW;
@@ -324,6 +338,33 @@ export const placeInRooms = (
   }
 
   const rects = computeRoomRects(rooms.length, innerW, innerH);
+
+  // Vertical separators between rooms that share a top edge. Drawn at
+  // the row range of whichever row those rooms occupy; for 2×2 the top
+  // and bottom row each get their own separator at the same column.
+  const separators: RoomSeparator[] = [];
+  // Helper: two rects sit side-by-side iff they share a top edge and a
+  // height, and one's left edge equals the other's right edge.
+  for (let i = 0; i < rects.length; i += 1) {
+    for (let j = i + 1; j < rects.length; j += 1) {
+      const a = rects[i];
+      const b = rects[j];
+      if (a.y !== b.y || a.height !== b.height) continue;
+      if (a.x + a.width === b.x) {
+        separators.push({
+          canvasCol: innerX + b.x - 1,
+          canvasRow: innerY + a.y,
+          length: a.height
+        });
+      } else if (b.x + b.width === a.x) {
+        separators.push({
+          canvasCol: innerX + a.x - 1,
+          canvasRow: innerY + a.y,
+          length: a.height
+        });
+      }
+    }
+  }
 
   const placements: Placement[] = [];
   const dividers: DividerPlacement[] = [];
@@ -373,17 +414,30 @@ export const placeInRooms = (
       localTR
     );
 
-    // Translate sub-canvas placements back to absolute canvas coords.
+    // Translate sub-canvas placements back to absolute canvas coords,
+    // dropping any whose sprite body or name row would cross the room's
+    // bottom edge. The organic placer is happy to overflow when the
+    // sub-canvas can't fit the natural sprite size + name reservation
+    // (e.g. an 11-tall sausage creature in an 11-row 2×2 cell). On the
+    // garden canvas that overflow lands in the ground/SKY buffer; in
+    // rooms it lands in the *next room's content*. Dropping is the
+    // safer choice — fewer creatures shown in the cramped room, but
+    // no names bleeding through the divider into the room below.
+    const roomBottom = absY + rect.height;
     for (const placement of sub) {
+      const translatedY = placement.charY + absY + ROOM_HEADER_ROWS;
+      const nameRowBottom =
+        translatedY + placement.tile.charRows + NAME_GAP_ROWS + NAME_H - 1;
+      if (nameRowBottom >= roomBottom) continue;
       placements.push({
         ...placement,
         x: placement.x + absX,
-        charY: placement.charY + absY + ROOM_HEADER_ROWS
+        charY: translatedY
       });
     }
   });
 
-  return { placements, dividers, overflows: [] };
+  return { placements, dividers, overflows: [], separators };
 };
 
 // Per-page slot dimensions used by paginateCreatures. These intentionally

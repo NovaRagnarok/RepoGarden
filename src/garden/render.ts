@@ -202,6 +202,22 @@ export const renderGardenFrame = (
     }
   }
 
+  // Vertical separators between adjacent rooms. Drawn before dividers
+  // so the divider's `─` chars paint over the separator at the
+  // intersection, giving a clean ` ─ │ ─ ` look without needing the
+  // `┼` cross glyph.
+  for (const separator of model.scene.separators ?? []) {
+    for (let dy = 0; dy < separator.length; dy += 1) {
+      const row = separator.canvasRow + dy;
+      if (row < 0 || row >= frame.height) continue;
+      if (separator.canvasCol < 0 || separator.canvasCol >= frame.width) continue;
+      setCell(frame, separator.canvasCol, row, {
+        char: "│",
+        fg: model.props.theme.mutedForeground
+      });
+    }
+  }
+
   for (const divider of model.scene.dividers) {
     drawDivider(
       frame,

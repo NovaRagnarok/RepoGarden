@@ -318,7 +318,8 @@ const buildScene = (props: GardenSceneProps): GardenScene => {
             placerZone
           ),
           dividers: [],
-          overflows: []
+          overflows: [],
+          separators: []
         };
   const sprites = new Map<string, GardenSpriteInfo>();
   for (const placement of layout.placements) {
@@ -374,6 +375,7 @@ const buildScene = (props: GardenSceneProps): GardenScene => {
     placements: layout.placements,
     dividers: layout.dividers,
     overflows: layout.overflows,
+    separators: layout.separators ?? [],
     sprites,
     sceneSeed: sceneSeedForCreatures(stableCreatureIdsKey(props.creatures))
   };

@@ -1,5 +1,11 @@
 import type { RepoCreature } from "@/lib/creature";
-import type { DividerPlacement, GardenDensity, Placement, ShelfOverflow } from "@/lib/garden-layout";
+import type {
+  DividerPlacement,
+  GardenDensity,
+  Placement,
+  RoomSeparator,
+  ShelfOverflow,
+} from "@/lib/garden-layout";
 
 export interface GardenDeadZone {
   width: number;
@@ -124,6 +130,9 @@ export interface GardenScene {
   placements: Placement[];
   dividers: DividerPlacement[];
   overflows: ShelfOverflow[];
+  /** Vertical lines between adjacent rooms — only populated when
+   *  placementMode is "rooms". Garden mode leaves this empty. */
+  separators: RoomSeparator[];
   sprites: Map<string, GardenSpriteInfo>;
   sceneSeed: number;
 }
