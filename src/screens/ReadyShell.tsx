@@ -1728,16 +1728,11 @@ export const ReadyShell = ({
               </>
             )}
           </Box>
-          {/* Pagination strip: visual indicator that mirrors the gardenPageIndex
-              state ReadyShell already owns. Renders only when there's actually
-              more than one page so single-page gardens look untouched, and
-              only in wide layouts — narrow mode shows the "page N/M" hint
-              inline in the compact focus summary instead. */}
-          {!isRescanning && isGardenView && gardenPageCount > 1 && mode !== "narrow" ? (
-            <Box marginTop={0}>
-              <Pagination total={gardenPageCount} current={safeGardenPageIndex + 1} />
-            </Box>
-          ) : null}
+          {/* Pagination indicator was here; it now lives as an
+              absolutely-positioned overlay on the garden panel's top
+              border row (further down in this JSX). Keeping it out of
+              the chrome flow is what stops the viewport shifting when
+              the indicator appears/disappears. */}
           {/* Mask-mode indicator lives in the title tagline now (left
               column) so toggling it doesn't shift the viewport — see the
               tagline row above. */}
@@ -2015,6 +2010,21 @@ export const ReadyShell = ({
           </Box>
         ) : null}
       </Box>
+      {/* Pagination indicator: overlays the panel's top border row at the
+          left side (mirroring the notification slot on the right). Out of
+          chrome flow so its appearance/disappearance doesn't shift the
+          garden viewport — the user's complaint when the indicator was a
+          conditional row above the panel. Narrow mode is handled by the
+          inline `page N/M` hint in the compact summary instead. */}
+      {!isRescanning && isGardenView && gardenPageCount > 1 && mode !== "narrow" ? (
+        <Box
+          position="absolute"
+          marginTop={Math.max(0, gardenContentRow - 3)}
+          marginLeft={Math.max(0, wideGardenContentCol - 2)}
+        >
+          <Pagination total={gardenPageCount} current={safeGardenPageIndex + 1} />
+        </Box>
+      ) : null}
       {ditherStartedAt !== null ? (
         // Inset by one cell on every side so the Panel border stays clean —
         // gardenContentRow/wideGardenContentCol are 1-indexed absolute
