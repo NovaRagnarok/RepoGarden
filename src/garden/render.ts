@@ -147,8 +147,14 @@ const drawDivider = (
   width: number
 ): void => {
   if (row < 0 || row >= frame.height) return;
-  const left = Math.max(0, colStart);
-  const right = Math.min(frame.width, colStart + width);
+  // Pull the dashes in aggressively from each end so the divider is
+  // a short solid stroke flanking the label rather than a full-width
+  // line. The label itself stays centred over the full span — only
+  // the dash *segments* shrink. Solid `─` in `muted` colour rather
+  // than the bright `mutedForeground` so the line sits quietly.
+  const DIVIDER_INSET = Math.max(1, Math.floor(width / 4));
+  const left = Math.max(0, colStart + DIVIDER_INSET);
+  const right = Math.min(frame.width, colStart + width - DIVIDER_INSET);
   const span = right - left;
   if (span <= 0) return;
   const labelText = ` ${formatShelfDividerLabel(vibe, count, Math.max(0, span - 4))} `;
@@ -156,7 +162,7 @@ const drawDivider = (
   const labelStart = left + Math.max(1, Math.floor((span - labelLen) / 2));
   const labelEnd = labelStart + labelLen;
   for (let x = left; x < labelStart; x += 1) {
-    setCell(frame, x, row, { char: "─", fg: model.props.theme.mutedForeground });
+    setCell(frame, x, row, { char: "─", fg: model.props.theme.muted });
   }
   for (let x = labelStart; x < labelEnd; x += 1) {
     setCell(frame, x, row, {
@@ -166,7 +172,7 @@ const drawDivider = (
     });
   }
   for (let x = labelEnd; x < right; x += 1) {
-    setCell(frame, x, row, { char: "─", fg: model.props.theme.mutedForeground });
+    setCell(frame, x, row, { char: "─", fg: model.props.theme.muted });
   }
 };
 
@@ -203,17 +209,21 @@ export const renderGardenFrame = (
   }
 
   // Vertical separators between adjacent rooms. Drawn before dividers
-  // so the divider's `─` chars paint over the separator at the
-  // intersection, giving a clean ` ─ │ ─ ` look without needing the
-  // `┼` cross glyph.
+  // so the divider's dashes paint over the separator at the
+  // intersection. Solid `│` in the theme's dim `muted` colour rather
+  // than the brighter `mutedForeground`, and pulled in by ~25% from
+  // both ends so the line is a short stroke in the middle of the
+  // boundary rather than a full floor-to-ceiling beam — softer
+  // visually without losing the boundary cue.
   for (const separator of model.scene.separators ?? []) {
-    for (let dy = 0; dy < separator.length; dy += 1) {
+    const inset = Math.max(1, Math.floor(separator.length / 4));
+    for (let dy = inset; dy < separator.length - inset; dy += 1) {
       const row = separator.canvasRow + dy;
       if (row < 0 || row >= frame.height) continue;
       if (separator.canvasCol < 0 || separator.canvasCol >= frame.width) continue;
       setCell(frame, separator.canvasCol, row, {
         char: "│",
-        fg: model.props.theme.mutedForeground
+        fg: model.props.theme.muted
       });
     }
   }

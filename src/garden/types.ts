@@ -38,6 +38,7 @@ export interface GardenPaintExclusion {
 export interface GardenThemeColors {
   foreground: string;
   background: string;
+  muted: string;
   mutedForeground: string;
   primary: string;
   accent: string;

@@ -820,6 +820,7 @@ export const ReadyShell = ({
     const gardenThemeColors: GardenThemeColors = {
       foreground: theme.colors.foreground,
       background: theme.colors.background,
+      muted: theme.colors.muted,
       mutedForeground: theme.colors.mutedForeground,
       primary: theme.colors.primary,
       accent: theme.colors.accent,

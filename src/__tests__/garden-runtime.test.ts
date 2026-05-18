@@ -43,6 +43,7 @@ const makeProps = (): GardenSceneProps => ({
   theme: {
     foreground: "#ffffff",
     background: "#000000",
+    muted: "#444444",
     mutedForeground: "#777777",
     primary: "#00ff00",
     accent: "#ffff00",
