@@ -16,7 +16,7 @@ export { graphemeLength, sliceGraphemes, splitGraphemes } from "@/lib/text-selec
 
 /**
  * Codepoint-aware length / slice aliases. Today these are backed by
- * `Intl.Segmenter` grapheme splitting (Node >=24), which closes the
+ * `Intl.Segmenter` grapheme splitting (Node >=22), which closes the
  * surrogate-pair gap AND treats ZWJ families / flags / skin-tone modifiers
  * as single cells. The aliases exist so callers that only need codepoint
  * correctness can opt out of grapheme semantics later if needed without

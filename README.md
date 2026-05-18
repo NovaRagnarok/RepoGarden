@@ -53,7 +53,7 @@ If anything looks off, `rm -rf ~/.repogarden` resets local state. If you enabled
 
 ## Requirements
 
-- Node 24+
+- Node 22+
 - `git` on `PATH`
 - a terminal at least 80×24
 

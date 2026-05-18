@@ -1,4 +1,4 @@
-export const MIN_NODE_MAJOR = 24;
+export const MIN_NODE_MAJOR = 22;
 
 export interface NodeVersionCheck {
   ok: boolean;

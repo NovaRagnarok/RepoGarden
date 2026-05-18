@@ -9,21 +9,21 @@ import {
 } from "../lib/node-version";
 
 test("parseNodeMajor reads standard Node versions", () => {
-  assert.equal(parseNodeMajor("v24.12.4"), 24);
+  assert.equal(parseNodeMajor("v22.12.0"), 22);
   assert.equal(parseNodeMajor("25.0.0"), 25);
   assert.equal(parseNodeMajor("not-a-version"), undefined);
 });
 
-test("checkNodeVersion requires Node 24 or newer", () => {
-  assert.equal(checkNodeVersion("v23.11.0").ok, false);
+test("checkNodeVersion requires Node 22 or newer", () => {
+  assert.equal(checkNodeVersion("v21.7.0").ok, false);
   assert.equal(checkNodeVersion(`v${MIN_NODE_MAJOR}.0.0`).ok, true);
   assert.equal(checkNodeVersion("v25.0.0").ok, true);
 });
 
 test("formatNodeVersionError is human readable", () => {
-  const message = formatNodeVersionError(checkNodeVersion("v23.11.0"));
+  const message = formatNodeVersionError(checkNodeVersion("v21.7.0"));
 
-  assert.match(message, /RepoGarden requires Node 24 or newer/);
-  assert.match(message, /You are running Node 23/);
+  assert.match(message, /RepoGarden requires Node 22 or newer/);
+  assert.match(message, /You are running Node 21/);
   assert.match(message, /run repogarden again/);
 });
