@@ -402,26 +402,35 @@ const placeTilesGridded = (
   const maxCols = Math.max(1, Math.floor(usableW / slotW));
   const maxRows = Math.max(1, Math.floor(usableH / slotH));
 
-  // Fill the room's vertical space before adding extra columns. With N=8
-  // in a 4-row × 8-col capacity room, prefer 4 rows × 2 cols (tall fill)
-  // over 3 rows × 3 cols (square — leaves the bottom row empty) or 1 row
-  // × 8 cols (the legacy "max-cols-first" layout the user flagged). For
-  // small cohorts (N < maxRows) this still spreads them down a single
-  // column — visually that's a tighter read than a wide gappy single row.
+  // Pick useRows × useCols: fill rows first, then add cols.
   const N = tiles.length;
   const useRows = Math.max(1, Math.min(maxRows, N));
   const useCols = Math.max(1, Math.min(maxCols, Math.ceil(N / useRows)));
 
-  // Stretch the slot pitch to spread the chosen useCols × useRows over the
-  // full canvas. With N=4 in a 4x4 capacity, pitch grows so the four
-  // creatures sit at the corners of the room instead of huddling top-left.
-  // Floor-divide keeps placements integer-aligned; the residual is absorbed
-  // by gridLeft / gridTop centering.
-  const colPitch = Math.max(slotW, Math.floor(usableW / useCols));
-  const rowPitch = Math.max(slotH, Math.floor(usableH / useRows));
+  // SPREAD the rows across the full inner canvas, not just pack them from
+  // the top. The previous `rowPitch = max(slotH, usableH/useRows)` packed
+  // tightly downward, so with maxRows=3 in a 30-row canvas the bottom
+  // ~6 rows stayed empty. Now: row 0 sits at the canvas top, the LAST
+  // row's slot bottom sits at the canvas bottom (minus GROUND_ROWS), and
+  // intermediate rows are evenly spaced between. The `max(slotH, …)`
+  // floor prevents row overlap when N is dense; the `max(slotW, …)` floor
+  // does the same horizontally.
+  const innerTop = SKY_ROWS;
+  const innerBottom = canvasH - GROUND_ROWS;
+  const rowSpan = Math.max(0, innerBottom - slotH - innerTop);
+  const colSpan = Math.max(0, canvasW - slotW);
+  const rowStride =
+    useRows > 1 ? Math.max(slotH, Math.floor(rowSpan / (useRows - 1))) : 0;
+  const colStride =
+    useCols > 1 ? Math.max(slotW, Math.floor(colSpan / (useCols - 1))) : 0;
 
-  const gridLeft = Math.max(0, Math.floor((canvasW - colPitch * useCols) / 2));
-  const gridTop = SKY_ROWS;
+  // Single-row / single-col cases get centered within the inner canvas.
+  const gridTop =
+    useRows > 1
+      ? innerTop
+      : innerTop + Math.max(0, Math.floor((innerBottom - innerTop - slotH) / 2));
+  const gridLeft =
+    useCols > 1 ? 0 : Math.max(0, Math.floor((canvasW - slotW) / 2));
 
   const deadLeft = deadZone ? canvasW - deadZone.width : Number.POSITIVE_INFINITY;
   const deadTop = deadZone ? canvasH - deadZone.height : Number.POSITIVE_INFINITY;
@@ -435,10 +444,8 @@ const placeTilesGridded = (
     const r = Math.floor(i / useCols);
     const c = i % useCols;
     if (r >= useRows) break;
-    // Center each slot within its cell so a stretched colPitch doesn't
-    // leave creatures stuck to the left edge of their cell.
-    const slotX = gridLeft + c * colPitch + Math.floor((colPitch - slotW) / 2);
-    const slotY = gridTop + r * rowPitch;
+    const slotX = gridLeft + c * colStride;
+    const slotY = gridTop + r * rowStride;
     const slotRight = slotX + slotW;
     const slotBottom = slotY + slotH;
     if (deadZone && slotRight > deadLeft && slotBottom + NAME_RESERVE > deadTop) {
