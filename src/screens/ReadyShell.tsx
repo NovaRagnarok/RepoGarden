@@ -148,6 +148,22 @@ export const ReadyShell = ({
   // Garden-mode pagination. Only meaningful when displayView === "garden";
   // shelf and journal render the full creature list. [ / ] flip pages.
   const [gardenPageIndex, setGardenPageIndex] = useState(0);
+  // Journal two-pane focus model. The journal view has two keyboard zones —
+  // the event-list pane and the repo sidebar — and Esc toggles between them
+  // (with an active filter consumed first). ↑↓ / jk both operate on the
+  // focused zone; Enter always opens the workbench for the sidebar
+  // selection. Reset to "pane" whenever the user enters journal mode so
+  // they land scrolling events with `home` scoped to all repos.
+  const [journalFocus, setJournalFocus] = useState<"pane" | "sidebar">("pane");
+  useEffect(() => {
+    if (view === "journal") {
+      setJournalFocus("pane");
+      // Land on `home` so the timeline scopes to "all events" by default —
+      // the user can drill into a single repo by switching pane focus
+      // (Esc) and pressing ↓.
+      setHomeSelected(true);
+    }
+  }, [view]);
 
   // ---- view transition machinery --------------------------------------
   // `view` is the user's intent (set the instant they click a segment).
@@ -387,8 +403,15 @@ export const ReadyShell = ({
         privacy.toggle();
         return;
       }
-      if (key.escape && filter) {
-        setFilter("");
+      // Esc cascades. Active filter wins (clear it); otherwise toggle which
+      // of the two journal panes owns the keyboard. This is the entry point
+      // for the two-pane focus model — see the `journalFocus` state above.
+      if (key.escape) {
+        if (filter) {
+          setFilter("");
+        } else {
+          setJournalFocus((current) => (current === "pane" ? "sidebar" : "pane"));
+        }
         return;
       }
       if (input === "q" && onQuit) {
@@ -396,12 +419,25 @@ export const ReadyShell = ({
         return;
       }
 
-      // Sidebar navigation in journal mode. The sidebar now has a virtual
-      // "home" row above the creatures; ↑↓ walk through both. j/k stay
-      // with JournalView for event scrolling so the panes navigate independently
-      // (Vim-pane style: arrows outside, j/k inside).
-      if (key.upArrow) {
-        if (homeSelected) return; // already at the top
+      // Enter always opens the workbench for whatever creature the sidebar
+      // currently has selected, regardless of which pane has keyboard
+      // focus. `home` is a no-op (it isn't a workbench target).
+      if (key.return && onOpenWorkbench) {
+        if (homeSelected) return;
+        const creature = focusList[focusIndex];
+        const target = creature ? (unmaskById(creature.id) ?? creature) : undefined;
+        if (target) onOpenWorkbench(target);
+        return;
+      }
+
+      // Two-pane focus model: ↑↓ (and j/k as aliases) operate on whichever
+      // pane is currently focused. Sidebar-focused → walk repos through the
+      // virtual home row; pane-focused → let JournalView's own useInput
+      // handle scrolling. j/k arrive via `input` so we have to swallow them
+      // here when the sidebar owns focus, otherwise JournalView would also
+      // consume them and both panes would move at once.
+      if (journalFocus === "sidebar" && (key.upArrow || input === "k")) {
+        if (homeSelected) return;
         if (focusIndex <= 0) {
           setHomeSelected(true);
         } else {
@@ -409,7 +445,7 @@ export const ReadyShell = ({
         }
         return;
       }
-      if (key.downArrow) {
+      if (journalFocus === "sidebar" && (key.downArrow || input === "j")) {
         if (homeSelected) {
           if (focusList.length > 0) setHomeSelected(false);
           return;
@@ -418,8 +454,7 @@ export const ReadyShell = ({
         return;
       }
 
-      // Let JournalView own event scrolling (j/k), detail toggles, kind/time
-      // filters, and the workbench open shortcut.
+      // Pane-focused → JournalView owns ↑↓/jk plus its filter/detail keys.
       return;
     }
 
@@ -1028,6 +1063,11 @@ export const ReadyShell = ({
         //   focusIdx === -1: the journal "home" row → scope = all.
         //   focusIdx >= 0:  a creature row → focus that creature; in journal
         //                   mode, also flip scope = focused.
+        // Two-pane focus model: clicking a sidebar row in journal mode
+        // updates the sidebar selection BUT keeps keyboard focus on the
+        // event-list pane, so arrows continue to scroll events. The mouse
+        // is for picking the scope; the keyboard stays where the reader's
+        // attention is.
         for (const zone of sidebarHitZones) {
           if (
             event.row === zone.topRow &&
@@ -1040,6 +1080,7 @@ export const ReadyShell = ({
               setFocusIndex(zone.focusIdx);
               setHomeSelected(false);
             }
+            if (journalActive) setJournalFocus("pane");
             return;
           }
         }
@@ -1081,7 +1122,7 @@ export const ReadyShell = ({
   const wideGardenContentCol = 1 + gardenSidebarWidth + 1 + 1 + 1 + 1;
   const stackedGardenContentCol = 1 + 1 + 1 + 1;
 
-  const sidebar = (width?: number, height?: number) => {
+  const sidebar = (width?: number, height?: number, borderColor?: string) => {
     // Content rows = panel height minus 4 rows of chrome (top border, title
     // header, title bottom border, bottom border), (-1) for the inline status
     // row when present, and (-1) for the "home" row, which is always rendered
@@ -1182,7 +1223,7 @@ export const ReadyShell = ({
     );
 
     return (
-      <Panel title={title} paddingY={0} width={width} height={height}>
+      <Panel title={title} paddingY={0} width={width} height={height} borderColor={borderColor}>
         {homeRow}
         {visibleCreatures.length === 0 ? (
           isRescanning && !creatureFilter ? (
@@ -1782,10 +1823,18 @@ export const ReadyShell = ({
         </Box>
       ) : responsive.showSidebar ? (
         // Wide journal: sidebar (creature selection scopes timeline to one
-        // repo) + JournalView in the garden's content rect.
+        // repo) + JournalView in the garden's content rect. The two-pane
+        // focus model tints whichever pane currently owns ↑↓/jk — the
+        // sidebar's Panel border switches to the theme focus ring when
+        // `journalFocus === "sidebar"`, JournalView mirrors the same on
+        // its own border when `paneFocused`.
         <Box flexDirection="row">
           <Box width={gardenSidebarWidth} flexDirection="column" marginRight={1}>
-            {sidebar(gardenSidebarWidth, gardenHeight)}
+            {sidebar(
+              gardenSidebarWidth,
+              gardenHeight,
+              journalFocus === "sidebar" ? theme.colors.focusRing : undefined
+            )}
             <Box flexGrow={1} />
           </Box>
           <Box flexGrow={1} flexDirection="column">
@@ -1797,6 +1846,7 @@ export const ReadyShell = ({
               selectedRepoId={homeSelected ? undefined : focus?.scan.id}
               filter={filter}
               isActive={journalActive && !filterMode}
+              paneFocused={journalFocus === "pane"}
               onOpenWorkbench={onOpenWorkbench ? (c) => onOpenWorkbench(unmaskById(c.id) ?? c) : undefined}
               onSelectRepo={(id) => {
                 if (!id) {
@@ -1823,6 +1873,7 @@ export const ReadyShell = ({
             selectedRepoId={homeSelected ? undefined : focus?.scan.id}
             filter={filter}
             isActive={journalActive && !filterMode}
+            paneFocused={journalFocus === "pane"}
             onOpenWorkbench={onOpenWorkbench ? (c) => onOpenWorkbench(unmaskById(c.id) ?? c) : undefined}
             onSelectRepo={(id) => {
               if (!id) {
@@ -1892,7 +1943,7 @@ export const ReadyShell = ({
         <Box flexShrink={1}>
           <Text dimColor color={theme.colors.mutedForeground} wrap="truncate-end">
             {journalActive
-              ? "↑↓ repo · jk events · ↵ open · / search · g view · s settings · ? help"
+              ? "↑↓/jk scroll · esc switch pane · ↵ workbench · / search · g view · s settings · ? help"
               : isGardenView && gardenPageCount > 1
                 ? "↑↓ move · ↵ open · / filter · g view · [] page · s settings · ? help · q quit"
                 : "↑↓ move · ↵ open · / filter · g view · s settings · ? help · q quit"}

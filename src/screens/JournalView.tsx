@@ -11,6 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { Sparkline } from "@/components/ui/sparkline";
 import { Panel } from "@/components/ui/panel";
+import { ScrollBar } from "@/components/ui/scroll-bar";
 import { useTheme } from "@/components/ui/theme-provider";
 import { useInput } from "@/hooks/use-input";
 import { eventSummary } from "@/lib/event-summary";
@@ -53,6 +54,16 @@ export interface JournalViewProps {
   selectedRepoId?: string;
   filter?: string;
   isActive?: boolean;
+  /**
+   * Two-pane focus model (see `ReadyShell.tsx`): the journal pane and the
+   * sidebar share a focus zone toggled by Esc. When true (default), the
+   * pane owns ↑↓/jk for event scrolling and renders a focus-ring border.
+   * When false, the sidebar owns ↑↓/jk and this pane's border falls back
+   * to the default. Filter keys (f/F, t/T, d) and Enter still work in
+   * either zone — Enter targets the sidebar selection regardless of which
+   * pane has keyboard focus, so the parent handles that.
+   */
+  paneFocused?: boolean;
   onOpenWorkbench?: (creature: RepoCreature) => void;
   /**
    * Called when the journal wants the parent to change the sidebar selection.
@@ -148,6 +159,7 @@ export const JournalView = ({
   selectedRepoId,
   filter,
   isActive = true,
+  paneFocused = true,
   onOpenWorkbench,
 }: JournalViewProps) => {
   const theme = useTheme();
@@ -273,13 +285,15 @@ export const JournalView = ({
 
       if (capped.length === 0) return;
 
-      // ↑↓ are reserved for sidebar navigation (handled by ReadyShell) so the
-      // sidebar feels like a picker again. j/k still scroll journal events.
-      if (input === "k") {
+      // Two-pane focus model: when this pane is focused, ↑↓ and j/k both
+      // scroll the event list (vim aliases mirror arrows). When the
+      // sidebar is focused, ReadyShell owns arrows for the repo cursor
+      // and JournalView ignores both. Esc-toggle is owned by ReadyShell.
+      if (paneFocused && (input === "k" || key.upArrow)) {
         setSelectedIndex((i) => Math.max(0, i - 1));
         return;
       }
-      if (input === "j") {
+      if (paneFocused && (input === "j" || key.downArrow)) {
         setSelectedIndex((i) => Math.min(maxEventIndex, i + 1));
         return;
       }
@@ -349,11 +363,11 @@ export const JournalView = ({
     : "";
 
   const controlsText = [
-    "↑↓ pick repo",
+    paneFocused ? "↑↓/jk events" : "↑↓/jk repo",
     `f ${journalKindLabel(kindFilter)}`,
     `t ${journalRangeLabel(rangeFilter)}`,
     `d ${detailsOpen ? "details" : "compact"}`,
-    "jk scroll",
+    "esc switch pane",
     "↵ workbench",
   ].join(" · ");
 
@@ -385,9 +399,15 @@ export const JournalView = ({
     </Box>
   );
 
+  // Focus-ring border when the journal pane owns keyboard focus. Matches the
+  // workbench notes-editor convention (`theme.colors.focusRing` for the
+  // active surface) so the two-pane focus model reads instantly without
+  // documentation.
+  const panelBorderColor = paneFocused ? theme.colors.focusRing : theme.colors.border;
+
   if (events.length === 0) {
     return (
-      <Panel title="journal" width={width} height={height} paddingY={1}>
+      <Panel title="journal" width={width} height={height} paddingY={1} borderColor={panelBorderColor}>
         <Box flexGrow={1} alignItems="center" justifyContent="center" flexDirection="column">
           <Text dimColor color={theme.colors.mutedForeground}>
             the journal fills in as your repos change.
@@ -402,7 +422,7 @@ export const JournalView = ({
 
   if (filteredEvents.length === 0) {
     return (
-      <Panel title={title} width={width} height={height} paddingY={1}>
+      <Panel title={title} width={width} height={height} paddingY={1} borderColor={panelBorderColor}>
         {header}
         <Box flexGrow={1} alignItems="center" justifyContent="center" flexDirection="column">
           <Text dimColor color={theme.colors.mutedForeground}>
@@ -420,14 +440,22 @@ export const JournalView = ({
   const TIME_W = 5;
   const REPO_W = Math.max(10, Math.min(18, Math.floor(innerWidth * 0.22)));
   const KIND_W = Math.max(6, Math.min(14, Math.floor(innerWidth * 0.18)));
-  const FIXED_COLS = 1 + GLYPH_W + 1 + TIME_W + 1 + REPO_W + 1 + KIND_W + 1;
+  // Reserve one column for the right-edge scrollbar when the event list
+  // overflows. The bar renders even when the pane is unfocused (the focus
+  // indicator lives on the border, not the bar) but disappears when there's
+  // nothing to scroll, so reclaim the column then.
+  const scrollbarVisible = renderRows.length > visibleRows;
+  const SCROLLBAR_W = scrollbarVisible ? 1 : 0;
+  const FIXED_COLS = 1 + GLYPH_W + 1 + TIME_W + 1 + REPO_W + 1 + KIND_W + 1 + SCROLLBAR_W;
   const summaryWidth = Math.max(8, innerWidth - FIXED_COLS);
   const windowedRows = renderRows.slice(scrollOffset, scrollOffset + visibleRows);
 
   return (
-    <Panel title={title} width={width} height={height} paddingY={1}>
+    <Panel title={title} width={width} height={height} paddingY={1} borderColor={panelBorderColor}>
       {header}
 
+      <Box flexDirection="row">
+        <Box flexDirection="column" flexGrow={1}>
       {windowedRows.map((row, idx) => {
         if (row.kind === "day-header") {
           return (
@@ -456,7 +484,13 @@ export const JournalView = ({
         const timeStr = formatEventTime(event.ts);
         const repoStr = padTrunc(event.repoName, REPO_W);
         const kindStr = padTrunc(journalKindLabel(event.kind).replace(/^notes? /, "note "), KIND_W);
-        const summary = truncate(eventSummary(event, summaryWidth), summaryWidth);
+        // Pad to a fixed width so Ink's per-line diff always rewrites the full
+        // column. With a bare `truncate` the rendered Text length contracts
+        // between frames (e.g. a long previous-frame summary leaves residue
+        // like `…"ences"` trailing a shorter current summary). Padding to
+        // `summaryWidth` keeps the line's character count constant. See the
+        // "loose end" entry in docs/manual-qa-report.md.
+        const summary = padTrunc(eventSummary(event, summaryWidth), summaryWidth);
 
         return (
           <Box key={`ev-${event.ts}-${event.repoId}-${event.kind}-${eventIndex}-${idx}`} flexDirection="row">
@@ -479,6 +513,16 @@ export const JournalView = ({
           </Box>
         );
       })}
+        </Box>
+        {scrollbarVisible ? (
+          <ScrollBar
+            rows={visibleRows}
+            total={renderRows.length}
+            offset={scrollOffset}
+            active={paneFocused}
+          />
+        ) : null}
+      </Box>
 
       {canShowDetails && detailBudget > 0 ? (
         <Box flexDirection="column" borderStyle="single" borderColor={theme.colors.border} paddingX={1} marginTop={1}>
