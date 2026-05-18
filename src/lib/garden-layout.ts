@@ -407,7 +407,11 @@ const placeTilesGridded = (
 
   const NAME_RESERVE = NAME_GAP_ROWS + NAME_H;
   const usableW = Math.max(slotW, canvasW - 1);
-  const usableH = Math.max(slotH, canvasH - SKY_ROWS - GROUND_ROWS - NAME_RESERVE);
+  // `slotH` already accounts for sprite + name gap + name row, so don't
+  // subtract NAME_RESERVE again — that double-counts the name reservation
+  // and silently shrinks maxRows by 1 (e.g. h=11 sprite in 28-row canvas
+  // gave maxRows=1 when 2 rows physically fit).
+  const usableH = Math.max(slotH, canvasH - SKY_ROWS - GROUND_ROWS);
   const maxCols = Math.max(1, Math.floor(usableW / slotW));
   const maxRows = Math.max(1, Math.floor(usableH / slotH));
 
