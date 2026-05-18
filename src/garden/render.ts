@@ -1,10 +1,11 @@
+import { blendHex } from "@/lib/color";
 import { computeFocusFrameCells, formatShelfDividerLabel, NAME_GAP_ROWS } from "@/lib/garden-layout";
 import { quadrantChar } from "@/lib/sprite";
 
 import { computeStarVisual, greyHex, starAtCell } from "@/garden/stars";
 import { blinkClosedAt, wiggleFrameAt } from "@/garden/model";
 import type { GardenCell, GardenFrame, GardenModel, GardenSpriteInfo } from "@/garden/types";
-import type { Vibe } from "@/lib/vibe";
+import { vibeColor, type Vibe } from "@/lib/vibe";
 
 // Tightest cell rect that contains any lit sub-pixel across both animation
 // frames. Sprite bitmaps frequently leave empty cells at the top/sides of
@@ -124,36 +125,49 @@ const blockStarsForOverlays = (
   return false;
 };
 
-const dividerLabelColor = (model: GardenModel, vibe: string): string => {
-  switch (vibe) {
-    case "stuck":
-      return model.props.theme.error;
-    case "awake":
-      return model.props.theme.warning;
-    case "sleepy":
-      return model.props.theme.info;
-    default:
-      return model.props.theme.success;
-  }
-};
+const dividerLabelColor = (model: GardenModel, vibe: Vibe): string =>
+  vibeColor(vibe, model.props.theme);
+
+// Mid-tone separator color: 40% of the way from the theme's dark `muted`
+// toward the brighter `mutedForeground`. Sits clearly below the sprite
+// art but is still visible — pure `muted` reads too dim for the
+// boundary to register, `mutedForeground` competes with the creatures.
+const separatorColor = (model: GardenModel): string =>
+  blendHex(model.props.theme.muted, model.props.theme.mutedForeground, 0.4);
 
 const drawDivider = (
   frame: GardenFrame,
   model: GardenModel,
   row: number,
   vibe: Vibe,
-  count: number
+  count: number,
+  colStart: number,
+  width: number,
+  pageIndex: number | undefined,
+  pageCount: number | undefined
 ): void => {
   if (row < 0 || row >= frame.height) return;
-  const labelText = ` ${formatShelfDividerLabel(vibe, count, Math.max(0, frame.width - 4))} `;
-  const labelLen = Math.min(labelText.length, frame.width - 2);
-  const labelStart = Math.max(1, Math.floor((frame.width - labelLen) / 2));
+  // Pull the dashes in aggressively from each end so the divider is
+  // a short solid stroke flanking the label rather than a full-width
+  // line. The label itself stays centred over the full span — only
+  // the dash *segments* shrink. Solid `─` in `muted` colour rather
+  // than the bright `mutedForeground` so the line sits quietly.
+  const DIVIDER_INSET = Math.max(1, Math.floor(width / 4));
+  const left = Math.max(0, colStart + DIVIDER_INSET);
+  const right = Math.min(frame.width, colStart + width - DIVIDER_INSET);
+  const span = right - left;
+  if (span <= 0) return;
+  const baseLabel = formatShelfDividerLabel(vibe, count, Math.max(0, span - 4));
+  const pageSuffix =
+    pageCount !== undefined && pageCount > 1 && pageIndex !== undefined
+      ? ` · ${pageIndex}/${pageCount}`
+      : "";
+  const labelText = ` ${baseLabel}${pageSuffix} `;
+  const labelLen = Math.min(labelText.length, Math.max(0, span - 2));
+  const labelStart = left + Math.max(1, Math.floor((span - labelLen) / 2));
   const labelEnd = labelStart + labelLen;
-  const sideLen = Math.max(2, Math.floor(frame.width / 4));
-  const leftDashStart = Math.max(0, labelStart - sideLen);
-  const rightDashEnd = Math.min(frame.width, labelEnd + sideLen);
-  for (let x = leftDashStart; x < labelStart; x += 1) {
-    setCell(frame, x, row, { char: "─", fg: model.props.theme.mutedForeground });
+  for (let x = left; x < labelStart; x += 1) {
+    setCell(frame, x, row, { char: "─", fg: separatorColor(model) });
   }
   for (let x = labelStart; x < labelEnd; x += 1) {
     setCell(frame, x, row, {
@@ -162,8 +176,8 @@ const drawDivider = (
       bold: true
     });
   }
-  for (let x = labelEnd; x < rightDashEnd; x += 1) {
-    setCell(frame, x, row, { char: "─", fg: model.props.theme.mutedForeground });
+  for (let x = labelEnd; x < right; x += 1) {
+    setCell(frame, x, row, { char: "─", fg: separatorColor(model) });
   }
 };
 
@@ -199,8 +213,38 @@ export const renderGardenFrame = (
     }
   }
 
+  // Vertical separators between adjacent rooms. Drawn before dividers
+  // so the divider's dashes paint over the separator at the
+  // intersection. Solid `│` in the theme's dim `muted` colour rather
+  // than the brighter `mutedForeground`, and pulled in by ~25% from
+  // both ends so the line is a short stroke in the middle of the
+  // boundary rather than a full floor-to-ceiling beam — softer
+  // visually without losing the boundary cue.
+  for (const separator of model.scene.separators ?? []) {
+    const inset = Math.max(1, Math.floor(separator.length / 4));
+    for (let dy = inset; dy < separator.length - inset; dy += 1) {
+      const row = separator.canvasRow + dy;
+      if (row < 0 || row >= frame.height) continue;
+      if (separator.canvasCol < 0 || separator.canvasCol >= frame.width) continue;
+      setCell(frame, separator.canvasCol, row, {
+        char: "│",
+        fg: separatorColor(model)
+      });
+    }
+  }
+
   for (const divider of model.scene.dividers) {
-    drawDivider(frame, model, divider.canvasRow, divider.vibe, divider.count);
+    drawDivider(
+      frame,
+      model,
+      divider.canvasRow,
+      divider.vibe,
+      divider.count,
+      divider.canvasCol,
+      divider.width,
+      divider.pageIndex,
+      divider.pageCount
+    );
   }
 
   for (const overflow of model.scene.overflows ?? []) {

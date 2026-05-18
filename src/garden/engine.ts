@@ -68,6 +68,19 @@ const samePaintExclusions = (
 // render even when nothing scene-relevant has changed, so without
 // this guard a toast pop or background scan tick mid-drag silently
 // undoes the drag's progress.
+const sameRoomsPageIndex = (
+  left: Partial<Record<string, number>> | undefined,
+  right: Partial<Record<string, number>> | undefined
+): boolean => {
+  if (left === right) return true;
+  if (!left || !right) return !left && !right;
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+  for (const k of keys) {
+    if ((left[k] ?? 0) !== (right[k] ?? 0)) return false;
+  }
+  return true;
+};
+
 const sameSceneProps = (left: GardenEngineProps, right: GardenEngineProps): boolean =>
   left.creatures === right.creatures &&
   left.focusIndex === right.focusIndex &&
@@ -76,9 +89,11 @@ const sameSceneProps = (left: GardenEngineProps, right: GardenEngineProps): bool
   left.placementMode === right.placementMode &&
   left.density === right.density &&
   left.reducedMotion === right.reducedMotion &&
+  left.disableWander === right.disableWander &&
   left.theme === right.theme &&
   sameDeadZone(left.deadZone, right.deadZone) &&
-  sameTopRightDeadZone(left.topRightDeadZone, right.topRightDeadZone);
+  sameTopRightDeadZone(left.topRightDeadZone, right.topRightDeadZone) &&
+  sameRoomsPageIndex(left.roomsPageIndex, right.roomsPageIndex);
 
 const RESIZE_FULL_REPAINT_MS = 700;
 

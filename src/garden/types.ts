@@ -1,5 +1,12 @@
 import type { RepoCreature } from "@/lib/creature";
-import type { DividerPlacement, GardenDensity, Placement, ShelfOverflow } from "@/lib/garden-layout";
+import type { Vibe } from "@/lib/vibe";
+import type {
+  DividerPlacement,
+  GardenDensity,
+  Placement,
+  RoomSeparator,
+  ShelfOverflow,
+} from "@/lib/garden-layout";
 
 export interface GardenDeadZone {
   width: number;
@@ -32,6 +39,7 @@ export interface GardenPaintExclusion {
 export interface GardenThemeColors {
   foreground: string;
   background: string;
+  muted: string;
   mutedForeground: string;
   primary: string;
   accent: string;
@@ -52,14 +60,25 @@ export interface GardenSceneProps {
   deadZone?: GardenDeadZone;
   topRightDeadZone?: GardenTopRightDeadZone;
   paintExclusions?: GardenPaintExclusion[];
-  placementMode: "organic" | "shelf";
+  placementMode: "organic" | "rooms";
   theme: GardenThemeColors;
   reducedMotion?: boolean;
-  /** Threaded through to `lineUpCreatures` so the shelf's per-cell breathing
-   *  room responds to the user's "how packed?" setting. Organic mode ignores
-   *  this — pagination capacity is the right place for the same knob in that
-   *  view, and it's owned by `ReadyShell` (not the engine). */
+  /** Pagination capacity knob for the garden view. Rooms mode ignores it
+   *  (rooms defer to the organic placer per quadrant, which has no
+   *  density concept); the field is kept on this shared props bag so
+   *  ReadyShell can pass the same setting through regardless of mode. */
   density?: GardenDensity;
+  /** Per-vibe page index for rooms mode. Each cohort paginates
+   *  independently against its own room's capacity, so a small terminal
+   *  where the awake room only fits 4 creatures can still show all 7 by
+   *  flipping pages without affecting the happy / stuck / sleepy rooms.
+   *  Garden mode ignores this. */
+  roomsPageIndex?: Partial<Record<Vibe, number>>;
+  /** Freeze per-creature wander animation regardless of the user's
+   *  `reducedMotion` setting. Used by rooms view, where creatures sit
+   *  in a uniform grid — wander would re-introduce the "messy" feel
+   *  the grid is meant to remove. */
+  disableWander?: boolean;
 }
 
 export interface GardenEngineProps extends GardenSceneProps {
@@ -124,6 +143,9 @@ export interface GardenScene {
   placements: Placement[];
   dividers: DividerPlacement[];
   overflows: ShelfOverflow[];
+  /** Vertical lines between adjacent rooms — only populated when
+   *  placementMode is "rooms". Garden mode leaves this empty. */
+  separators: RoomSeparator[];
   sprites: Map<string, GardenSpriteInfo>;
   sceneSeed: number;
 }

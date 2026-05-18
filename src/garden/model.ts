@@ -1,7 +1,7 @@
 import type { Placement, PlacementFootprint, SizedTile } from "@/lib/garden-layout";
 import {
   creatureNameStartCol,
-  lineUpCreatures,
+  placeInRooms,
   NAME_GAP_ROWS,
   NAME_H,
   placeCreatures,
@@ -17,7 +17,7 @@ import {
   mulberry32,
   pickSpriteColors
 } from "@/lib/sprite";
-import { vibeGlyph, type Vibe } from "@/lib/vibe";
+import { vibeColor, vibeGlyph, type Vibe } from "@/lib/vibe";
 
 import { sceneSeedForCreatures } from "@/garden/stars";
 import type {
@@ -277,7 +277,8 @@ export const buildTiles = (props: GardenSceneProps): SizedTile[] => {
   // jitter from creatureCharSize), not of the garden's per-cell slot budget.
   // Density and terminal size affect pagination capacity and how the placer
   // packs creatures into the canvas — they don't compress individual creatures
-  // to fit a slot.
+  // to fit a slot. The shape and size of a creature are identical across
+  // garden and rooms views; only the *arrangement* differs.
   const sizeCohort = buildCreatureSizeCohort(creatures.map((creature) => creature.scan));
   return creatures.map((creature, index) => {
     const { charW, charH } = creatureCharSize(creature.scan, undefined, sizeCohort);
@@ -298,14 +299,15 @@ const buildScene = (props: GardenSceneProps): GardenScene => {
     ? { width: props.topRightDeadZone.width, height: props.topRightDeadZone.height }
     : undefined;
   const layout =
-    props.placementMode === "shelf"
-      ? lineUpCreatures(
+    props.placementMode === "rooms"
+      ? placeInRooms(
           tiles,
           props.innerWidth,
           props.canvasH,
+          stableCreatureIdsKey(props.creatures),
+          props.roomsPageIndex ?? {},
           props.deadZone,
-          placerZone,
-          props.density
+          placerZone
         )
       : {
           placements: placeCreatures(
@@ -317,7 +319,8 @@ const buildScene = (props: GardenSceneProps): GardenScene => {
             placerZone
           ),
           dividers: [],
-          overflows: []
+          overflows: [],
+          separators: []
         };
   const sprites = new Map<string, GardenSpriteInfo>();
   for (const placement of layout.placements) {
@@ -338,14 +341,7 @@ const buildScene = (props: GardenSceneProps): GardenScene => {
       creature.scan.path || creature.id,
       props.theme.creaturePalette
     );
-    const vibeColor =
-      creature.vibe.vibe === "stuck"
-        ? props.theme.error
-        : creature.vibe.vibe === "awake"
-          ? props.theme.warning
-          : creature.vibe.vibe === "sleepy"
-            ? props.theme.info
-            : props.theme.success;
+    const tint = vibeColor(creature.vibe.vibe, props.theme);
     sprites.set(creature.id, {
       frameA,
       frameB,
@@ -355,7 +351,7 @@ const buildScene = (props: GardenSceneProps): GardenScene => {
       spriteCols: placement.tile.spriteCols,
       name: creature.scan.name,
       vibeGlyph: vibeGlyph(creature.vibe.vibe),
-      vibeColor,
+      vibeColor: tint,
       wiggle: buildWiggleProfile(
         creature.scan.path || creature.id,
         creature.vibe.vibe,
@@ -373,6 +369,7 @@ const buildScene = (props: GardenSceneProps): GardenScene => {
     placements: layout.placements,
     dividers: layout.dividers,
     overflows: layout.overflows,
+    separators: layout.separators ?? [],
     sprites,
     sceneSeed: sceneSeedForCreatures(stableCreatureIdsKey(props.creatures))
   };
@@ -1093,11 +1090,16 @@ export const stepGardenModel = (
   model: GardenModel,
   now: number = performance.now()
 ): void => {
-  if (model.props.reducedMotion) {
+  if (model.props.reducedMotion || model.props.disableWander) {
     // Freeze decorative motion (origin drift + per-creature wander). Manual
     // drag offsets persist through wander state's manualOffset and still
     // apply via syncVisualPlacements; nudge nextShiftAt forward so toggling
     // motion back on doesn't fire a burst of catch-up shifts.
+    //
+    // `disableWander` (set by rooms view) shares this code path so the
+    // gridded layout doesn't slowly drift back into a messy organic feel.
+    // Star / origin drift is technically also frozen here; that's a small
+    // sacrifice for the simplicity of one freeze path.
     for (const placement of model.scene.placements) {
       const state = ensureWanderState(model, placement, now);
       state.currentOffset = { x: 0, y: 0 };

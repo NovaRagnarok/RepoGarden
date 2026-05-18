@@ -133,7 +133,7 @@ test("saveConfig writes tui.json with schemaVersion 1", () => {
       ...loadConfig(),
       themeId: "nord",
       scanRoots: ["/repos"],
-      view: "shelf",
+      view: "rooms",
       observer: { enabled: false },
     };
     saveConfig(config);
@@ -142,7 +142,7 @@ test("saveConfig writes tui.json with schemaVersion 1", () => {
     assert.equal(raw.schemaVersion, TUI_CONFIG_SCHEMA_VERSION);
     assert.equal(raw.themeId, "nord");
     assert.deepEqual(raw.scanRoots, ["/repos"]);
-    assert.equal(raw.view, "shelf");
+    assert.equal(raw.view, "rooms");
     assert.deepEqual(raw.observer, { enabled: false });
   });
 });

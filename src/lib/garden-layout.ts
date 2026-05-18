@@ -5,7 +5,12 @@
 // belongs here.
 
 import type { RepoCreature } from "@/lib/creature";
-import { hashString, mulberry32 } from "@/lib/sprite";
+import {
+  buildCreatureSizeCohort,
+  creatureCharSize,
+  hashString,
+  mulberry32
+} from "@/lib/sprite";
 import type { Vibe } from "@/lib/vibe";
 
 export interface SizedTile {
@@ -45,10 +50,21 @@ export const NAME_GAP_ROWS = 1;
 export interface DividerPlacement {
   /** Canvas row (0-indexed within the panel canvas) where the divider line sits. */
   canvasRow: number;
+  /** Left-most canvas column the divider extends to. Rooms layout uses
+   *  per-room dividers so each room gets its own label-with-flanking-dashes
+   *  spanning only its own width. */
+  canvasCol: number;
+  /** Cell width of the divider — typically the room's width. */
+  width: number;
   /** Vibe this divider labels — used to colour the label text. */
   vibe: Vibe;
   /** Number of creatures sitting under this divider. */
   count: number;
+  /** 1-indexed current page for this vibe's room when the cohort has more
+   *  creatures than fit in the room. Omitted when there's only one page. */
+  pageIndex?: number;
+  /** Total page count for this vibe's room. Omitted when only one page. */
+  pageCount?: number;
 }
 
 export interface ShelfOverflow {
@@ -65,10 +81,23 @@ export interface ShelfOverflow {
   hidden: number;
 }
 
+export interface RoomSeparator {
+  /** Canvas col (0-indexed) where the vertical line sits. */
+  canvasCol: number;
+  /** Top-most canvas row the line covers. */
+  canvasRow: number;
+  /** Number of rows the line spans. */
+  length: number;
+}
+
 export interface ShelfLayout {
   placements: Placement[];
   dividers: DividerPlacement[];
   overflows: ShelfOverflow[];
+  /** Vertical separators between adjacent rooms on the same row.
+   *  Horizontal separators are unnecessary — each room's divider line
+   *  doubles as the separator from the room above. */
+  separators?: RoomSeparator[];
 }
 
 /** Display order for shelf groups: liveliest at the top, sleepy at the bottom.
@@ -175,10 +204,6 @@ export const spriteBodyFootprintsOverlap = (
   left.top <= right.bottom &&
   right.top <= left.bottom;
 
-// Each divider takes 1 line for the label and 1 blank row of breathing space
-// before the next group of creatures starts.
-const DIVIDER_HEIGHT = 2;
-
 /** Density preset — passed through from the user's TUI config so the same
  *  "how packed?" knob steers both the garden's per-page slot capacity and
  *  the shelf's per-cell breathing room. `comfortable` is the historical
@@ -186,204 +211,664 @@ const DIVIDER_HEIGHT = 2;
  *  row), `dense` is tighter. */
 export type GardenDensity = "cozy" | "comfortable" | "dense";
 
-// Shelf cells get extra breathing room on top of the shared SLOT_PAD_*
-// constants the organic placer uses — soldiers shouldn't bump elbows.
-// The values below are per-density; `comfortable` matches the pre-density
-// constants so the default visual is unchanged.
-const SHELF_EXTRA_PAD: Record<GardenDensity, { x: number; y: number }> = {
-  cozy: { x: 5, y: 2 },
-  comfortable: { x: 3, y: 1 },
-  dense: { x: 1, y: 0 }
+interface RoomRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+// Lower bounds so a 1-creature cohort still has enough room for the
+// divider label + a single sprite + name. Picked from the organic
+// placer's own minimums: SKY (1) + GROUND (1) + NAME_RESERVE (2) +
+// sprite (≥2) for height; sprite (≥4) + slot pad for width.
+export const MIN_ROOM_W = 16;
+export const MIN_ROOM_H = 8;
+// Functional thresholds for the compact-fallback trigger: at these
+// per-room sizes there's enough room AFTER header / footer reservations
+// AND the organic placer's SKY+GROUND+NAME_RESERVE for at least a
+// modestly-sized creature + name. Below these the rooms render
+// labels + boxes but drop all creatures — exactly the state the user
+// flagged. Higher than `MIN_ROOM_W` / `MIN_ROOM_H` because those values
+// are the splitLen absolute floor (which can still be empty in
+// practice). Bumped up so a cohort full of medium-large creatures
+// (charH around 5-7) doesn't get every member dropped — the previous
+// 13-row threshold only protected the smallest creatures.
+export const ROOM_COMPACT_TRIGGER_W = 20;
+export const ROOM_COMPACT_TRIGGER_H = 16;
+
+// Proportionally split `length` into N chunks weighted by `weights`,
+// clamped to >= `min` each. When the sum of weights is zero (shouldn't
+// happen since we skip empty cohorts upstream) the chunks are equal.
+// Excess / shortfall after clamping is absorbed into the chunk with
+// the largest raw allocation.
+const splitLen = (
+  length: number,
+  weights: number[],
+  min: number
+): number[] => {
+  const n = weights.length;
+  if (n === 0) return [];
+  if (n === 1) return [length];
+  const total = weights.reduce((a, b) => a + b, 0);
+  const raw =
+    total === 0
+      ? weights.map(() => length / n)
+      : weights.map((w) => (w / total) * length);
+  const out = raw.map((r) => Math.max(min, Math.floor(r)));
+  let allocated = out.reduce((a, b) => a + b, 0);
+  // Index order from largest raw allocation downward — we add or remove
+  // single cells from the biggest chunks first so the proportions stay
+  // closest to the requested ratio after clamping.
+  const order = raw
+    .map((_, i) => i)
+    .sort((a, b) => raw[b] - raw[a]);
+  let cursor = 0;
+  while (allocated > length) {
+    const idx = order[cursor % order.length];
+    if (out[idx] > min) {
+      out[idx] -= 1;
+      allocated -= 1;
+    }
+    cursor += 1;
+    if (cursor > order.length * length) break;
+  }
+  cursor = 0;
+  while (allocated < length) {
+    const idx = order[cursor % order.length];
+    out[idx] += 1;
+    allocated += 1;
+    cursor += 1;
+  }
+  return out;
 };
 
-// "Soldier" layout: creatures keep their organic shape and natural size but
-// march into a uniform grid. Same row → same baseline (feet aligned), uniform
-// horizontal spacing, vibes broken into labelled shelves in canonical order.
-//
-// Vertical budgets are allocated *per vibe* proportional to how many tiles
-// the bucket holds. A vibe with no room for everyone keeps as many tiles as
-// fit in its allotted rows and emits a `+N more` overflow indicator in its
-// last slot. This stops one large bucket from blowing past the canvas and
-// colliding with the next shelf's divider.
-export const lineUpCreatures = (
+// Split a canvas into N rectangular rooms, one per populated vibe.
+// Adapts to the cohort count so empty rooms never appear: 1 room takes
+// the whole canvas; 2 split side-by-side; 3 use a 2-top, 1-bottom
+// arrangement; 4 form a 2×2. Within each layout, both axes are sized
+// proportionally to creature count — a 1-creature cohort gets a
+// minimum-sized room while a 20-creature cohort gets the lion's share
+// of its row / column.
+const computeRoomRects = (
+  rooms: { count: number }[],
+  W: number,
+  H: number
+): RoomRect[] => {
+  const n = rooms.length;
+  if (n <= 0 || W <= 0 || H <= 0) return [];
+  if (n === 1) {
+    return [{ x: 0, y: 0, width: W, height: H }];
+  }
+  if (n === 2) {
+    const widths = splitLen(W, [rooms[0].count, rooms[1].count], MIN_ROOM_W);
+    return [
+      { x: 0, y: 0, width: widths[0], height: H },
+      { x: widths[0], y: 0, width: widths[1], height: H }
+    ];
+  }
+  if (n === 3) {
+    // Top row gets rooms[0..1]; bottom row gets rooms[2] full-width.
+    const topCount = rooms[0].count + rooms[1].count;
+    const bottomCount = rooms[2].count;
+    const heights = splitLen(H, [topCount, bottomCount], MIN_ROOM_H);
+    const topWidths = splitLen(W, [rooms[0].count, rooms[1].count], MIN_ROOM_W);
+    return [
+      { x: 0, y: 0, width: topWidths[0], height: heights[0] },
+      { x: topWidths[0], y: 0, width: topWidths[1], height: heights[0] },
+      { x: 0, y: heights[0], width: W, height: heights[1] }
+    ];
+  }
+  // 4 rooms: 2×2 with both axes proportional. Column widths can differ
+  // between rows so each row's split reflects only its own members'
+  // counts — the vertical separator therefore sits at different
+  // columns in top vs bottom rows when the proportions diverge.
+  const topCount = rooms[0].count + rooms[1].count;
+  const bottomCount = rooms[2].count + rooms[3].count;
+  const heights = splitLen(H, [topCount, bottomCount], MIN_ROOM_H);
+  const topWidths = splitLen(W, [rooms[0].count, rooms[1].count], MIN_ROOM_W);
+  const botWidths = splitLen(W, [rooms[2].count, rooms[3].count], MIN_ROOM_W);
+  return [
+    { x: 0, y: 0, width: topWidths[0], height: heights[0] },
+    { x: topWidths[0], y: 0, width: topWidths[1], height: heights[0] },
+    { x: 0, y: heights[0], width: botWidths[0], height: heights[1] },
+    { x: botWidths[0], y: heights[0], width: botWidths[1], height: heights[1] }
+  ];
+};
+
+// Clip the bottom-right canvas dead zone (workbench card area) to a
+// single room, returning the room-local "bottom-right dead zone" the
+// organic placer expects. Returns undefined if the zone doesn't touch
+// this room.
+const clipBottomRightZone = (
+  zone: { width: number; height: number },
+  room: RoomRect,
+  canvasW: number,
+  canvasH: number
+): { width: number; height: number } | undefined => {
+  // Previous version required `roomRight >= canvasW && roomBottom >= canvasH`.
+  // But every room's bottom sits at `canvasH - GROUND_ROWS` (the ground row
+  // reservation), so `roomBottom < canvasH` was ALWAYS true → the dead zone
+  // was silently dropped for every layout. Creatures then got placed under
+  // the workbench card and were occluded by it — the "huge gaps" the user
+  // was seeing. Compute the actual overlap instead.
+  const zoneLeft = canvasW - zone.width;
+  const zoneTop = canvasH - zone.height;
+  const overlapLeft = Math.max(room.x, zoneLeft);
+  const overlapTop = Math.max(room.y, zoneTop);
+  const overlapRight = Math.min(room.x + room.width, canvasW);
+  const overlapBottom = Math.min(room.y + room.height, canvasH);
+  const localW = overlapRight - overlapLeft;
+  const localH = overlapBottom - overlapTop;
+  if (localW <= 0 || localH <= 0) return undefined;
+  return { width: localW, height: localH };
+};
+
+// Mirror of `clipBottomRightZone` for the top-right dead zone (toast /
+// notification slot).
+const clipTopRightZone = (
+  zone: { width: number; height: number },
+  room: RoomRect,
+  canvasW: number
+): { width: number; height: number } | undefined => {
+  const zoneLeft = canvasW - zone.width;
+  const overlapLeft = Math.max(room.x, zoneLeft);
+  const overlapTop = room.y;
+  const overlapRight = Math.min(room.x + room.width, canvasW);
+  const overlapBottom = Math.min(room.y + room.height, zone.height);
+  const localW = overlapRight - overlapLeft;
+  const localH = overlapBottom - overlapTop;
+  if (localW <= 0 || localH <= 0) return undefined;
+  return { width: localW, height: localH };
+};
+
+// Grid placer used inside each room. Like `placeCreatures` but with
+// jitter removed — every tile lands at the centre of its slot, so
+// adjacent rooms feel uniformly lined up rather than the loose
+// scatter the organic placer produces. Saves vertical and horizontal
+// space too (no jitter slack inside each slot).
+const placeTilesGridded = (
   tiles: SizedTile[],
   canvasW: number,
   canvasH: number,
   deadZone?: { width: number; height: number },
-  topRightDeadZone?: { width: number; height: number },
-  density: GardenDensity = "comfortable"
-): ShelfLayout => {
-  if (tiles.length === 0) return { placements: [], dividers: [], overflows: [] };
+  topRightDeadZone?: { width: number; height: number }
+): Placement[] => {
+  if (tiles.length === 0) return [];
 
-  const maxSpriteW = Math.max(...tiles.map((t) => t.spriteCols));
-  const maxNameW = Math.max(...tiles.map((t) => t.creature.scan.name.length));
-  const maxCharH = Math.max(...tiles.map((t) => t.charH));
-
-  const pad = SHELF_EXTRA_PAD[density];
-  const slotW = Math.max(maxSpriteW + 2, maxNameW) + SLOT_PAD_X + pad.x;
-  const rowH = maxCharH + NAME_GAP_ROWS + NAME_H + SLOT_PAD_Y + pad.y;
-
-  const usableW = Math.max(slotW, canvasW - 1);
-  const cols = Math.max(1, Math.floor(usableW / slotW));
-
-  const groups = new Map<Vibe, SizedTile[]>();
-  for (const v of VIBE_ORDER) groups.set(v, []);
-  for (const tile of tiles) groups.get(tile.creature.vibe.vibe)?.push(tile);
-
-  // Decide which vibes get a shelf this frame: any non-empty bucket, plus the
-  // blocked shelf even when empty (its "all clear" label is a glanceable
-  // status signal users rely on).
-  type ShelfPlan = { vibe: Vibe; tiles: SizedTile[]; naturalRows: number; budget: number };
-  const shelves: ShelfPlan[] = [];
-  for (const vibe of VIBE_ORDER) {
-    const groupTiles = groups.get(vibe) ?? [];
-    if (groupTiles.length === 0 && vibe !== "stuck") continue;
-    const naturalRows = Math.max(1, Math.ceil(groupTiles.length / cols));
-    shelves.push({ vibe, tiles: groupTiles, naturalRows, budget: naturalRows });
-  }
-
-  // Vertical budget: total canvas rows minus sky/ground/divider chrome,
-  // divided by rowH. Each shelf needs at least 1 row, so under extreme
-  // squeeze we accept overflowing the canvas by clamping to a 1-row min.
-  const dividerSpace = shelves.length * DIVIDER_HEIGHT;
-  const availableRows = Math.max(
-    shelves.length,
-    Math.floor((canvasH - SKY_ROWS - GROUND_ROWS - dividerSpace) / Math.max(1, rowH))
+  const maxSpriteCols = Math.max(...tiles.map((t) => t.spriteCols));
+  const maxSpriteRows = Math.max(...tiles.map((t) => t.charRows));
+  const maxLabelCols = Math.max(
+    ...tiles.map((t) => t.creature.scan.name.length + 2)
   );
 
-  // Trim from the largest budget until totals fit. Iterative greedy trim is
-  // fine here (at most 4 shelves), and it preserves the "minimum 1 row per
-  // shelf" invariant.
-  let totalBudget = shelves.reduce((sum, shelf) => sum + shelf.budget, 0);
-  while (totalBudget > availableRows) {
-    let victim = -1;
-    let maxBudget = 1;
-    for (let i = 0; i < shelves.length; i += 1) {
-      if (shelves[i].budget > maxBudget) {
-        maxBudget = shelves[i].budget;
-        victim = i;
-      }
-    }
-    if (victim === -1) break;
-    shelves[victim].budget -= 1;
-    totalBudget -= 1;
-  }
+  const slotW = Math.max(maxSpriteCols, maxLabelCols) + SLOT_PAD_X;
+  const slotH = maxSpriteRows + NAME_GAP_ROWS + NAME_H;
 
-  const totalGridW = cols * slotW;
-  const gridLeft = Math.max(0, Math.floor((canvasW - totalGridW) / 2));
-  const gridTop = SKY_ROWS;
+  const NAME_RESERVE = NAME_GAP_ROWS + NAME_H;
+  const usableW = Math.max(slotW, canvasW - 1);
+  // `slotH` already accounts for sprite + name gap + name row, so don't
+  // subtract NAME_RESERVE again — that double-counts the name reservation
+  // and silently shrinks maxRows by 1 (e.g. h=11 sprite in 28-row canvas
+  // gave maxRows=1 when 2 rows physically fit).
+  const usableH = Math.max(slotH, canvasH - SKY_ROWS - GROUND_ROWS);
+  const maxCols = Math.max(1, Math.floor(usableW / slotW));
+  const maxRows = Math.max(1, Math.floor(usableH / slotH));
 
+  const N = tiles.length;
+  const innerTop = SKY_ROWS;
+  const innerBottom = canvasH - GROUND_ROWS;
   const deadLeft = deadZone ? canvasW - deadZone.width : Number.POSITIVE_INFINITY;
   const deadTop = deadZone ? canvasH - deadZone.height : Number.POSITIVE_INFINITY;
   const trLeft = topRightDeadZone
     ? canvasW - topRightDeadZone.width
     : Number.POSITIVE_INFINITY;
   const trBottom = topRightDeadZone ? topRightDeadZone.height : 0;
-  const slotIntersectsDeadZone = (slotX: number, slotY: number): boolean => {
-    const slotRight = slotX + slotW;
-    const slotBottom = slotY + rowH;
-    if (deadZone && slotRight > deadLeft && slotBottom > deadTop) return true;
-    if (topRightDeadZone && slotRight > trLeft && slotY < trBottom) return true;
-    return false;
+
+  // Try a candidate useRows × useCols layout. Tiles flow around dead-zone
+  // cells (workbench / notification overlay) to the next valid cell, so
+  // dead cells don't drop tiles — they push subsequent tiles forward.
+  // Rows and cols spread evenly: row 0 at canvas top, last row at
+  // canvas bottom; col 0 at left, last col at right. `max(slot*, …)`
+  // floors prevent overlap when the natural stride is tighter than a
+  // slot. Returns the placements produced by that layout.
+  const tryLayout = (useRows: number, useCols: number): Placement[] => {
+    const rowSpan = Math.max(0, innerBottom - slotH - innerTop);
+    const colSpan = Math.max(0, canvasW - slotW);
+    const rowStride =
+      useRows > 1 ? Math.max(slotH, Math.floor(rowSpan / (useRows - 1))) : 0;
+    const colStride =
+      useCols > 1 ? Math.max(slotW, Math.floor(colSpan / (useCols - 1))) : 0;
+    const gridTop =
+      useRows > 1
+        ? innerTop
+        : innerTop + Math.max(0, Math.floor((innerBottom - innerTop - slotH) / 2));
+    const gridLeft =
+      useCols > 1 ? 0 : Math.max(0, Math.floor((canvasW - slotW) / 2));
+    const totalCells = useRows * useCols;
+    const out: Placement[] = [];
+    let tileIdx = 0;
+    for (let cellIdx = 0; cellIdx < totalCells && tileIdx < N; cellIdx += 1) {
+      const r = Math.floor(cellIdx / useCols);
+      const c = cellIdx % useCols;
+      const slotX = gridLeft + c * colStride;
+      const slotY = gridTop + r * rowStride;
+      const slotRight = slotX + slotW;
+      const slotBottom = slotY + slotH;
+      if (deadZone && slotRight > deadLeft && slotBottom + NAME_RESERVE > deadTop) {
+        continue;
+      }
+      if (topRightDeadZone && slotRight > trLeft && slotY < trBottom) continue;
+      const tile = tiles[tileIdx];
+      // Top-align sprites within the slot. Bottom-align would tie every
+      // creature's name row to slotY + slotH (i.e. the tallest creature
+      // in the cohort), so if the tallest overflows the room's safeBottom
+      // every creature gets dropped — including short ones that would
+      // individually fit. Top-align decouples each creature's overflow
+      // check from its cohort's tallest member.
+      const x = slotX + Math.floor((slotW - tile.spriteCols) / 2);
+      const charY = slotY;
+      out.push({ tile, x, charY });
+      tileIdx += 1;
+    }
+    return out;
   };
+
+  // Initial layout: balanced square-ish grid (ceil(sqrt(N))). Picks
+  // useRows ≤ maxRows then derives useCols. For N=4 in a wide/tall canvas
+  // this gives 2×2 (creatures at corners) rather than 3×2 (top two rows
+  // only, bottom row empty). Grown below if dead-zone collisions need
+  // more capacity.
+  let useRows = Math.max(1, Math.min(maxRows, Math.ceil(Math.sqrt(N))));
+  let useCols = Math.max(1, Math.min(maxCols, Math.ceil(N / useRows)));
+  let placements = tryLayout(useRows, useCols);
+
+  // Grow useCols (and then useRows if we hit maxCols) until either all
+  // tiles are placed or we exhaust the canvas. Each unplaced tile means a
+  // dead-zone collision swallowed a cell; adding cells gives the loop
+  // somewhere to put the displaced tile. Bounded by maxCols × maxRows
+  // iterations, well under the per-frame budget.
+  while (placements.length < N && useCols < maxCols) {
+    useCols += 1;
+    placements = tryLayout(useRows, useCols);
+  }
+  while (placements.length < N && useRows < maxRows) {
+    useRows += 1;
+    placements = tryLayout(useRows, useCols);
+  }
+
+  // Per-row x redistribution. After the cell loop, a row whose right
+  // cells fell inside the dead zone ends up with all its tiles bunched
+  // on the LEFT side (since cell-skip skips dead cells, leaving the row
+  // shorter). The shared global colStride was sized for full-canvas
+  // width, so those tiles cluster between x=0 and ~deadLeft/2 with a
+  // visible gap between them and the workbench card.
+  //
+  // Fix: regroup placements by row (slotY) and respread each row's
+  // tiles across the row's safe x-range only. Rows that don't overlap
+  // the dead zone keep their existing positions (their safeRight ==
+  // canvasW so the recomputation matches what they already had).
+  if (!deadZone && !topRightDeadZone) return placements;
+  const byRow = new Map<number, Placement[]>();
+  for (const p of placements) {
+    const list = byRow.get(p.charY);
+    if (list) list.push(p);
+    else byRow.set(p.charY, [p]);
+  }
+  const respread: Placement[] = [];
+  for (const [slotY, rowP] of byRow) {
+    rowP.sort((a, b) => a.x - b.x);
+    const slotBottom = slotY + slotH;
+    let safeRight = canvasW;
+    if (deadZone && slotBottom + NAME_RESERVE > deadTop) {
+      safeRight = Math.min(safeRight, deadLeft);
+    }
+    if (topRightDeadZone && slotY < trBottom) {
+      safeRight = Math.min(safeRight, trLeft);
+    }
+    const rowN = rowP.length;
+    const colSpanRow = Math.max(0, safeRight - slotW);
+    const strideRow =
+      rowN > 1 ? Math.max(slotW, Math.floor(colSpanRow / (rowN - 1))) : 0;
+    const rowLeft =
+      rowN > 1 ? 0 : Math.max(0, Math.floor((safeRight - slotW) / 2));
+    for (let i = 0; i < rowN; i += 1) {
+      const tile = rowP[i].tile;
+      const slotX = rowLeft + i * strideRow;
+      const x = slotX + Math.floor((slotW - tile.spriteCols) / 2);
+      respread.push({ tile, x, charY: slotY });
+    }
+  }
+  return respread;
+};
+
+// Header height per room: 1 row for the divider label + 1 spacer row
+// before the room's content starts.
+const ROOM_HEADER_ROWS = 2;
+// Footer buffer per room: 1 row of unused space at the room's bottom
+// so the last name row of a creature in this room doesn't sit
+// immediately above the next room's divider line. Without this the
+// name + divider read as one visual cluster and it looks like the
+// names belong to the room below.
+const ROOM_FOOTER_ROWS = 1;
+
+// Place creatures into vibe-grouped rooms (1–4 quadrants on the
+// panel canvas). Each populated vibe gets its own sub-canvas and the
+// organic placer runs inside it, so creatures keep the exact same
+// shape and size they have in garden mode — only the *arrangement*
+// differs between the two views. Empty cohorts contribute nothing
+// (no room is reserved for them); the layout collapses to fewer
+// rooms so populated cohorts get more space.
+//
+// Returns the same shape as the old shelf placer (placements +
+// per-room divider headers) so the renderer doesn't need to know
+// which placer produced the layout. `overflows` stays empty because
+// the organic placer's per-room call handles its own slot pressure
+// via the dead-zone math.
+export const placeInRooms = (
+  tiles: SizedTile[],
+  canvasW: number,
+  canvasH: number,
+  // `_seedKey` kept for signature compatibility with the previous
+  // organic-per-room placer. The current grid placer is deterministic
+  // and doesn't need a randomness seed.
+  _seedKey: string,
+  pageIndexByVibe: Partial<Record<Vibe, number>>,
+  deadZone?: { width: number; height: number },
+  topRightDeadZone?: { width: number; height: number }
+): ShelfLayout => {
+  if (tiles.length === 0) return { placements: [], dividers: [], overflows: [] };
+
+  const groups = new Map<Vibe, SizedTile[]>();
+  for (const v of VIBE_ORDER) groups.set(v, []);
+  for (const tile of tiles) groups.get(tile.creature.vibe.vibe)?.push(tile);
+
+  const rooms: { vibe: Vibe; tiles: SizedTile[] }[] = [];
+  for (const vibe of VIBE_ORDER) {
+    const groupTiles = groups.get(vibe) ?? [];
+    if (groupTiles.length === 0) continue;
+    rooms.push({ vibe, tiles: groupTiles });
+  }
+  if (rooms.length === 0) return { placements: [], dividers: [], overflows: [] };
+
+  // Reserve the panel's sky / ground rows the same way the shelf placer
+  // and the organic placer both expect; the rooms live inside that
+  // chrome.
+  const innerX = 0;
+  const innerY = SKY_ROWS;
+  const innerH = Math.max(0, canvasH - SKY_ROWS - GROUND_ROWS);
+  const innerW = canvasW;
+  if (innerH <= 0 || innerW <= 0) {
+    return { placements: [], dividers: [], overflows: [] };
+  }
+
+  const rects = computeRoomRects(
+    rooms.map((r) => ({ count: r.tiles.length })),
+    innerW,
+    innerH
+  );
+
+  // Vertical separators between rooms that share a top edge. Drawn at
+  // the row range of whichever row those rooms occupy; for 2×2 the top
+  // and bottom row each get their own separator at the same column.
+  const separators: RoomSeparator[] = [];
+  // Helper: two rects sit side-by-side iff they share a top edge and a
+  // height, and one's left edge equals the other's right edge.
+  for (let i = 0; i < rects.length; i += 1) {
+    for (let j = i + 1; j < rects.length; j += 1) {
+      const a = rects[i];
+      const b = rects[j];
+      if (a.y !== b.y || a.height !== b.height) continue;
+      if (a.x + a.width === b.x) {
+        separators.push({
+          canvasCol: innerX + b.x - 1,
+          canvasRow: innerY + a.y,
+          length: a.height
+        });
+      } else if (b.x + b.width === a.x) {
+        separators.push({
+          canvasCol: innerX + a.x - 1,
+          canvasRow: innerY + a.y,
+          length: a.height
+        });
+      }
+    }
+  }
 
   const placements: Placement[] = [];
   const dividers: DividerPlacement[] = [];
-  const overflows: ShelfOverflow[] = [];
 
-  let cursorY = gridTop;
-  for (const shelf of shelves) {
-    dividers.push({
-      vibe: shelf.vibe,
-      count: shelf.tiles.length,
-      canvasRow: cursorY
-    });
-    const shelfTop = cursorY + DIVIDER_HEIGHT;
-    const shelfRowSpan = shelf.budget;
-    const slotCapacity = shelfRowSpan * cols;
-    const willOverflow = shelf.tiles.length > slotCapacity;
-    // Reserve the last slot for the "+N more" indicator when truncating —
-    // otherwise the indicator would push another tile out of view.
-    const tilesShown = willOverflow ? Math.max(0, slotCapacity - 1) : shelf.tiles.length;
-    const overflowRow = willOverflow ? Math.floor(tilesShown / cols) : -1;
-    const overflowCol = willOverflow ? tilesShown % cols : -1;
+  rooms.forEach((room, idx) => {
+    const rect = rects[idx];
+    if (!rect) return;
+    const absX = rect.x;
+    const absY = innerY + rect.y;
 
-    // Per-row occupant count (including the overflow indicator if it lives
-    // in this shelf) so we know how to centre partial rows.
-    const rowCounts: number[] = [];
-    for (let row = 0; row < shelfRowSpan; row += 1) {
-      const start = row * cols;
-      const end = Math.min(tilesShown, start + cols);
-      let count = Math.max(0, end - start);
-      if (willOverflow && row === overflowRow) count += 1;
-      rowCounts.push(count);
-    }
+    // Sub-canvas for the grid placer: room rect minus its header
+    // AND a footer buffer (so names land at least ROOM_FOOTER_ROWS
+    // above the room's bottom edge). When there's only one room the
+    // header is skipped (no divider is drawn), so the full rect
+    // goes to creatures.
+    const headerRows = rooms.length > 1 ? ROOM_HEADER_ROWS : 0;
+    const footerRows = rooms.length > 1 ? ROOM_FOOTER_ROWS : 0;
+    const subW = rect.width;
+    const subH = Math.max(0, rect.height - headerRows - footerRows);
 
-    // Pre-compute each row's left offset. We centre by default; if centring
-    // would push the row's right edge into the focus-card dead zone, we
-    // drop to left-aligned for that row. Centring back into the dead zone
-    // is the only way an empty bucket lands on the overlay, so this kills
-    // the regression where a one-tile happy shelf clipped the focus card.
-    const rowOffsets: number[] = [];
-    for (let row = 0; row < shelfRowSpan; row += 1) {
-      const occupants = Math.max(1, rowCounts[row]);
-      let rowOffset = Math.floor(((cols - occupants) * slotW) / 2);
-      if (rowOffset > 0) {
-        const slotY = shelfTop + row * rowH;
-        const slotBottom = slotY + rowH;
-        const centeredRight = gridLeft + rowOffset + occupants * slotW;
-        const hitsBottomRight =
-          deadZone !== undefined && slotBottom > deadTop && centeredRight > deadLeft;
-        const hitsTopRight =
-          topRightDeadZone !== undefined && slotY < trBottom && centeredRight > trLeft;
-        if (hitsBottomRight || hitsTopRight) rowOffset = 0;
-      }
-      rowOffsets.push(rowOffset);
-    }
-
-    const placeSlot = (row: number, col: number): { slotX: number; slotY: number } => {
-      const slotX = gridLeft + rowOffsets[row] + col * slotW;
-      const slotY = shelfTop + row * rowH;
-      return { slotX, slotY };
+    const roomCanvas: RoomRect = {
+      x: absX,
+      y: absY + headerRows,
+      width: subW,
+      height: subH
     };
+    const localBR = deadZone
+      ? clipBottomRightZone(deadZone, roomCanvas, canvasW, canvasH)
+      : undefined;
+    const localTR = topRightDeadZone
+      ? clipTopRightZone(topRightDeadZone, roomCanvas, canvasW)
+      : undefined;
 
-    let deadZoneDropped = 0;
-    let lastPlacedRow = 0;
-    let lastPlacedCol = 0;
-    for (let i = 0; i < tilesShown; i += 1) {
-      const row = Math.floor(i / cols);
-      const col = i % cols;
-      const tile = shelf.tiles[i];
-      const { slotX, slotY } = placeSlot(row, col);
-      if (slotIntersectsDeadZone(slotX, slotY)) {
-        deadZoneDropped += 1;
-        continue;
+    // Per-room pagination: rooms on small terminals can't fit all of
+    // their cohort, so each vibe's room flips through its own pages
+    // independently.
+    //
+    // Run the placer FIRST with all tiles — it caps naturally via its
+    // grow loop / dead-zone skipping. Page 0 (the common case) uses
+    // that result directly; only an actual overflow + non-zero page
+    // costs a second placer run with the paged slice. Capacity used to
+    // come from `safeGardenCapacity`, but its min-slot formula
+    // overcounts dead cells vs. the spread layout and would slice tiles
+    // below what the placer can actually fit, leaving the room visibly
+    // emptier than it had to be.
+    const pathologicallySmall = subW < 6 || subH < 4;
+    let placerResult: Placement[] = pathologicallySmall
+      ? []
+      : placeTilesGridded(room.tiles, subW, subH, localBR, localTR);
+    let pageCount = 1;
+    let pageIndex = 0;
+    if (placerResult.length < room.tiles.length) {
+      const capacity = Math.max(1, placerResult.length);
+      pageCount = Math.max(1, Math.ceil(room.tiles.length / capacity));
+      pageIndex = Math.max(
+        0,
+        Math.min(pageCount - 1, pageIndexByVibe[room.vibe] ?? 0)
+      );
+      if (pageIndex !== 0) {
+        const pagedTiles = room.tiles.slice(
+          pageIndex * capacity,
+          pageIndex * capacity + capacity
+        );
+        placerResult = placeTilesGridded(pagedTiles, subW, subH, localBR, localTR);
       }
-      const charY = slotY + (maxCharH - tile.charH);
-      const x = slotX + Math.floor((slotW - tile.spriteCols) / 2);
-      placements.push({ tile, x, charY });
-      lastPlacedRow = row;
-      lastPlacedCol = col;
     }
 
-    const totalHidden = (willOverflow ? shelf.tiles.length - tilesShown : 0) + deadZoneDropped;
-    if (totalHidden > 0) {
-      const row = willOverflow && overflowRow < shelfRowSpan ? overflowRow : lastPlacedRow;
-      const col = willOverflow && overflowRow < shelfRowSpan ? overflowCol : lastPlacedCol;
-      const { slotX, slotY } = placeSlot(row, col);
-      overflows.push({
-        vibe: shelf.vibe,
-        canvasRow: slotY + maxCharH + NAME_GAP_ROWS,
-        canvasCol: slotX,
-        slotW,
-        hidden: totalHidden
+    // Divider sits on the top row of the room and spans only that room's
+    // width — adjacent rooms each get their own dashes-around-the-label.
+    // Page metadata is attached when the cohort spans more than one page
+    // so the renderer can append `(N/M)` to the label.
+    //
+    // Skipped entirely when there's only one room: in that case the
+    // section header / compact-mode navigator already names the vibe,
+    // and an inline divider just labels the obvious. Single-room is
+    // either rooms-compact (filtered to one vibe by the caller) or
+    // a roster where only one vibe is populated.
+    if (rooms.length > 1) {
+      dividers.push({
+        vibe: room.vibe,
+        count: room.tiles.length,
+        canvasRow: absY,
+        canvasCol: absX,
+        width: rect.width,
+        ...(pageCount > 1
+          ? { pageIndex: pageIndex + 1, pageCount }
+          : {})
       });
     }
 
-    cursorY = shelfTop + shelfRowSpan * rowH;
-  }
+    // Pathologically small rooms (e.g. a 2×2 split on a tiny terminal):
+    // skip placement rather than crash the organic placer's minSlot math.
+    if (pathologicallySmall) return;
 
-  return { placements, dividers, overflows };
+    // Grid placement was already computed above (either with all tiles
+    // or — on overflow + non-zero page — with the paginated slice).
+    const sub = placerResult;
+
+    // Translate sub-canvas placements back to absolute canvas coords,
+    // dropping any whose sprite body or name row would cross the room's
+    // bottom edge. The organic placer is happy to overflow when the
+    // sub-canvas can't fit the natural sprite size + name reservation
+    // (e.g. an 11-tall sausage creature in an 11-row 2×2 cell). On the
+    // garden canvas that overflow lands in the ground/SKY buffer; in
+    // rooms it lands in the *next room's content*. Dropping is the
+    // safer choice — fewer creatures shown in the cramped room, but
+    // no names bleeding through the divider into the room below.
+    // Reserve ROOM_FOOTER_ROWS at the bottom for visual breathing room
+    // before the next room's divider, so the last name row of THIS
+    // room can't visually merge with the divider of the NEXT room.
+    const safeBottom = absY + rect.height - footerRows;
+    for (const placement of sub) {
+      const translatedY = placement.charY + absY + headerRows;
+      const nameRowBottom =
+        translatedY + placement.tile.charRows + NAME_GAP_ROWS + NAME_H - 1;
+      if (nameRowBottom >= safeBottom) continue;
+      placements.push({
+        ...placement,
+        x: placement.x + absX,
+        charY: translatedY
+      });
+    }
+  });
+
+  return { placements, dividers, overflows: [], separators };
+};
+
+/** Compute how many creatures each vibe's room can fit at once on the
+ *  given panel canvas. Mirrors the geometry `placeInRooms` uses (same
+ *  room rect math, same sub-canvas reservations, same `safeGardenCapacity`
+ *  call), so ReadyShell can clamp `[` / `]` page navigation against the
+ *  same page counts the placer renders. */
+export const computeRoomPageCounts = (
+  tiles: SizedTile[],
+  canvasW: number,
+  canvasH: number,
+  deadZone?: { width: number; height: number },
+  topRightDeadZone?: { width: number; height: number }
+): Partial<Record<Vibe, number>> => {
+  if (tiles.length === 0) return {};
+
+  const groups = new Map<Vibe, SizedTile[]>();
+  for (const v of VIBE_ORDER) groups.set(v, []);
+  for (const tile of tiles) groups.get(tile.creature.vibe.vibe)?.push(tile);
+
+  const rooms: { vibe: Vibe; tiles: SizedTile[] }[] = [];
+  for (const vibe of VIBE_ORDER) {
+    const groupTiles = groups.get(vibe) ?? [];
+    if (groupTiles.length === 0) continue;
+    rooms.push({ vibe, tiles: groupTiles });
+  }
+  if (rooms.length === 0) return {};
+
+  const innerY = SKY_ROWS;
+  const innerH = Math.max(0, canvasH - SKY_ROWS - GROUND_ROWS);
+  const innerW = canvasW;
+  if (innerH <= 0 || innerW <= 0) return {};
+
+  const rects = computeRoomRects(
+    rooms.map((r) => ({ count: r.tiles.length })),
+    innerW,
+    innerH
+  );
+
+  const result: Partial<Record<Vibe, number>> = {};
+  const headerRows = rooms.length > 1 ? ROOM_HEADER_ROWS : 0;
+  const footerRows = rooms.length > 1 ? ROOM_FOOTER_ROWS : 0;
+  rooms.forEach((room, idx) => {
+    const rect = rects[idx];
+    if (!rect) return;
+    const absX = rect.x;
+    const absY = innerY + rect.y;
+    const subW = rect.width;
+    const subH = Math.max(0, rect.height - headerRows - footerRows);
+    if (subW < 6 || subH < 4) {
+      result[room.vibe] = 1;
+      return;
+    }
+    const roomCanvas: RoomRect = {
+      x: absX,
+      y: absY + headerRows,
+      width: subW,
+      height: subH
+    };
+    const localBR = deadZone
+      ? clipBottomRightZone(deadZone, roomCanvas, canvasW, canvasH)
+      : undefined;
+    const localTR = topRightDeadZone
+      ? clipTopRightZone(topRightDeadZone, roomCanvas, canvasW)
+      : undefined;
+    // Match `placeInRooms`: run the placer with all tiles; if it fits
+    // them all, pageCount=1. Only on overflow do we paginate. Using
+    // `safeGardenCapacity` here previously over-reported pageCount
+    // because its dead-zone math is conservative — so `[` / `]`
+    // showed page indicators for rooms that actually rendered as one
+    // page.
+    const placed = placeTilesGridded(room.tiles, subW, subH, localBR, localTR);
+    if (placed.length >= room.tiles.length) {
+      result[room.vibe] = 1;
+    } else {
+      const capacity = Math.max(1, placed.length);
+      result[room.vibe] = Math.max(1, Math.ceil(room.tiles.length / capacity));
+    }
+  });
+  return result;
+};
+
+/** Convenience wrapper around `computeRoomPageCounts` that takes raw
+ *  `RepoCreature`s rather than pre-sized tiles. Used by ReadyShell to
+ *  clamp the user's `[` / `]` keystrokes against the actual page count
+ *  the engine will render without having to duplicate the engine's
+ *  tile-building. Matches the engine's `buildTiles` logic exactly: same
+ *  `buildCreatureSizeCohort` + `creatureCharSize` calls, same sprite
+ *  dimensions. */
+export const computeRoomPageCountsForCreatures = (
+  creatures: readonly RepoCreature[],
+  canvasW: number,
+  canvasH: number,
+  deadZone?: { width: number; height: number },
+  topRightDeadZone?: { width: number; height: number }
+): Partial<Record<Vibe, number>> => {
+  if (creatures.length === 0) return {};
+  const cohort = buildCreatureSizeCohort(creatures.map((c) => c.scan));
+  const tiles: SizedTile[] = creatures.map((creature, index) => {
+    const { charW, charH } = creatureCharSize(creature.scan, undefined, cohort);
+    return {
+      creature,
+      index,
+      charW,
+      charH,
+      spriteCols: charW,
+      charRows: charH
+    };
+  });
+  return computeRoomPageCounts(tiles, canvasW, canvasH, deadZone, topRightDeadZone);
 };
 
 // Per-page slot dimensions used by paginateCreatures. These intentionally
@@ -446,8 +931,11 @@ export const safeGardenCapacity = (
   const minSlotW = Math.max(maxSpriteCols, maxLabelCols) + SLOT_PAD_X;
   const minSlotH = maxSpriteRows + NAME_GAP_ROWS + NAME_H;
   const usableW = Math.max(minSlotW, canvasW - 1);
+  // minSlotH already covers sprite + name strip; don't subtract it again
+  // (the old `- nameReserve` over-reserved a second name row and shrank
+  // the capacity report by one full grid row).
   const nameReserve = NAME_GAP_ROWS + NAME_H;
-  const usableH = Math.max(minSlotH, canvasH - SKY_ROWS - GROUND_ROWS - nameReserve);
+  const usableH = Math.max(minSlotH, canvasH - SKY_ROWS - GROUND_ROWS);
   const cols = Math.max(1, Math.floor(usableW / minSlotW));
   const rows = Math.max(1, Math.floor(usableH / minSlotH));
   const grid = cols * rows;
@@ -489,13 +977,11 @@ export const gardenPageCapacity = (
 ): number => {
   const slot = PAGE_SLOT_DIMS[density];
   const usableW = Math.max(slot.w, canvasW - 1);
-  // Match placeCreatures: reserve the name strip at the bottom so capacity
-  // math agrees with what the placer actually accepts. Without this match
-  // pagination would pack the last row tight and the placer would reject
-  // those slots, forcing overlap-packing — the exact thing pagination is
-  // here to prevent.
+  // slot.h already covers sprite + name strip; the previous `- nameReserve`
+  // double-counted the name reservation (slot.h includes it) and shrank
+  // capacity by one row, forcing premature pagination on tall sprites.
   const nameReserve = NAME_GAP_ROWS + NAME_H;
-  const usableH = Math.max(slot.h, canvasH - SKY_ROWS - GROUND_ROWS - nameReserve);
+  const usableH = Math.max(slot.h, canvasH - SKY_ROWS - GROUND_ROWS);
   const cols = Math.max(1, Math.floor(usableW / slot.w));
   const rows = Math.max(1, Math.floor(usableH / slot.h));
   const grid = cols * rows;
@@ -610,12 +1096,13 @@ export const placeCreatures = (
   const minSlotH = maxSpriteRows + NAME_GAP_ROWS + NAME_H;
 
   const usableW = Math.max(minSlotW, canvasW - 1);
-  // Reserve enough rows at the bottom for the name strip beneath every
-  // sprite (NAME_GAP_ROWS + NAME_H). Without this the lowest row of sprites
-  // pushes its name row into the GROUND row — the name silently clips
-  // against the panel's content edge.
+  // `minSlotH = maxSpriteRows + NAME_GAP_ROWS + NAME_H` already includes
+  // the name strip inside each slot, so we only need SKY/GROUND headroom.
+  // The earlier `- NAME_RESERVE` was reserving a second name strip and
+  // dropping one full grid row of capacity (e.g. h=11 sprites in a 28-row
+  // canvas got maxGridRows=1 instead of 2).
   const NAME_RESERVE = NAME_GAP_ROWS + NAME_H;
-  const usableH = Math.max(minSlotH, canvasH - SKY_ROWS - GROUND_ROWS - NAME_RESERVE);
+  const usableH = Math.max(minSlotH, canvasH - SKY_ROWS - GROUND_ROWS);
   const maxGridCols = Math.max(1, Math.floor(usableW / minSlotW));
   const maxGridRows = Math.max(1, Math.floor(usableH / minSlotH));
   const maxGridCapacity = maxGridCols * maxGridRows;

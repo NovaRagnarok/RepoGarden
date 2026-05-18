@@ -7,7 +7,7 @@ export const TUI_CONFIG_SCHEMA_VERSION = 1 as const;
 const configDir = (): string => join(homedir(), ".repogarden");
 const configFile = (): string => join(configDir(), "tui.json");
 
-export type ReadyView = "garden" | "shelf" | "journal";
+export type ReadyView = "garden" | "rooms" | "journal";
 
 /** How tightly creatures pack into a page (garden) or shelf row.
  *  `comfortable` is the historical default — generous slot padding,
@@ -71,7 +71,7 @@ const isGardenDensity = (value: unknown): value is GardenDensity =>
   value === "cozy" || value === "comfortable" || value === "dense";
 
 const isReadyView = (value: unknown): value is ReadyView =>
-  value === "garden" || value === "shelf" || value === "journal";
+  value === "garden" || value === "rooms" || value === "journal";
 
 const ENV_TRUE_VALUES = new Set(["1", "true"]);
 const ENV_FALSE_VALUES = new Set(["0", "false"]);

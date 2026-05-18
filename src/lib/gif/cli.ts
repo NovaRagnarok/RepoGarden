@@ -144,6 +144,7 @@ const buildScene = (parsed: ParsedArgs, options: BuildOptions): BuiltScene => {
   const colors: GardenThemeColors = {
     foreground: theme.colors.foreground,
     background: theme.colors.background,
+    muted: theme.colors.muted,
     mutedForeground: theme.colors.mutedForeground,
     primary: theme.colors.primary,
     accent: theme.colors.accent,

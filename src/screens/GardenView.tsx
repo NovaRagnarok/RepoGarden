@@ -14,6 +14,7 @@ import type {
 } from "@/garden/types";
 import type { GardenDensity } from "@/lib/garden-layout";
 import type { RepoCreature } from "@/lib/creature";
+import type { Vibe } from "@/lib/vibe";
 
 export interface GardenViewProps {
   creatures: RepoCreature[];
@@ -31,8 +32,10 @@ export interface GardenViewProps {
   deadZone?: GardenDeadZone;
   topRightDeadZone?: GardenTopRightDeadZone;
   paintExclusions?: GardenPaintExclusion[];
-  placementMode?: "organic" | "shelf";
+  placementMode?: "organic" | "rooms";
   density?: GardenDensity;
+  roomsPageIndex?: Partial<Record<Vibe, number>>;
+  disableWander?: boolean;
 }
 
 const toGardenTheme = (colors: GardenThemeColors): GardenThemeColors => colors;
@@ -51,7 +54,9 @@ const GardenViewInner = ({
   topRightDeadZone,
   paintExclusions,
   placementMode = "organic",
-  density = "comfortable"
+  density = "comfortable",
+  roomsPageIndex,
+  disableWander = false
 }: GardenViewProps) => {
   const theme = useTheme();
   const { reduced: reducedMotion } = useMotion();
@@ -70,6 +75,16 @@ const GardenViewInner = ({
         .join("|"),
     [paintExclusions]
   );
+  // Stable serialization of the per-vibe page indexes so the engineProps
+  // memo only re-fires when a value actually changes (the prop object
+  // reference itself changes every render).
+  const roomsPageIndexKey = useMemo(() => {
+    if (!roomsPageIndex) return "";
+    return Object.keys(roomsPageIndex)
+      .sort()
+      .map((k) => `${k}:${roomsPageIndex[k as Vibe] ?? 0}`)
+      .join("|");
+  }, [roomsPageIndex]);
 
   const engineProps = useMemo<GardenEngineProps | null>(() => {
     if (originRow === undefined || originCol === undefined) return null;
@@ -88,10 +103,13 @@ const GardenViewInner = ({
       paintExclusions,
       placementMode,
       density,
+      roomsPageIndex,
       reducedMotion,
+      disableWander,
       theme: toGardenTheme({
         foreground: theme.colors.foreground,
         background: theme.colors.background,
+        muted: theme.colors.muted,
         mutedForeground: theme.colors.mutedForeground,
         primary: theme.colors.primary,
         accent: theme.colors.accent,
@@ -121,6 +139,8 @@ const GardenViewInner = ({
     paintExclusionsKey,
     placementMode,
     density,
+    roomsPageIndexKey,
+    disableWander,
     reducedMotion,
     theme.colors.foreground,
     theme.colors.background,
