@@ -82,10 +82,10 @@ JSON
   esac
 done
 
-# Seed the TUI config so the demo recording shows the dense, no-pagination
-# layout — every demo creature lands on a single screen instead of paging.
-# `gardenPaginate: false` + `gardenDensity: "dense"` are the two 0.5.0
-# settings that drive this. The MEMORY_DIR was already created above.
+# Seed the TUI config so the demo recording paginates instead of cramming
+# all 32 demo creatures onto one screen. `gardenPaginate: true` is the
+# 0.5.0 setting that drives this; density stays "dense" so each page still
+# fills out visually. The MEMORY_DIR was already created above.
 mkdir -p "$DEMO_HOME/.repogarden"
 cat > "$DEMO_HOME/.repogarden/tui.json" <<EOF
 {
@@ -95,7 +95,7 @@ cat > "$DEMO_HOME/.repogarden/tui.json" <<EOF
   "reducedMotion": false,
   "usageBarDisabled": false,
   "observer": { "enabled": true },
-  "gardenPaginate": false,
+  "gardenPaginate": true,
   "gardenDensity": "dense"
 }
 EOF
