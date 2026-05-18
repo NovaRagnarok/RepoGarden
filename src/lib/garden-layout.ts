@@ -402,17 +402,15 @@ const placeTilesGridded = (
   const maxCols = Math.max(1, Math.floor(usableW / slotW));
   const maxRows = Math.max(1, Math.floor(usableH / slotH));
 
-  // Balance the layout instead of always packing max-cols-first. Filling
-  // left-to-right with N=6 in a 4x4 capacity grid would leave rows 2-3
-  // entirely empty; aim for a roughly square arrangement so the cohort
-  // uses the vertical space it's been given.
+  // Fill the room's vertical space before adding extra columns. With N=8
+  // in a 4-row × 8-col capacity room, prefer 4 rows × 2 cols (tall fill)
+  // over 3 rows × 3 cols (square — leaves the bottom row empty) or 1 row
+  // × 8 cols (the legacy "max-cols-first" layout the user flagged). For
+  // small cohorts (N < maxRows) this still spreads them down a single
+  // column — visually that's a tighter read than a wide gappy single row.
   const N = tiles.length;
-  let useCols = Math.max(1, Math.min(maxCols, Math.ceil(Math.sqrt(N))));
-  if (Math.ceil(N / useCols) > maxRows) {
-    useCols = Math.max(1, Math.ceil(N / maxRows));
-  }
-  useCols = Math.max(1, Math.min(maxCols, useCols));
-  const useRows = Math.max(1, Math.ceil(N / useCols));
+  const useRows = Math.max(1, Math.min(maxRows, N));
+  const useCols = Math.max(1, Math.min(maxCols, Math.ceil(N / useRows)));
 
   // Stretch the slot pitch to spread the chosen useCols × useRows over the
   // full canvas. With N=4 in a 4x4 capacity, pitch grows so the four
