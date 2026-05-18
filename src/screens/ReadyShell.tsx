@@ -111,7 +111,7 @@ export const ReadyShell = ({
 }: ReadyShellProps) => {
   const theme = useTheme();
   const { reduced: reducedMotion } = useMotion();
-  const { latest: latestStatus, push: pushToast } = useToasts();
+  const { latest: latestStatus, push: pushToast, active: activeToasts } = useToasts();
   const { columns, rows } = useTerminalSize();
   const responsive = getTerminalLayout(columns, rows);
   const usage = useUsage(undefined, { disabled: usageBarDisabled });
@@ -1122,6 +1122,86 @@ export const ReadyShell = ({
   const wideGardenContentCol = 1 + gardenSidebarWidth + 1 + 1 + 1 + 1;
   const stackedGardenContentCol = 1 + 1 + 1 + 1;
 
+  // Paint-mask the toast's screen footprint so the garden engine's
+  // direct-stdout star/sprite painter doesn't overpaint Ink's toast.
+  // The toast is positioned by the absolutely-placed Toaster Box below
+  // (`marginTop = rows - TOASTER_MARGIN_TOP`, right-aligned within
+  // `width = columns - 2`), so its top-left screen position is
+  // deterministic from `rows` / `columns` plus the visible toast widths.
+  // The mask is consumed by GardenView in canvas-local coords, so we
+  // convert from absolute screen rows/cols to canvas-local via the same
+  // origin math used to place the engine.
+  //
+  // Mask geometry per toast (matches `Toast`'s Yoga box with
+  // showProgress=false): width = message.length + border(2) +
+  // paddingX(2) + icon(1) + gap(1); height = 3 (top border + content +
+  // bottom border). Stacked vertically inside the Toaster's column,
+  // newest at the bottom; `max=3` cap.
+  const TOASTER_MARGIN_TOP = 9; // keep in sync with the Toaster Box below
+  const TOAST_MAX_VISIBLE = 3;
+  const TOAST_ROWS_EACH = 3;
+  const TOAST_WIDTH_PADDING = 6; // border(2) + paddingX(2) + icon(1) + gap(1)
+  const visibleToasts = activeToasts.slice(-TOAST_MAX_VISIBLE);
+  // Serialized message lengths so the paintExclusions memo doesn't see
+  // a fresh reference every render (the active list is rebuilt on each
+  // push/dismiss). Exclusion geometry is purely a function of message
+  // width and count.
+  const visibleToastSig = visibleToasts.map((t) => t.message.length).join(",");
+  const gardenContentCol = responsive.showSidebar
+    ? wideGardenContentCol
+    : stackedGardenContentCol;
+  const gardenContentRowForCanvas = responsive.showSidebar
+    ? gardenContentRow
+    : gardenContentRow + 1;
+  const gardenCanvasInnerWidth = responsive.showSidebar
+    ? gardenInnerWidth
+    : Math.max(20, stackedWidth - 4);
+  const gardenCanvasInnerHeight = gardenInnerHeight;
+  const paintExclusions = useMemo(() => {
+    if (visibleToasts.length === 0) return undefined;
+    const widestMessage = visibleToasts.reduce(
+      (acc, t) => Math.max(acc, t.message.length),
+      0
+    );
+    const boxWidth = widestMessage + TOAST_WIDTH_PADDING;
+    const stackHeight = visibleToasts.length * TOAST_ROWS_EACH;
+    // Toaster's parent has paddingY=1 (parent's content origin row = 2,
+    // 1-indexed); marginTop adds further offset.
+    const screenTopRow = 1 + 1 + (rows - TOASTER_MARGIN_TOP);
+    // The Toaster's `alignSelf="flex-end"` was intended to right-align
+    // the box, but the wrapping `position="absolute"` Box defaults to
+    // row-direction, so flex-end pushes vertically (cross-axis) rather
+    // than horizontally. Toasts render at the LEFT edge of the absolute
+    // Box, offset by the parent's paddingX=1 — so left col (1-indexed)
+    // is 1 + 1 = 2.
+    const screenLeftCol = 1 + 1;
+    const localX = screenLeftCol - gardenContentCol;
+    const localY = screenTopRow - gardenContentRowForCanvas;
+    // Clamp to canvas — over-wide rects waste no work but keep
+    // semantics clean. Negative coords are valid (engine renders only
+    // the in-bounds intersection) but we trim to keep the mask compact.
+    const clampedX = Math.max(0, localX);
+    const clampedY = Math.max(0, localY);
+    const clampedW = Math.max(
+      0,
+      Math.min(gardenCanvasInnerWidth - clampedX, boxWidth - (clampedX - localX))
+    );
+    const clampedH = Math.max(
+      0,
+      Math.min(gardenCanvasInnerHeight - clampedY, stackHeight - (clampedY - localY))
+    );
+    if (clampedW <= 0 || clampedH <= 0) return undefined;
+    return [{ x: clampedX, y: clampedY, width: clampedW, height: clampedH }];
+  }, [
+    visibleToastSig,
+    rows,
+    columns,
+    gardenContentCol,
+    gardenContentRowForCanvas,
+    gardenCanvasInnerWidth,
+    gardenCanvasInnerHeight
+  ]);
+
   const sidebar = (width?: number, height?: number, borderColor?: string) => {
     // Content rows = panel height minus 4 rows of chrome (top border, title
     // header, title bottom border, bottom border), (-1) for the inline status
@@ -1778,6 +1858,7 @@ export const ReadyShell = ({
               onFocusDelta={handleGardenFocusDelta}
               onCreaturePlacementChange={handleGardenCreaturePlacementChange}
               deadZone={overlayDeadZone}
+              paintExclusions={paintExclusions}
               placementMode={habitatPlacementMode}
               density={gardenDensity}
             />
@@ -1817,6 +1898,7 @@ export const ReadyShell = ({
             onCreatureSelect={handleGardenCreatureSelect}
             onFocusDelta={handleGardenFocusDelta}
             onCreaturePlacementChange={handleGardenCreaturePlacementChange}
+            paintExclusions={paintExclusions}
             placementMode={habitatPlacementMode}
             density={gardenDensity}
           />
