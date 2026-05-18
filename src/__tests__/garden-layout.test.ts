@@ -210,7 +210,7 @@ test("placeInRooms drops cohorts with no creatures from the layout entirely", ()
     ...Array.from({ length: 3 }, (_, i) => makeTileWithVibe(i, `a${i}`, "awake", 5, 4)),
     ...Array.from({ length: 3 }, (_, i) => makeTileWithVibe(100 + i, `z${i}`, "sleepy", 5, 4))
   ];
-  const layout = placeInRooms(tiles, 80, 24, "test-seed");
+  const layout = placeInRooms(tiles, 80, 24, "test-seed", {});
   const dividerVibes = new Set(layout.dividers.map((d) => d.vibe));
   assert.equal(dividerVibes.has("awake"), true);
   assert.equal(dividerVibes.has("sleepy"), true);
@@ -225,7 +225,7 @@ test("placeInRooms gives every populated cohort its own room", () => {
     makeTileWithVibe(2, "s", "stuck", 5, 4),
     makeTileWithVibe(3, "z", "sleepy", 5, 4)
   ];
-  const layout = placeInRooms(tiles, 80, 24, "test-seed");
+  const layout = placeInRooms(tiles, 80, 24, "test-seed", {});
   for (const vibe of ["awake", "happy", "stuck", "sleepy"] as const) {
     assert.ok(
       layout.dividers.some((d) => d.vibe === vibe),
@@ -248,7 +248,7 @@ test("placeInRooms partitions the canvas into non-overlapping rectangles", () =>
     makeTileWithVibe(2, "s", "stuck", 4, 3),
     makeTileWithVibe(3, "z", "sleepy", 4, 3)
   ];
-  const layout = placeInRooms(tiles, 80, 24, "test-seed");
+  const layout = placeInRooms(tiles, 80, 24, "test-seed", {});
   assert.equal(layout.dividers.length, 4);
   // No two rooms' rectangles share any cell.
   const rects = layout.dividers.map((d) => ({
@@ -279,7 +279,7 @@ test("placeInRooms places creatures inside their room's rectangle", () => {
     ...Array.from({ length: 2 }, (_, i) => makeTileWithVibe(i, `a${i}`, "awake", 4, 3)),
     ...Array.from({ length: 2 }, (_, i) => makeTileWithVibe(100 + i, `h${i}`, "happy", 4, 3))
   ];
-  const layout = placeInRooms(tiles, 60, 20, "test-seed");
+  const layout = placeInRooms(tiles, 60, 20, "test-seed", {});
   for (const placement of layout.placements) {
     const vibe = placement.tile.creature.vibe.vibe as Vibe;
     const divider = layout.dividers.find((d) => d.vibe === vibe);

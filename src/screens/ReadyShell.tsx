@@ -21,6 +21,7 @@ import type { RepoCreature } from "@/lib/creature";
 import { tildify } from "@/lib/scanner";
 import { vibeGlyph, type Vibe } from "@/lib/vibe";
 import {
+  computeRoomPageCountsForCreatures,
   gardenPageCapacity,
   safeGardenCapacity,
   type GardenDensity
@@ -190,6 +191,14 @@ export const ReadyShell = ({
   // Garden-mode pagination. Only meaningful when displayView === "garden";
   // shelf and journal render the full creature list. [ / ] flip pages.
   const [gardenPageIndex, setGardenPageIndex] = useState(0);
+  // Rooms-mode pagination. Each vibe's room paginates independently
+  // against its own room-rect capacity — on a small terminal where
+  // awake only fits 4 of its 7 creatures, the user can flip pages
+  // within awake without disturbing the happy / stuck / sleepy rooms.
+  // [ / ] target the focused creature's vibe.
+  const [roomsPageByVibe, setRoomsPageByVibe] = useState<
+    Partial<Record<Vibe, number>>
+  >({});
   // Journal two-pane focus model. The journal view has two keyboard zones —
   // the event-list pane and the repo sidebar — and Esc toggles between them
   // (with an active filter consumed first). ↑↓ / jk both operate on the
@@ -628,10 +637,12 @@ export const ReadyShell = ({
       void handleCopyTextFrameBig();
       return;
     }
-    // Page nav — only meaningful in garden view (shelf/journal don't paginate).
-    // Clamps at edges so a stray ] at the last page doesn't move the cursor.
-    // Focus resets to the first creature on the new page so the highlight
-    // never lands on something the user can't see.
+    // Page nav — works differently per view.
+    // Garden: flips between full-canvas pages of all creatures.
+    // Rooms: flips ONE room (whichever vibe the focused creature is in).
+    //   Each cohort paginates independently, so on a tight terminal you
+    //   can step through awake's overflow without touching happy/etc.
+    // Shelf/journal don't paginate.
     if (input === "[" && isGardenView && gardenPageCount > 1) {
       setGardenPageIndex((p) => Math.max(0, p - 1));
       setFocusIndex(0);
@@ -642,6 +653,28 @@ export const ReadyShell = ({
       setGardenPageIndex((p) => Math.min(gardenPageCount - 1, p + 1));
       setFocusIndex(0);
       setHomeSelected(false);
+      return;
+    }
+    if (displayView === "rooms" && (input === "[" || input === "]")) {
+      // Pick the vibe to paginate: focused creature's vibe if any,
+      // otherwise the first room that has more than one page.
+      const targetVibe: Vibe | undefined =
+        (focus?.vibe.vibe as Vibe | undefined) ??
+        (Object.entries(roomsPageCounts).find(
+          ([, count]) => (count ?? 0) > 1
+        )?.[0] as Vibe | undefined);
+      if (!targetVibe) return;
+      const pageCount = roomsPageCounts[targetVibe] ?? 1;
+      if (pageCount <= 1) return;
+      setRoomsPageByVibe((prev) => {
+        const current = prev[targetVibe] ?? 0;
+        const next =
+          input === "["
+            ? Math.max(0, current - 1)
+            : Math.min(pageCount - 1, current + 1);
+        if (next === current) return prev;
+        return { ...prev, [targetVibe]: next };
+      });
       return;
     }
     if (key.escape && filter) {
@@ -784,6 +817,28 @@ export const ReadyShell = ({
   const gardenPageCount = gardenPagination.pageCount;
   const safeGardenPageIndex = gardenPagination.safePageIndex;
   const pagedVisibleCreatures = gardenPagination.pageItems;
+  // Rooms-mode pagination: each vibe's room has its own page count
+  // driven by how many creatures fit in that room's slice of the panel
+  // canvas. Mirrors the same `safeGardenCapacity` math the engine's
+  // `placeInRooms` runs internally so the count we surface to
+  // `[` / `]` keystrokes matches the count the placer renders.
+  const isRoomsView = displayView === "rooms";
+  const roomsPageCounts = useMemo(() => {
+    if (!isRoomsView) return {} as Partial<Record<Vibe, number>>;
+    return computeRoomPageCountsForCreatures(
+      visibleCreatures,
+      gardenInnerWidth,
+      gardenInnerHeight,
+      overlayDeadZone
+    );
+  }, [
+    isRoomsView,
+    visibleCreatures,
+    gardenInnerWidth,
+    gardenInnerHeight,
+    overlayDeadZone?.width,
+    overlayDeadZone?.height
+  ]);
 
   // Reset page on filter change so an empty page can't strand the user.
   useEffect(() => {
@@ -854,7 +909,8 @@ export const ReadyShell = ({
       deadZone: responsive.showSidebar ? overlayDeadZone : undefined,
       placementMode: habitatPlacementMode,
       theme: gardenThemeColors,
-      reducedMotion: false
+      reducedMotion: false,
+      roomsPageIndex: roomsPageByVibe
     };
     const safeCapacity = safeGardenCapacity(
       buildTiles(draftProps),
@@ -1861,6 +1917,7 @@ export const ReadyShell = ({
               paintExclusions={paintExclusions}
               placementMode={habitatPlacementMode}
               density={gardenDensity}
+              roomsPageIndex={roomsPageByVibe}
             />
             {overlayCardSlot.reserved ? (
               <Box
@@ -1901,6 +1958,7 @@ export const ReadyShell = ({
             paintExclusions={paintExclusions}
             placementMode={habitatPlacementMode}
             density={gardenDensity}
+            roomsPageIndex={roomsPageByVibe}
           />
         </Box>
       ) : responsive.showSidebar ? (

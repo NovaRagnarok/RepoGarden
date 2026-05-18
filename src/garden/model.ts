@@ -305,6 +305,7 @@ const buildScene = (props: GardenSceneProps): GardenScene => {
           props.innerWidth,
           props.canvasH,
           stableCreatureIdsKey(props.creatures),
+          props.roomsPageIndex ?? {},
           props.deadZone,
           placerZone
         )

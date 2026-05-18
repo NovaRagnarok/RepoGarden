@@ -174,7 +174,9 @@ const drawDivider = (
   vibe: Vibe,
   count: number,
   colStart: number,
-  width: number
+  width: number,
+  pageIndex: number | undefined,
+  pageCount: number | undefined
 ): void => {
   if (row < 0 || row >= frame.height) return;
   // Pull the dashes in aggressively from each end so the divider is
@@ -187,7 +189,12 @@ const drawDivider = (
   const right = Math.min(frame.width, colStart + width - DIVIDER_INSET);
   const span = right - left;
   if (span <= 0) return;
-  const labelText = ` ${formatShelfDividerLabel(vibe, count, Math.max(0, span - 4))} `;
+  const baseLabel = formatShelfDividerLabel(vibe, count, Math.max(0, span - 4));
+  const pageSuffix =
+    pageCount !== undefined && pageCount > 1 && pageIndex !== undefined
+      ? ` · ${pageIndex}/${pageCount}`
+      : "";
+  const labelText = ` ${baseLabel}${pageSuffix} `;
   const labelLen = Math.min(labelText.length, Math.max(0, span - 2));
   const labelStart = left + Math.max(1, Math.floor((span - labelLen) / 2));
   const labelEnd = labelStart + labelLen;
@@ -266,7 +273,9 @@ export const renderGardenFrame = (
       divider.vibe,
       divider.count,
       divider.canvasCol,
-      divider.width
+      divider.width,
+      divider.pageIndex,
+      divider.pageCount
     );
   }
 

@@ -5,7 +5,12 @@
 // belongs here.
 
 import type { RepoCreature } from "@/lib/creature";
-import { hashString, mulberry32 } from "@/lib/sprite";
+import {
+  buildCreatureSizeCohort,
+  creatureCharSize,
+  hashString,
+  mulberry32
+} from "@/lib/sprite";
 import type { Vibe } from "@/lib/vibe";
 
 export interface SizedTile {
@@ -55,6 +60,11 @@ export interface DividerPlacement {
   vibe: Vibe;
   /** Number of creatures sitting under this divider. */
   count: number;
+  /** 1-indexed current page for this vibe's room when the cohort has more
+   *  creatures than fit in the room. Omitted when there's only one page. */
+  pageIndex?: number;
+  /** Total page count for this vibe's room. Omitted when only one page. */
+  pageCount?: number;
 }
 
 export interface ShelfOverflow {
@@ -379,6 +389,7 @@ export const placeInRooms = (
   canvasW: number,
   canvasH: number,
   seedKey: string,
+  pageIndexByVibe: Partial<Record<Vibe, number>>,
   deadZone?: { width: number; height: number },
   topRightDeadZone?: { width: number; height: number }
 ): ShelfLayout => {
@@ -449,24 +460,11 @@ export const placeInRooms = (
     const absX = rect.x;
     const absY = innerY + rect.y;
 
-    // Divider sits on the top row of the room and spans only that room's
-    // width — adjacent rooms each get their own dashes-around-the-label.
-    dividers.push({
-      vibe: room.vibe,
-      count: room.tiles.length,
-      canvasRow: absY,
-      canvasCol: absX,
-      width: rect.width
-    });
-
     // Sub-canvas for the organic placer: room rect minus its header
     // AND a footer buffer (so names land at least ROOM_FOOTER_ROWS
     // above the room's bottom edge).
     const subW = rect.width;
     const subH = Math.max(0, rect.height - ROOM_HEADER_ROWS - ROOM_FOOTER_ROWS);
-    // Pathologically small rooms (e.g. a 2×2 split on a tiny terminal):
-    // skip placement rather than crash the organic placer's minSlot math.
-    if (subW < 6 || subH < 4) return;
 
     const roomCanvas: RoomRect = {
       x: absX,
@@ -481,11 +479,53 @@ export const placeInRooms = (
       ? clipTopRightZone(topRightDeadZone, roomCanvas, canvasW)
       : undefined;
 
+    // Per-room pagination: rooms on small terminals can't fit all of
+    // their cohort, so each vibe's room flips through its own pages
+    // independently. Capacity is computed against the room's actual
+    // sub-canvas dimensions so a wider room (a larger cohort) holds
+    // more per page than a narrower one.
+    let pageCount = 1;
+    let pageIndex = 0;
+    let pagedTiles = room.tiles;
+    const pathologicallySmall = subW < 6 || subH < 4;
+    if (!pathologicallySmall) {
+      const capacity = Math.max(
+        1,
+        safeGardenCapacity(room.tiles, subW, subH, localBR, localTR)
+      );
+      pageCount = Math.max(1, Math.ceil(room.tiles.length / capacity));
+      const requested = pageIndexByVibe[room.vibe] ?? 0;
+      pageIndex = Math.max(0, Math.min(pageCount - 1, requested));
+      pagedTiles = room.tiles.slice(
+        pageIndex * capacity,
+        pageIndex * capacity + capacity
+      );
+    }
+
+    // Divider sits on the top row of the room and spans only that room's
+    // width — adjacent rooms each get their own dashes-around-the-label.
+    // Page metadata is attached when the cohort spans more than one page
+    // so the renderer can append `(N/M)` to the label.
+    dividers.push({
+      vibe: room.vibe,
+      count: room.tiles.length,
+      canvasRow: absY,
+      canvasCol: absX,
+      width: rect.width,
+      ...(pageCount > 1
+        ? { pageIndex: pageIndex + 1, pageCount }
+        : {})
+    });
+
+    // Pathologically small rooms (e.g. a 2×2 split on a tiny terminal):
+    // skip placement rather than crash the organic placer's minSlot math.
+    if (pathologicallySmall) return;
+
     const sub = placeCreatures(
-      room.tiles,
+      pagedTiles,
       subW,
       subH,
-      `${seedKey}:${room.vibe}`,
+      `${seedKey}:${room.vibe}:${pageIndex}`,
       localBR,
       localTR
     );
@@ -517,6 +557,106 @@ export const placeInRooms = (
   });
 
   return { placements, dividers, overflows: [], separators };
+};
+
+/** Compute how many creatures each vibe's room can fit at once on the
+ *  given panel canvas. Mirrors the geometry `placeInRooms` uses (same
+ *  room rect math, same sub-canvas reservations, same `safeGardenCapacity`
+ *  call), so ReadyShell can clamp `[` / `]` page navigation against the
+ *  same page counts the placer renders. */
+export const computeRoomPageCounts = (
+  tiles: SizedTile[],
+  canvasW: number,
+  canvasH: number,
+  deadZone?: { width: number; height: number },
+  topRightDeadZone?: { width: number; height: number }
+): Partial<Record<Vibe, number>> => {
+  if (tiles.length === 0) return {};
+
+  const groups = new Map<Vibe, SizedTile[]>();
+  for (const v of VIBE_ORDER) groups.set(v, []);
+  for (const tile of tiles) groups.get(tile.creature.vibe.vibe)?.push(tile);
+
+  const rooms: { vibe: Vibe; tiles: SizedTile[] }[] = [];
+  for (const vibe of VIBE_ORDER) {
+    const groupTiles = groups.get(vibe) ?? [];
+    if (groupTiles.length === 0) continue;
+    rooms.push({ vibe, tiles: groupTiles });
+  }
+  if (rooms.length === 0) return {};
+
+  const innerY = SKY_ROWS;
+  const innerH = Math.max(0, canvasH - SKY_ROWS - GROUND_ROWS);
+  const innerW = canvasW;
+  if (innerH <= 0 || innerW <= 0) return {};
+
+  const rects = computeRoomRects(
+    rooms.map((r) => ({ count: r.tiles.length })),
+    innerW,
+    innerH
+  );
+
+  const result: Partial<Record<Vibe, number>> = {};
+  rooms.forEach((room, idx) => {
+    const rect = rects[idx];
+    if (!rect) return;
+    const absX = rect.x;
+    const absY = innerY + rect.y;
+    const subW = rect.width;
+    const subH = Math.max(0, rect.height - ROOM_HEADER_ROWS - ROOM_FOOTER_ROWS);
+    if (subW < 6 || subH < 4) {
+      result[room.vibe] = 1;
+      return;
+    }
+    const roomCanvas: RoomRect = {
+      x: absX,
+      y: absY + ROOM_HEADER_ROWS,
+      width: subW,
+      height: subH
+    };
+    const localBR = deadZone
+      ? clipBottomRightZone(deadZone, roomCanvas, canvasW, canvasH)
+      : undefined;
+    const localTR = topRightDeadZone
+      ? clipTopRightZone(topRightDeadZone, roomCanvas, canvasW)
+      : undefined;
+    const capacity = Math.max(
+      1,
+      safeGardenCapacity(room.tiles, subW, subH, localBR, localTR)
+    );
+    result[room.vibe] = Math.max(1, Math.ceil(room.tiles.length / capacity));
+  });
+  return result;
+};
+
+/** Convenience wrapper around `computeRoomPageCounts` that takes raw
+ *  `RepoCreature`s rather than pre-sized tiles. Used by ReadyShell to
+ *  clamp the user's `[` / `]` keystrokes against the actual page count
+ *  the engine will render without having to duplicate the engine's
+ *  tile-building. Matches the engine's `buildTiles` logic exactly: same
+ *  `buildCreatureSizeCohort` + `creatureCharSize` calls, same sprite
+ *  dimensions. */
+export const computeRoomPageCountsForCreatures = (
+  creatures: readonly RepoCreature[],
+  canvasW: number,
+  canvasH: number,
+  deadZone?: { width: number; height: number },
+  topRightDeadZone?: { width: number; height: number }
+): Partial<Record<Vibe, number>> => {
+  if (creatures.length === 0) return {};
+  const cohort = buildCreatureSizeCohort(creatures.map((c) => c.scan));
+  const tiles: SizedTile[] = creatures.map((creature, index) => {
+    const { charW, charH } = creatureCharSize(creature.scan, undefined, cohort);
+    return {
+      creature,
+      index,
+      charW,
+      charH,
+      spriteCols: charW,
+      charRows: charH
+    };
+  });
+  return computeRoomPageCounts(tiles, canvasW, canvasH, deadZone, topRightDeadZone);
 };
 
 // Per-page slot dimensions used by paginateCreatures. These intentionally

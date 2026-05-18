@@ -14,6 +14,7 @@ import type {
 } from "@/garden/types";
 import type { GardenDensity } from "@/lib/garden-layout";
 import type { RepoCreature } from "@/lib/creature";
+import type { Vibe } from "@/lib/vibe";
 
 export interface GardenViewProps {
   creatures: RepoCreature[];
@@ -33,6 +34,7 @@ export interface GardenViewProps {
   paintExclusions?: GardenPaintExclusion[];
   placementMode?: "organic" | "rooms";
   density?: GardenDensity;
+  roomsPageIndex?: Partial<Record<Vibe, number>>;
 }
 
 const toGardenTheme = (colors: GardenThemeColors): GardenThemeColors => colors;
@@ -51,7 +53,8 @@ const GardenViewInner = ({
   topRightDeadZone,
   paintExclusions,
   placementMode = "organic",
-  density = "comfortable"
+  density = "comfortable",
+  roomsPageIndex
 }: GardenViewProps) => {
   const theme = useTheme();
   const { reduced: reducedMotion } = useMotion();
@@ -70,6 +73,16 @@ const GardenViewInner = ({
         .join("|"),
     [paintExclusions]
   );
+  // Stable serialization of the per-vibe page indexes so the engineProps
+  // memo only re-fires when a value actually changes (the prop object
+  // reference itself changes every render).
+  const roomsPageIndexKey = useMemo(() => {
+    if (!roomsPageIndex) return "";
+    return Object.keys(roomsPageIndex)
+      .sort()
+      .map((k) => `${k}:${roomsPageIndex[k as Vibe] ?? 0}`)
+      .join("|");
+  }, [roomsPageIndex]);
 
   const engineProps = useMemo<GardenEngineProps | null>(() => {
     if (originRow === undefined || originCol === undefined) return null;
@@ -88,6 +101,7 @@ const GardenViewInner = ({
       paintExclusions,
       placementMode,
       density,
+      roomsPageIndex,
       reducedMotion,
       theme: toGardenTheme({
         foreground: theme.colors.foreground,
@@ -122,6 +136,7 @@ const GardenViewInner = ({
     paintExclusionsKey,
     placementMode,
     density,
+    roomsPageIndexKey,
     reducedMotion,
     theme.colors.foreground,
     theme.colors.background,

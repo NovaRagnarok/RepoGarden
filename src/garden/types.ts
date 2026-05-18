@@ -1,4 +1,5 @@
 import type { RepoCreature } from "@/lib/creature";
+import type { Vibe } from "@/lib/vibe";
 import type {
   DividerPlacement,
   GardenDensity,
@@ -67,6 +68,12 @@ export interface GardenSceneProps {
    *  density concept); the field is kept on this shared props bag so
    *  ReadyShell can pass the same setting through regardless of mode. */
   density?: GardenDensity;
+  /** Per-vibe page index for rooms mode. Each cohort paginates
+   *  independently against its own room's capacity, so a small terminal
+   *  where the awake room only fits 4 creatures can still show all 7 by
+   *  flipping pages without affecting the happy / stuck / sleepy rooms.
+   *  Garden mode ignores this. */
+  roomsPageIndex?: Partial<Record<Vibe, number>>;
 }
 
 export interface GardenEngineProps extends GardenSceneProps {
