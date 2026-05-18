@@ -231,9 +231,11 @@ export const MIN_ROOM_H = 8;
 // labels + boxes but drop all creatures — exactly the state the user
 // flagged. Higher than `MIN_ROOM_W` / `MIN_ROOM_H` because those values
 // are the splitLen absolute floor (which can still be empty in
-// practice).
+// practice). Bumped up so a cohort full of medium-large creatures
+// (charH around 5-7) doesn't get every member dropped — the previous
+// 13-row threshold only protected the smallest creatures.
 export const ROOM_COMPACT_TRIGGER_W = 20;
-export const ROOM_COMPACT_TRIGGER_H = 13;
+export const ROOM_COMPACT_TRIGGER_H = 16;
 
 // Proportionally split `length` into N chunks weighted by `weights`,
 // clamped to >= `min` each. When the sum of weights is zero (shouldn't
@@ -424,11 +426,14 @@ const placeTilesGridded = (
     }
     if (topRightDeadZone && slotRight > trLeft && slotY < trBottom) continue;
     const tile = tiles[i];
-    // Bottom-align sprites within the slot so the name row (one
-    // row below `charY + charRows`) lines up across creatures of
-    // different heights — the visual baseline stays consistent.
+    // Top-align sprites within the slot. Bottom-align would tie every
+    // creature's name row to `slotY + slotH` (i.e. the tallest creature
+    // in the cohort), so if the tallest overflows the room's safeBottom
+    // every creature gets dropped — including short ones that would
+    // individually fit. Top-align decouples each creature's overflow
+    // check from its cohort's tallest member.
     const x = slotX + Math.floor((slotW - tile.spriteCols) / 2);
-    const charY = slotY + (maxSpriteRows - tile.charRows);
+    const charY = slotY;
     placements.push({ tile, x, charY });
   }
   return placements;
