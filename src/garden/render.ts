@@ -1,10 +1,11 @@
+import { blendHex } from "@/lib/color";
 import { computeFocusFrameCells, formatShelfDividerLabel, NAME_GAP_ROWS } from "@/lib/garden-layout";
 import { quadrantChar } from "@/lib/sprite";
 
 import { computeStarVisual, greyHex, starAtCell } from "@/garden/stars";
 import { blinkClosedAt, wiggleFrameAt } from "@/garden/model";
 import type { GardenCell, GardenFrame, GardenModel, GardenSpriteInfo } from "@/garden/types";
-import type { Vibe } from "@/lib/vibe";
+import { vibeColor, type Vibe } from "@/lib/vibe";
 
 // Tightest cell rect that contains any lit sub-pixel across both animation
 // frames. Sprite bitmaps frequently leave empty cells at the top/sides of
@@ -80,29 +81,6 @@ const isInPaintExclusion = (model: GardenModel, x: number, y: number): boolean =
   return false;
 };
 
-// Blend two `#rrggbb` hex colors at the given mix ratio (0 = pure `a`,
-// 1 = pure `b`). Used to dial a room-separator color sitting halfway
-// between the theme's dark `muted` and brighter `mutedForeground` —
-// `muted` alone reads too dim for the boundary to register, but
-// `mutedForeground` competes with sprite art.
-const blendHex = (a: string, b: string, mix: number): string => {
-  const parse = (hex: string): [number, number, number] => {
-    const h = hex.replace("#", "");
-    if (h.length !== 6) return [0, 0, 0];
-    return [
-      parseInt(h.slice(0, 2), 16),
-      parseInt(h.slice(2, 4), 16),
-      parseInt(h.slice(4, 6), 16),
-    ];
-  };
-  const [ar, ag, ab] = parse(a);
-  const [br, bg, bb] = parse(b);
-  const t = Math.max(0, Math.min(1, mix));
-  const lerp = (x: number, y: number): number => Math.round(x + (y - x) * t);
-  const toHex = (n: number): string => n.toString(16).padStart(2, "0");
-  return `#${toHex(lerp(ar, br))}${toHex(lerp(ag, bg))}${toHex(lerp(ab, bb))}`;
-};
-
 const setCell = (
   frame: GardenFrame,
   x: number,
@@ -147,18 +125,8 @@ const blockStarsForOverlays = (
   return false;
 };
 
-const dividerLabelColor = (model: GardenModel, vibe: string): string => {
-  switch (vibe) {
-    case "stuck":
-      return model.props.theme.error;
-    case "awake":
-      return model.props.theme.warning;
-    case "sleepy":
-      return model.props.theme.info;
-    default:
-      return model.props.theme.success;
-  }
-};
+const dividerLabelColor = (model: GardenModel, vibe: Vibe): string =>
+  vibeColor(vibe, model.props.theme);
 
 // Mid-tone separator color: 40% of the way from the theme's dark `muted`
 // toward the brighter `mutedForeground`. Sits clearly below the sprite

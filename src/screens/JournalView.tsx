@@ -34,7 +34,7 @@ import {
   type JournalScopeMode,
 } from "@/lib/journal";
 import type { RepoCreature } from "@/lib/creature";
-import { vibeGlyph } from "@/lib/vibe";
+import { vibeColor, vibeGlyph } from "@/lib/vibe";
 import type { Vibe } from "@/lib/vibe";
 
 // ---------------------------------------------------------------------------
@@ -325,13 +325,10 @@ export const JournalView = ({
         return theme.colors.info;
       case "warning":
         return theme.colors.warning;
-      case "vibe": {
-        const v = def.vibeTarget;
-        if (v === "stuck") return theme.colors.error;
-        if (v === "awake") return theme.colors.warning;
-        if (v === "sleepy") return theme.colors.info;
-        return theme.colors.success;
-      }
+      case "vibe":
+        return def.vibeTarget
+          ? vibeColor(def.vibeTarget, theme.colors)
+          : theme.colors.mutedForeground;
       default:
         return theme.colors.mutedForeground;
     }

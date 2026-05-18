@@ -1,3 +1,4 @@
+import { blendHex } from "@/lib/color";
 import type { ProjectMemory } from "@/lib/memory-types";
 import type { ScannedRepo } from "@/lib/scanner-types";
 import type { Mood, Vibe } from "@/lib/vibe-types";
@@ -257,5 +258,45 @@ export const vibeGlyph = (vibe: Vibe): string => {
       return "!";
     case "happy":
       return "•";
+  }
+};
+
+/** Subset of a theme palette needed to render a vibe. Lets `vibeColor`
+ *  live in this file (no theme-provider dependency) while still
+ *  pulling its colors from whichever theme the host is using. */
+export interface VibePalette {
+  info: string;
+  success: string;
+  error: string;
+  mutedForeground: string;
+}
+
+/** Color associated with a vibe across the entire UI — sprite bodies,
+ *  divider labels, sidebar glyphs, journal kind chips. Centralized here
+ *  so a change like "awake should read as positive, not warning"
+ *  propagates everywhere at once.
+ *
+ *  - `awake`   — `info` (bright blue): in-flight work, but no longer
+ *    treated as a warning state. Reads as alert, not alarm.
+ *  - `happy`   — `success` (green): in sync, calm.
+ *  - `stuck`   — `error` (red): blocked, needs attention.
+ *  - `sleepy`  — washed-out blue (info × mutedForeground @ 55%):
+ *    dormant. Same hue family as awake but desaturated, so the eye
+ *    reads "low-energy version of the active state" rather than a
+ *    completely separate signal. */
+export const vibeColor = (vibe: Vibe, palette: VibePalette): string => {
+  switch (vibe) {
+    case "awake":
+      return palette.info;
+    case "happy":
+      return palette.success;
+    case "stuck":
+      return palette.error;
+    case "sleepy":
+      // Same hue as awake but pulled halfway toward the muted
+      // foreground so it reads as a washed-out, low-energy variant —
+      // baby blue vs awake's bright blue, distinguishable without
+      // leaving the blue family.
+      return blendHex(palette.info, palette.mutedForeground, 0.55);
   }
 };

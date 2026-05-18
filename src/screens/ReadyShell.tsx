@@ -19,7 +19,7 @@ import { useMouse } from "@/hooks/use-mouse";
 import { layoutMode, useTerminalSize } from "@/hooks/use-terminal-size";
 import type { RepoCreature } from "@/lib/creature";
 import { tildify } from "@/lib/scanner";
-import { vibeGlyph, type Vibe } from "@/lib/vibe";
+import { vibeColor, vibeGlyph, type Vibe } from "@/lib/vibe";
 import {
   computeRoomPageCountsForCreatures,
   gardenPageCapacity,
@@ -1400,21 +1400,14 @@ export const ReadyShell = ({
             const index = shownStart + slicedIndex;
             const focused = index === shownFocus;
             const glyph = vibeGlyph(creature.vibe.vibe);
-            const vibeColor =
-              creature.vibe.vibe === "stuck"
-                ? theme.colors.error
-                : creature.vibe.vibe === "awake"
-                  ? theme.colors.warning
-                  : creature.vibe.vibe === "sleepy"
-                    ? theme.colors.info
-                    : theme.colors.success;
+            const vibeTint = vibeColor(creature.vibe.vibe, theme.colors);
             const display = creature.scan.name;
             return (
               <Box key={creature.id} flexDirection="row">
                 <Text color={focused ? theme.colors.primary : theme.colors.mutedForeground}>
                   {focused ? "›" : " "}
                 </Text>
-                <Text color={vibeColor} bold>
+                <Text color={vibeTint} bold>
                   {" " + glyph + " "}
                 </Text>
                 <Text
@@ -1487,14 +1480,7 @@ export const ReadyShell = ({
   const compactDetail = (width: number, height: number) => {
     if (!focus) return null;
 
-    const vibeColor =
-      focus.vibe.vibe === "stuck"
-        ? theme.colors.error
-        : focus.vibe.vibe === "awake"
-          ? theme.colors.warning
-          : focus.vibe.vibe === "sleepy"
-            ? theme.colors.info
-            : theme.colors.success;
+    const vibeTint = vibeColor(focus.vibe.vibe, theme.colors);
 
     const days = focus.vibe.daysSinceCommit;
     const ageText =
@@ -1559,7 +1545,7 @@ export const ReadyShell = ({
         {/* Header — vibe glyph + repo name (left), language (right). */}
         <Box flexDirection="row" justifyContent="space-between">
           <Box flexShrink={1}>
-            <Text bold color={vibeColor}>
+            <Text bold color={vibeTint}>
               {vibeGlyph(focus.vibe.vibe)}{" "}
             </Text>
             <Text bold color={theme.colors.foreground} wrap="truncate-end">
@@ -1599,7 +1585,7 @@ export const ReadyShell = ({
             <Sparkline
               data={sparkData}
               width={Math.max(10, width - (commitCount !== undefined ? 14 : 4))}
-              color={vibeColor}
+              color={vibeTint}
             />
             {commitCount !== undefined ? (
               <Text dimColor color={theme.colors.mutedForeground}>
@@ -1612,7 +1598,7 @@ export const ReadyShell = ({
         {/* Vibe reason — colored to match the vibe. */}
         {showVibeReason ? (
           <Box>
-            <Text color={vibeColor} wrap="truncate-end">
+            <Text color={vibeTint} wrap="truncate-end">
               {focus.vibe.reason}
             </Text>
           </Box>
@@ -1818,14 +1804,7 @@ export const ReadyShell = ({
               {(["awake", "happy", "stuck", "sleepy"] as Vibe[]).map((vibe) => {
                 const count = shownCreatures.filter((c) => c.vibe.vibe === vibe).length;
                 if (count === 0) return null;
-                const tone =
-                  vibe === "stuck"
-                    ? theme.colors.error
-                    : vibe === "awake"
-                      ? theme.colors.warning
-                      : vibe === "sleepy"
-                        ? theme.colors.info
-                        : theme.colors.success;
+                const tone = vibeColor(vibe, theme.colors);
                 return (
                   <Box key={vibe} flexDirection="row">
                     <Text color={tone} bold>

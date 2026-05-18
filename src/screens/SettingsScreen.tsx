@@ -30,7 +30,7 @@ import {
   starAtCell
 } from "@/garden/stars";
 import { wiggleFrameAt } from "@/garden/model";
-import { vibeGlyph, type Vibe } from "@/lib/vibe";
+import { vibeColor, vibeGlyph, type Vibe } from "@/lib/vibe";
 import type { GardenDensity } from "@/lib/garden-layout";
 import { DEMO_NAMES, demoVibeFor } from "@/lib/demo-roster";
 
@@ -252,18 +252,7 @@ const SettingsPreview = ({
     }
     cells.push(row);
   }
-  const vibeColor = (v: Vibe): string => {
-    switch (v) {
-      case "stuck":
-        return theme.colors.error;
-      case "awake":
-        return theme.colors.warning;
-      case "sleepy":
-        return theme.colors.info;
-      default:
-        return theme.colors.success;
-    }
-  };
+  const toneFor = (v: Vibe): string => vibeColor(v, theme.colors);
   for (const { sprite, frameA, frameB, body, wiggle } of spriteFrames) {
     const useFrameB = !reducedMotion && wiggleFrameAt(wiggle, now) === 1;
     const frame = useFrameB ? frameB : frameA;
@@ -292,7 +281,7 @@ const SettingsPreview = ({
       if (glyphCol >= 0 && glyphCol < innerW) {
         cells[sprite.labelRow][glyphCol] = {
           char: vibeGlyph(sprite.vibe),
-          fg: vibeColor(sprite.vibe),
+          fg: toneFor(sprite.vibe),
           bold: true
         };
       }
