@@ -278,9 +278,18 @@ export const buildTiles = (props: GardenSceneProps): SizedTile[] => {
   // Density and terminal size affect pagination capacity and how the placer
   // packs creatures into the canvas — they don't compress individual creatures
   // to fit a slot.
+  //
+  // Shelf placement is the one exception: shelf mode groups by vibe and the
+  // garden-sized sprites only fit 2-3 per row, so most cohorts truncate to a
+  // "+N more". `compact: true` halves the area / dimension caps just for the
+  // shelf so 6-10 creatures land per row while preserving relative size
+  // (big repos still look bigger).
+  const compact = props.placementMode === "shelf";
   const sizeCohort = buildCreatureSizeCohort(creatures.map((creature) => creature.scan));
   return creatures.map((creature, index) => {
-    const { charW, charH } = creatureCharSize(creature.scan, undefined, sizeCohort);
+    const { charW, charH } = creatureCharSize(creature.scan, undefined, sizeCohort, {
+      compact,
+    });
     return {
       creature,
       index,

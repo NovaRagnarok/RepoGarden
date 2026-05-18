@@ -188,12 +188,15 @@ export type GardenDensity = "cozy" | "comfortable" | "dense";
 
 // Shelf cells get extra breathing room on top of the shared SLOT_PAD_*
 // constants the organic placer uses — soldiers shouldn't bump elbows.
-// The values below are per-density; `comfortable` matches the pre-density
-// constants so the default visual is unchanged.
+// Tightened in conjunction with the compact sprite sizing (sprite.ts
+// `creatureCharSize` with `compact: true`): the old values were sized
+// for garden-sized sprites and felt like canyons between thumbnail
+// sprites, so most cohorts truncated to a `+N more`. Halved each density
+// so 6-10 creatures actually land per shelf row.
 const SHELF_EXTRA_PAD: Record<GardenDensity, { x: number; y: number }> = {
-  cozy: { x: 5, y: 2 },
-  comfortable: { x: 3, y: 1 },
-  dense: { x: 1, y: 0 }
+  cozy: { x: 2, y: 1 },
+  comfortable: { x: 1, y: 0 },
+  dense: { x: 0, y: 0 }
 };
 
 // "Soldier" layout: creatures keep their organic shape and natural size but
@@ -230,17 +233,19 @@ export const lineUpCreatures = (
   for (const v of VIBE_ORDER) groups.set(v, []);
   for (const tile of tiles) groups.get(tile.creature.vibe.vibe)?.push(tile);
 
-  // Decide which vibes get a shelf this frame: any non-empty bucket, plus the
-  // blocked shelf even when empty (its "all clear" label is a glanceable
-  // status signal users rely on).
+  // Decide which vibes get a shelf this frame: any non-empty bucket.
+  // (Previously the `stuck` bucket got an "all clear" row even when empty,
+  // but the user feedback was that the empty row just burned space — when
+  // nothing is stuck, the absence of the shelf is itself the signal.)
   type ShelfPlan = { vibe: Vibe; tiles: SizedTile[]; naturalRows: number; budget: number };
   const shelves: ShelfPlan[] = [];
   for (const vibe of VIBE_ORDER) {
     const groupTiles = groups.get(vibe) ?? [];
-    if (groupTiles.length === 0 && vibe !== "stuck") continue;
+    if (groupTiles.length === 0) continue;
     const naturalRows = Math.max(1, Math.ceil(groupTiles.length / cols));
     shelves.push({ vibe, tiles: groupTiles, naturalRows, budget: naturalRows });
   }
+  if (shelves.length === 0) return { placements: [], dividers: [], overflows: [] };
 
   // Vertical budget: total canvas rows minus sky/ground/divider chrome,
   // divided by rowH. Each shelf needs at least 1 row, so under extreme

@@ -904,14 +904,20 @@ const normalizedCreatureMass = (repo: ScannedRepo, cohort?: CreatureSizeCohort):
 export const creatureCharSize = (
   repo: ScannedRepo,
   hashSeed: number = hashString(repo.path || repo.id),
-  cohort?: CreatureSizeCohort
+  cohort?: CreatureSizeCohort,
+  options?: { compact?: boolean }
 ): { charW: number; charH: number } => {
   const rng = mulberry32(hashSeed ^ 0x51a7e);
   const activity = normalizedCreatureMass(repo, cohort);
   const noise = (rng() - 0.5) * (cohort ? 0.16 : 0.28);
   const sizeT = Math.pow(clamp(activity + noise, 0, 1), 0.82);
 
-  const minArea = 10;
+  // Compact mode (used by shelf placement) keeps relative sizing — big
+  // repos still look bigger than small ones — but compresses the whole
+  // range so 6-10 creatures fit per shelf row instead of 2-3. The garden
+  // canvas keeps the full footprint so chunky creatures stay chunky there.
+  const compact = options?.compact === true;
+  const minArea = compact ? 6 : 10;
   // Ceiling raised 130 → 180 (and the dimension clamps 18×9 → 20×11) so the
   // top of the cohort can read as genuinely chunky — under rank-based
   // scaling, the biggest few repos were all bunched against the previous
@@ -919,7 +925,7 @@ export const creatureCharSize = (
   // conversion goes through a sqrt, so a 38% area bump only widens each
   // dim by ~18% on average at the top; mid-cohort sprites stay close to
   // their previous footprints).
-  const maxArea = 180;
+  const maxArea = compact ? 60 : 180;
   const targetArea = minArea + (maxArea - minArea) * sizeT;
 
   // Cell aspect (charW / charH). Terminal cells are roughly 2:1 tall:wide,
@@ -943,8 +949,12 @@ export const creatureCharSize = (
   let charW = Math.round(Math.sqrt(targetArea * aspect));
   let charH = Math.round(targetArea / Math.max(1, charW));
 
-  charW = Math.round(clamp(charW, 4, 20));
-  charH = Math.round(clamp(charH, 2, 11));
+  // Compact mode tightens the dimension clamps too — the area shrink alone
+  // would still allow a sausage shape to claim full garden width. Height
+  // capped tighter than width because tile height drives shelf rowH (and
+  // therefore how many cohorts can fit on screen at once).
+  charW = Math.round(clamp(charW, compact ? 3 : 4, compact ? 9 : 20));
+  charH = Math.round(clamp(charH, 2, compact ? 4 : 11));
 
   // Terminal cells are tall; bias footprints toward wider-than-tall instead
   // of doing a post-render squash that distorts eyes and turns masks into bobs.
