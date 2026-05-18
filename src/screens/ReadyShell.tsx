@@ -1215,11 +1215,11 @@ export const ReadyShell = ({
     // (which in shelf/journal views holds cohort headers / stats text).
     const screenTopRow = Math.max(1, gardenContentRow - 1);
     // The Toaster wrapper is `flexDirection="row" justifyContent="flex-end"`
-    // with width = columns - 2, so the toast box sits flush against the
+    // with width = columns - 3, so the toast box sits one cell inside the
     // outer shell's right content edge. Right edge in 1-indexed coords =
-    // (paddingX + width - 1 + 1) = columns - 1. Left edge = right edge -
-    // boxWidth + 1 = columns - boxWidth.
-    const screenLeftCol = Math.max(1, columns - boxWidth);
+    // (paddingX + width - 1 + 1) = columns - 2. Left edge = right edge -
+    // boxWidth + 1 = columns - boxWidth - 1.
+    const screenLeftCol = Math.max(1, columns - boxWidth - 1);
     const localX = screenLeftCol - gardenContentCol;
     const localY = screenTopRow - gardenContentRowForCanvas;
     // Clamp to canvas — over-wide rects waste no work but keep
@@ -1993,10 +1993,39 @@ export const ReadyShell = ({
         right-aligns the inner Toast/text against the outer shell's right
         content edge.
       */}
+      {ditherStartedAt !== null ? (
+        // Inset by one cell on every side so the Panel border stays clean —
+        // gardenContentRow/wideGardenContentCol are 1-indexed absolute
+        // terminal coords pointing at the first content cell inside the
+        // Panel border. DitherOverlay wants 0-indexed coords relative to
+        // its parent (ReadyShell's outer shell Box), so we subtract 1.
+        // The −2 on width/height drops just the Panel borders, keeping
+        // the sweep inside the visible content area.
+        //
+        // Rendered BEFORE the toast / pagination wrappers below so those
+        // absolute slots come later in the tree and paint on top — the
+        // sweep then doesn't overwrite the toast's border or the page
+        // indicator during a cross-fade.
+        <DitherOverlay
+          originRow={(responsive.showSidebar ? gardenContentRow : gardenContentRow + 1) - 1}
+          originCol={(responsive.showSidebar ? wideGardenContentCol : stackedGardenContentCol) - 1}
+          width={(responsive.showSidebar ? gardenWidth : stackedWidth) - 2}
+          height={gardenHeight - 2}
+          startedAt={ditherStartedAt}
+          durationMs={TRANSITION_MS}
+        />
+      ) : null}
+      {/* Notification slot. `columns - 3` (rather than columns - 2) pulls
+          the right edge inward by one cell so the toast's rounded corner
+          doesn't sit flush with the panel's right border — both used to
+          land on the same column and the cells would visibly fight each
+          other across re-renders, sometimes leaving the toast looking
+          borderless. The extra column of breathing room makes the border
+          show cleanly every time. */}
       <Box
         position="absolute"
         marginTop={Math.max(0, gardenContentRow - 3)}
-        width={Math.max(0, columns - 2)}
+        width={Math.max(0, columns - 3)}
         flexDirection="row"
         justifyContent="flex-end"
       >
@@ -2024,23 +2053,6 @@ export const ReadyShell = ({
         >
           <Pagination total={gardenPageCount} current={safeGardenPageIndex + 1} />
         </Box>
-      ) : null}
-      {ditherStartedAt !== null ? (
-        // Inset by one cell on every side so the Panel border stays clean —
-        // gardenContentRow/wideGardenContentCol are 1-indexed absolute
-        // terminal coords pointing at the first content cell inside the
-        // Panel border. DitherOverlay wants 0-indexed coords relative to
-        // its parent (ReadyShell's outer shell Box), so we subtract 1.
-        // The −2 on width/height drops just the Panel borders, keeping
-        // the sweep inside the visible content area.
-        <DitherOverlay
-          originRow={(responsive.showSidebar ? gardenContentRow : gardenContentRow + 1) - 1}
-          originCol={(responsive.showSidebar ? wideGardenContentCol : stackedGardenContentCol) - 1}
-          width={(responsive.showSidebar ? gardenWidth : stackedWidth) - 2}
-          height={gardenHeight - 2}
-          startedAt={ditherStartedAt}
-          durationMs={TRANSITION_MS}
-        />
       ) : null}
       {/* Spacer absorbs the gap between the natural-height list content and
           the footer so Ink emits blank lines for the remainder of the
