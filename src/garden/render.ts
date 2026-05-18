@@ -142,17 +142,20 @@ const drawDivider = (
   model: GardenModel,
   row: number,
   vibe: Vibe,
-  count: number
+  count: number,
+  colStart: number,
+  width: number
 ): void => {
   if (row < 0 || row >= frame.height) return;
-  const labelText = ` ${formatShelfDividerLabel(vibe, count, Math.max(0, frame.width - 4))} `;
-  const labelLen = Math.min(labelText.length, frame.width - 2);
-  const labelStart = Math.max(1, Math.floor((frame.width - labelLen) / 2));
+  const left = Math.max(0, colStart);
+  const right = Math.min(frame.width, colStart + width);
+  const span = right - left;
+  if (span <= 0) return;
+  const labelText = ` ${formatShelfDividerLabel(vibe, count, Math.max(0, span - 4))} `;
+  const labelLen = Math.min(labelText.length, Math.max(0, span - 2));
+  const labelStart = left + Math.max(1, Math.floor((span - labelLen) / 2));
   const labelEnd = labelStart + labelLen;
-  const sideLen = Math.max(2, Math.floor(frame.width / 4));
-  const leftDashStart = Math.max(0, labelStart - sideLen);
-  const rightDashEnd = Math.min(frame.width, labelEnd + sideLen);
-  for (let x = leftDashStart; x < labelStart; x += 1) {
+  for (let x = left; x < labelStart; x += 1) {
     setCell(frame, x, row, { char: "─", fg: model.props.theme.mutedForeground });
   }
   for (let x = labelStart; x < labelEnd; x += 1) {
@@ -162,7 +165,7 @@ const drawDivider = (
       bold: true
     });
   }
-  for (let x = labelEnd; x < rightDashEnd; x += 1) {
+  for (let x = labelEnd; x < right; x += 1) {
     setCell(frame, x, row, { char: "─", fg: model.props.theme.mutedForeground });
   }
 };
@@ -200,7 +203,15 @@ export const renderGardenFrame = (
   }
 
   for (const divider of model.scene.dividers) {
-    drawDivider(frame, model, divider.canvasRow, divider.vibe, divider.count);
+    drawDivider(
+      frame,
+      model,
+      divider.canvasRow,
+      divider.vibe,
+      divider.count,
+      divider.canvasCol,
+      divider.width
+    );
   }
 
   for (const overflow of model.scene.overflows ?? []) {

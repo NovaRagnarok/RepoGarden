@@ -31,7 +31,7 @@ export interface GardenViewProps {
   deadZone?: GardenDeadZone;
   topRightDeadZone?: GardenTopRightDeadZone;
   paintExclusions?: GardenPaintExclusion[];
-  placementMode?: "organic" | "shelf";
+  placementMode?: "organic" | "rooms";
   density?: GardenDensity;
 }
 

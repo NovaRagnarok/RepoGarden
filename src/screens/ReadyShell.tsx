@@ -49,7 +49,7 @@ import { JournalView } from "@/screens/JournalView";
 import { ResizePrompt } from "@/components/ResizePrompt";
 import { computeOverlayCardSlot, getTerminalLayout } from "@/lib/responsive-layout";
 
-export type ReadyView = "garden" | "shelf" | "journal";
+export type ReadyView = "garden" | "rooms" | "journal";
 
 export interface ReadyShellProps {
   creatures: RepoCreature[];
@@ -414,7 +414,7 @@ export const ReadyShell = ({
         return;
       }
       if (input === "g" && onSetView) {
-        const order: ReadyView[] = ["garden", "shelf", "journal"];
+        const order: ReadyView[] = ["garden", "rooms", "journal"];
         const next = order[(order.indexOf(view) + 1) % order.length];
         onSetView(next);
         return;
@@ -568,7 +568,7 @@ export const ReadyShell = ({
     if (input === "g" && onSetView) {
       // Cycle through the three view modes so the keyboard exposes everything
       // the badge does plus the legacy list view.
-      const order: ReadyView[] = ["garden", "shelf", "journal"];
+      const order: ReadyView[] = ["garden", "rooms", "journal"];
       const next = order[(order.indexOf(view) + 1) % order.length];
       onSetView(next);
       return;
@@ -746,7 +746,7 @@ export const ReadyShell = ({
     [responsive.showOverlayCard, cardVisible, gardenWidth, gardenHeight]
   );
   const showOverlayCard = overlayCardSlot.visible;
-  const habitatPlacementMode = displayView === "shelf" ? "shelf" : "organic";
+  const habitatPlacementMode = displayView === "rooms" ? "rooms" : "organic";
   const overlayDeadZone = overlayCardSlot.deadZone;
   const overlayCardWidth = overlayCardSlot.width;
   const overlayCardHeight = overlayCardSlot.height;
@@ -815,7 +815,7 @@ export const ReadyShell = ({
   // and layout. Returns null in views where habitat export doesn't make
   // sense (journal, empty pages).
   sceneSnapshotRef.current = (): GardenSceneProps | null => {
-    if (displayView !== "garden" && displayView !== "shelf") return null;
+    if (displayView !== "garden" && displayView !== "rooms") return null;
     if (pagedVisibleCreatures.length === 0) return null;
     const gardenThemeColors: GardenThemeColors = {
       foreground: theme.colors.foreground,
@@ -924,7 +924,7 @@ export const ReadyShell = ({
     // skip it. The home row is rendered in all wide views and is always
     // clickable, even when there are no creatures.
     if (!responsive.showSidebar) return [];
-    if (displayView !== "garden" && displayView !== "shelf" && displayView !== "journal") return [];
+    if (displayView !== "garden" && displayView !== "rooms" && displayView !== "journal") return [];
     // Mirror the sidebar function: the home row eats 1 row of content
     // area. (Status notifications used to reserve a sidebar row too, but
     // they now live in the top-right of the garden frame instead.)
@@ -1018,7 +1018,7 @@ export const ReadyShell = ({
   ]);
 
   // Top-right segmented toggle click zone. The header renders three bordered
-  // Badges (GARDEN · SHELF · LIST) in a row; clicking any segment jumps to
+  // Badges (GARDEN · ROOMS · JOURNAL) in a row; clicking any segment jumps to
   // that view. Clicks during a scan are ignored — the row is replaced by a
   // SCANNING indicator and shouldn't act as a toggle.
   useMouse(
@@ -1030,7 +1030,7 @@ export const ReadyShell = ({
         // Render order matches the keyboard cycle (g).
         const segments: { view: ReadyView; label: string }[] = [
           { view: "garden", label: "GARDEN" },
-          { view: "shelf", label: "SHELF" },
+          { view: "rooms", label: "ROOMS" },
           { view: "journal", label: "JOURNAL" },
         ];
         // Each bordered Badge: text + 2 padding + 2 borders. Row gap=1.
@@ -1068,7 +1068,7 @@ export const ReadyShell = ({
     useCallback(
       (event) => {
         if (!responsive.showSidebar) return;
-        if (displayView !== "garden" && displayView !== "shelf" && displayView !== "journal") return;
+        if (displayView !== "garden" && displayView !== "rooms" && displayView !== "journal") return;
         // Wheel over the sidebar column → step focus.
         if (event.kind === "wheel") {
           if (event.col >= 2 && event.col <= gardenSidebarWidth + 1) {
@@ -1084,7 +1084,7 @@ export const ReadyShell = ({
         }
         if (event.kind !== "press" || event.button !== "left") return;
         if (
-          (displayView === "garden" || displayView === "shelf") &&
+          (displayView === "garden" || displayView === "rooms") &&
           showOverlayCard &&
           focus &&
           !gardenShelfTransitioning &&
@@ -1710,7 +1710,7 @@ export const ReadyShell = ({
                 {(
                   [
                     { view: "garden", label: "GARDEN" },
-                    { view: "shelf", label: "SHELF" },
+                    { view: "rooms", label: "ROOMS" },
                     { view: "journal", label: "JOURNAL" },
                   ] as { view: ReadyView; label: string }[]
                 ).map((segment) => {
@@ -1839,7 +1839,7 @@ export const ReadyShell = ({
       ) : null}
       </Box>
 
-      {((displayView === "garden" || displayView === "shelf") && responsive.showSidebar) ? (
+      {((displayView === "garden" || displayView === "rooms") && responsive.showSidebar) ? (
         <Box flexDirection="row">
           <Box width={gardenSidebarWidth} flexDirection="column" marginRight={1}>
             {sidebar(gardenSidebarWidth, gardenHeight)}
@@ -1884,7 +1884,7 @@ export const ReadyShell = ({
             ) : null}
           </Box>
         </Box>
-      ) : (displayView === "garden" || displayView === "shelf") ? (
+      ) : (displayView === "garden" || displayView === "rooms") ? (
         <Box flexDirection="column">
           {compactFocusSummary()}
           <GardenView

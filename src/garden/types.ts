@@ -52,13 +52,13 @@ export interface GardenSceneProps {
   deadZone?: GardenDeadZone;
   topRightDeadZone?: GardenTopRightDeadZone;
   paintExclusions?: GardenPaintExclusion[];
-  placementMode: "organic" | "shelf";
+  placementMode: "organic" | "rooms";
   theme: GardenThemeColors;
   reducedMotion?: boolean;
-  /** Threaded through to `lineUpCreatures` so the shelf's per-cell breathing
-   *  room responds to the user's "how packed?" setting. Organic mode ignores
-   *  this — pagination capacity is the right place for the same knob in that
-   *  view, and it's owned by `ReadyShell` (not the engine). */
+  /** Pagination capacity knob for the garden view. Rooms mode ignores it
+   *  (rooms defer to the organic placer per quadrant, which has no
+   *  density concept); the field is kept on this shared props bag so
+   *  ReadyShell can pass the same setting through regardless of mode. */
   density?: GardenDensity;
 }
 

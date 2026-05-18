@@ -274,7 +274,7 @@ test("relocate wanders persist a new home position", () => {
     const props: GardenSceneProps = {
       ...makeProps(),
       focusIndex: -1,
-      placementMode: "shelf",
+      placementMode: "rooms",
       innerWidth: 40
     };
     const model = createGardenModel(props, 0);
@@ -337,7 +337,7 @@ test("garden-to-shelf layout changes tween creature placements instead of hard-s
   const before = model.visualPlacements.get("alpha");
   assert.ok(before, "missing initial placement");
 
-  syncGardenModel(model, { ...props, placementMode: "shelf" }, 100);
+  syncGardenModel(model, { ...props, placementMode: "rooms" }, 100);
   const target = model.scene.placements.find((placement) => placement.tile.creature.id === "alpha");
   const during = model.visualPlacements.get("alpha");
   assert.ok(target, "missing target placement");
@@ -798,7 +798,7 @@ test("syncGardenModel rejects wander positions that would overlap another creatu
     focusIndex: -1,
     innerWidth: 40,
     canvasH: 14,
-    placementMode: "shelf"
+    placementMode: "rooms"
   };
   const model = createGardenModel(props, 0);
   const alphaAnchor = model.scene.placements.find((placement) => placement.tile.creature.id === "alpha");
@@ -1214,7 +1214,7 @@ test("shelf mode ignores persisted manual creature placement offsets", () => {
     ],
     innerWidth: 40,
     canvasH: 16,
-    placementMode: "shelf"
+    placementMode: "rooms"
   };
   const model = createGardenModel(props, 0);
   const anchor = model.scene.placements[0];

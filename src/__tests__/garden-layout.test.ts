@@ -5,15 +5,16 @@ import {
   computeFocusFrameCells,
   formatShelfDividerLabel,
   gardenPageCapacity,
-  lineUpCreatures,
   paginateCreatures,
   placeCreatures,
+  placeInRooms,
   spriteBodyFootprint,
   spriteBodyFootprintsOverlap,
   spriteFullFootprint,
   stableCreatureIdsKey,
   type SizedTile
 } from "../lib/garden-layout";
+import type { Vibe } from "../lib/vibe";
 
 const makeTile = (
   index: number,
@@ -192,23 +193,6 @@ const makeTileWithVibe = (
   charRows
 });
 
-test("lineUpCreatures emits a +N more overflow indicator when a shelf can't fit its bucket", () => {
-  // Tall enough to render dividers but tight enough that the happy shelf
-  // gets one row out of its proportional share. 40 happy creatures into
-  // ~5 cols × 1 row → 4 shown, 36 hidden.
-  const tiles = Array.from({ length: 40 }, (_, i) =>
-    makeTileWithVibe(i, `h${i}`, "happy", 4, 3)
-  );
-  const layout = lineUpCreatures(tiles, 60, 20);
-  const happyOverflow = layout.overflows.find((o) => o.vibe === "happy");
-  assert.ok(happyOverflow, "expected a happy overflow indicator");
-  // Shown + hidden + indicator slot reservation = original count.
-  const happyShown = layout.placements.filter(
-    (p) => p.tile.creature.vibe.vibe === "happy"
-  ).length;
-  assert.equal(happyShown + happyOverflow.hidden, 40);
-});
-
 test("formatShelfDividerLabel adds shelf meaning while keeping narrow fallbacks", () => {
   assert.equal(formatShelfDividerLabel("awake", 3, 80), "awake · active changes · 3");
   assert.equal(formatShelfDividerLabel("happy", 4, 80), "happy · flowing · 4");
@@ -219,70 +203,102 @@ test("formatShelfDividerLabel adds shelf meaning while keeping narrow fallbacks"
   assert.equal(formatShelfDividerLabel("stuck", 0, 13), "stuck · clear");
 });
 
-test("lineUpCreatures gives each non-empty vibe at least one row when budgets are tight", () => {
+test("placeInRooms drops cohorts with no creatures from the layout entirely", () => {
+  // Only awake + sleepy have creatures here; happy/stuck must produce no
+  // dividers and no rooms (their absence is the "all clear" signal).
   const tiles = [
-    ...Array.from({ length: 12 }, (_, i) => makeTileWithVibe(i, `h${i}`, "happy", 4, 3)),
-    makeTileWithVibe(100, "n1", "awake", 4, 3),
-    makeTileWithVibe(101, "b1", "stuck", 4, 3),
-    makeTileWithVibe(102, "s1", "sleepy", 4, 3)
+    ...Array.from({ length: 3 }, (_, i) => makeTileWithVibe(i, `a${i}`, "awake", 5, 4)),
+    ...Array.from({ length: 3 }, (_, i) => makeTileWithVibe(100 + i, `z${i}`, "sleepy", 5, 4))
   ];
-  const layout = lineUpCreatures(tiles, 40, 18);
-  // Every vibe with creatures (and stuck even without) must have a divider.
-  for (const vibe of ["happy", "awake", "stuck", "sleepy"] as const) {
+  const layout = placeInRooms(tiles, 80, 24, "test-seed");
+  const dividerVibes = new Set(layout.dividers.map((d) => d.vibe));
+  assert.equal(dividerVibes.has("awake"), true);
+  assert.equal(dividerVibes.has("sleepy"), true);
+  assert.equal(dividerVibes.has("happy"), false);
+  assert.equal(dividerVibes.has("stuck"), false);
+});
+
+test("placeInRooms gives every populated cohort its own room", () => {
+  const tiles = [
+    makeTileWithVibe(0, "a", "awake", 5, 4),
+    makeTileWithVibe(1, "h", "happy", 5, 4),
+    makeTileWithVibe(2, "s", "stuck", 5, 4),
+    makeTileWithVibe(3, "z", "sleepy", 5, 4)
+  ];
+  const layout = placeInRooms(tiles, 80, 24, "test-seed");
+  for (const vibe of ["awake", "happy", "stuck", "sleepy"] as const) {
     assert.ok(
       layout.dividers.some((d) => d.vibe === vibe),
       `missing divider for ${vibe}`
     );
-  }
-  // At least one creature from each non-happy bucket landed — the happy
-  // overflow gets trimmed first, the singletons stay.
-  for (const vibe of ["awake", "stuck", "sleepy"] as const) {
-    const placed = layout.placements.some((p) => p.tile.creature.vibe.vibe === vibe);
-    assert.equal(placed, true, `expected at least one ${vibe} creature placed`);
-  }
-});
-
-test("lineUpCreatures keeps shelves from overlapping each other vertically", () => {
-  const tiles = [
-    ...Array.from({ length: 30 }, (_, i) => makeTileWithVibe(i, `h${i}`, "happy", 4, 3)),
-    ...Array.from({ length: 8 }, (_, i) => makeTileWithVibe(100 + i, `n${i}`, "awake", 4, 3))
-  ];
-  const layout = lineUpCreatures(tiles, 60, 24);
-  // The two non-empty shelves can't overlap each other vertically — this is
-  // the bug the proportional-allocation rewrite fixed: a large bucket used
-  // to bleed past its budget and crash into the next shelf's divider.
-  // `awake` is at the top of VIBE_ORDER, so its bottom must sit above `happy`.
-  const awakeBottoms = layout.placements
-    .filter((p) => p.tile.creature.vibe.vibe === "awake")
-    .map((p) => p.charY + p.tile.charRows);
-  const happyTops = layout.placements
-    .filter((p) => p.tile.creature.vibe.vibe === "happy")
-    .map((p) => p.charY);
-  if (awakeBottoms.length > 0 && happyTops.length > 0) {
-    const maxAwakeBottom = Math.max(...awakeBottoms);
-    const minHappyTop = Math.min(...happyTops);
     assert.ok(
-      maxAwakeBottom <= minHappyTop,
-      `awake bottom ${maxAwakeBottom} should sit at or above happy top ${minHappyTop}`
+      layout.placements.some((p) => p.tile.creature.vibe.vibe === vibe),
+      `no placements landed in ${vibe} room`
     );
   }
 });
 
-test("lineUpCreatures keeps a centered partial row out of the overlay dead zone", () => {
-  const tile = makeTile(0, "repos", 8, 8);
-  const layout = lineUpCreatures([tile], 71, 20, { width: 38, height: 15 });
-  assert.equal(layout.placements.length, 1);
-  const placement = layout.placements[0];
-  const deadLeft = 71 - 38;
-  const deadTop = 20 - 15;
-  const tileRight = placement.x + placement.tile.spriteCols;
-  const tileBottom = placement.charY + placement.tile.charRows;
-  const intersectsDeadZone = tileRight > deadLeft && tileBottom > deadTop;
-  assert.equal(
-    intersectsDeadZone,
-    false,
-    `shelf placement at (${placement.x}, ${placement.charY}) overlaps dead zone`
-  );
+test("placeInRooms partitions the canvas into non-overlapping rectangles", () => {
+  // Each room's divider sits at its top-left corner; rooms must tile the
+  // panel without any two sharing the same cell. Smoke-tests the quadrant
+  // geometry for 4 cohorts.
+  const tiles = [
+    makeTileWithVibe(0, "a", "awake", 4, 3),
+    makeTileWithVibe(1, "h", "happy", 4, 3),
+    makeTileWithVibe(2, "s", "stuck", 4, 3),
+    makeTileWithVibe(3, "z", "sleepy", 4, 3)
+  ];
+  const layout = placeInRooms(tiles, 80, 24, "test-seed");
+  assert.equal(layout.dividers.length, 4);
+  // No two rooms' rectangles share any cell.
+  const rects = layout.dividers.map((d) => ({
+    x: d.canvasCol,
+    y: d.canvasRow,
+    w: d.width,
+    // height = up to the next divider's row, or canvas bottom. For a 2×2
+    // we just check pairwise non-overlap of the (x, y, w) strips at the
+    // divider row — sufficient to catch the obvious bugs.
+    h: 1
+  }));
+  for (let i = 0; i < rects.length; i += 1) {
+    for (let j = i + 1; j < rects.length; j += 1) {
+      const a = rects[i];
+      const b = rects[j];
+      if (a.y !== b.y) continue;
+      const overlap = !(a.x + a.w <= b.x || b.x + b.w <= a.x);
+      assert.equal(overlap, false, `dividers ${i} and ${j} overlap horizontally`);
+    }
+  }
+});
+
+test("placeInRooms places creatures inside their room's rectangle", () => {
+  // Each placement must sit inside the bounding box of its room (the
+  // divider tells us where the room starts; the next divider in the same
+  // row column or the canvas bottom tells us where it ends).
+  const tiles = [
+    ...Array.from({ length: 2 }, (_, i) => makeTileWithVibe(i, `a${i}`, "awake", 4, 3)),
+    ...Array.from({ length: 2 }, (_, i) => makeTileWithVibe(100 + i, `h${i}`, "happy", 4, 3))
+  ];
+  const layout = placeInRooms(tiles, 60, 20, "test-seed");
+  for (const placement of layout.placements) {
+    const vibe = placement.tile.creature.vibe.vibe as Vibe;
+    const divider = layout.dividers.find((d) => d.vibe === vibe);
+    assert.ok(divider, `no divider for ${vibe}`);
+    // Sprite body must land within the room's horizontal extent.
+    assert.ok(
+      placement.x >= divider.canvasCol,
+      `${vibe} sprite at x=${placement.x} starts before room at ${divider.canvasCol}`
+    );
+    assert.ok(
+      placement.x + placement.tile.spriteCols <= divider.canvasCol + divider.width,
+      `${vibe} sprite right edge ${placement.x + placement.tile.spriteCols} overruns room right ${divider.canvasCol + divider.width}`
+    );
+    // Sprite must sit BELOW its divider row.
+    assert.ok(
+      placement.charY > divider.canvasRow,
+      `${vibe} sprite at y=${placement.charY} sits above its divider row ${divider.canvasRow}`
+    );
+  }
 });
 
 test("gardenPageCapacity returns more creatures per page at dense than at cozy", () => {
@@ -304,30 +320,10 @@ test("gardenPageCapacity default density matches explicit comfortable", () => {
   );
 });
 
-test("lineUpCreatures dense density fits more creatures per shelf row than cozy", () => {
-  // Build enough tiles that the row will wrap. Comparing how many fit in
-  // each density's first row is the cleanest signal that slot width changed.
-  const tiles = Array.from({ length: 20 }, (_, i) =>
-    makeTileWithVibe(i, `h${i}`, "happy", 4, 3)
-  );
-  const cozyLayout = lineUpCreatures(tiles, 80, 30, undefined, undefined, "cozy");
-  const denseLayout = lineUpCreatures(tiles, 80, 30, undefined, undefined, "dense");
-  const firstRowY = (layout: typeof cozyLayout): number =>
-    Math.min(...layout.placements.map((p) => p.charY));
-  const cozyFirstRow = layout(cozyLayout, firstRowY(cozyLayout));
-  const denseFirstRow = layout(denseLayout, firstRowY(denseLayout));
-  assert.ok(
-    denseFirstRow > cozyFirstRow,
-    `dense should fit more than cozy in the first row (cozy ${cozyFirstRow}, dense ${denseFirstRow})`
-  );
-
-  function layout<T extends { placements: Array<{ charY: number }> }>(
-    l: T,
-    y: number
-  ): number {
-    return l.placements.filter((p) => p.charY === y).length;
-  }
-});
+// Note: density used to also tune shelf row breathing room. Since
+// `placeInRooms` defers to the organic placer per room and rooms aren't
+// laid out via a grid-of-cells, density no longer changes shelf
+// behaviour at all — only the garden's pagination capacity.
 
 test("placeCreatures keeps sprite bodies separated when long labels are present", () => {
   const tiles = [

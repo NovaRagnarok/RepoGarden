@@ -1,7 +1,7 @@
 import type { Placement, PlacementFootprint, SizedTile } from "@/lib/garden-layout";
 import {
   creatureNameStartCol,
-  lineUpCreatures,
+  placeInRooms,
   NAME_GAP_ROWS,
   NAME_H,
   placeCreatures,
@@ -277,19 +277,11 @@ export const buildTiles = (props: GardenSceneProps): SizedTile[] => {
   // jitter from creatureCharSize), not of the garden's per-cell slot budget.
   // Density and terminal size affect pagination capacity and how the placer
   // packs creatures into the canvas — they don't compress individual creatures
-  // to fit a slot.
-  //
-  // Shelf placement is the one exception: shelf mode groups by vibe and the
-  // garden-sized sprites only fit 2-3 per row, so most cohorts truncate to a
-  // "+N more". `compact: true` halves the area / dimension caps just for the
-  // shelf so 6-10 creatures land per row while preserving relative size
-  // (big repos still look bigger).
-  const compact = props.placementMode === "shelf";
+  // to fit a slot. The shape and size of a creature are identical across
+  // garden and rooms views; only the *arrangement* differs.
   const sizeCohort = buildCreatureSizeCohort(creatures.map((creature) => creature.scan));
   return creatures.map((creature, index) => {
-    const { charW, charH } = creatureCharSize(creature.scan, undefined, sizeCohort, {
-      compact,
-    });
+    const { charW, charH } = creatureCharSize(creature.scan, undefined, sizeCohort);
     return {
       creature,
       index,
@@ -307,14 +299,14 @@ const buildScene = (props: GardenSceneProps): GardenScene => {
     ? { width: props.topRightDeadZone.width, height: props.topRightDeadZone.height }
     : undefined;
   const layout =
-    props.placementMode === "shelf"
-      ? lineUpCreatures(
+    props.placementMode === "rooms"
+      ? placeInRooms(
           tiles,
           props.innerWidth,
           props.canvasH,
+          stableCreatureIdsKey(props.creatures),
           props.deadZone,
-          placerZone,
-          props.density
+          placerZone
         )
       : {
           placements: placeCreatures(
