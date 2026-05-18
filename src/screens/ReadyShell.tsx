@@ -1846,10 +1846,16 @@ export const ReadyShell = ({
         starfield + sprite painters write to absolute screen coords, so they
         ended up painting at stale positions until the next layout settled —
         the visible "flicker" on startup the user reported.
+
+        marginTop bumped up by 2 rows (rows-7 → rows-9) so the toast sits
+        clearly inside the garden panel instead of straddling its bottom
+        border — the toast box is 3 rows tall, the footer below the panel
+        is 1–2 rows, so rows-7 put the toast bottom border on the same row
+        as the panel bottom border (manual-qa-report B8).
       */}
       <Box
         position="absolute"
-        marginTop={Math.max(0, rows - 7)}
+        marginTop={Math.max(0, rows - 9)}
         width={Math.max(0, columns - 2)}
       >
         <Toaster />
