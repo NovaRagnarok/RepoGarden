@@ -208,45 +208,109 @@ interface RoomRect {
   height: number;
 }
 
+// Lower bounds so a 1-creature cohort still has enough room for the
+// divider label + a single sprite + name. Picked from the organic
+// placer's own minimums: SKY (1) + GROUND (1) + NAME_RESERVE (2) +
+// sprite (≥2) for height; sprite (≥4) + slot pad for width.
+const MIN_ROOM_W = 16;
+const MIN_ROOM_H = 8;
+
+// Proportionally split `length` into N chunks weighted by `weights`,
+// clamped to >= `min` each. When the sum of weights is zero (shouldn't
+// happen since we skip empty cohorts upstream) the chunks are equal.
+// Excess / shortfall after clamping is absorbed into the chunk with
+// the largest raw allocation.
+const splitLen = (
+  length: number,
+  weights: number[],
+  min: number
+): number[] => {
+  const n = weights.length;
+  if (n === 0) return [];
+  if (n === 1) return [length];
+  const total = weights.reduce((a, b) => a + b, 0);
+  const raw =
+    total === 0
+      ? weights.map(() => length / n)
+      : weights.map((w) => (w / total) * length);
+  const out = raw.map((r) => Math.max(min, Math.floor(r)));
+  let allocated = out.reduce((a, b) => a + b, 0);
+  // Index order from largest raw allocation downward — we add or remove
+  // single cells from the biggest chunks first so the proportions stay
+  // closest to the requested ratio after clamping.
+  const order = raw
+    .map((_, i) => i)
+    .sort((a, b) => raw[b] - raw[a]);
+  let cursor = 0;
+  while (allocated > length) {
+    const idx = order[cursor % order.length];
+    if (out[idx] > min) {
+      out[idx] -= 1;
+      allocated -= 1;
+    }
+    cursor += 1;
+    if (cursor > order.length * length) break;
+  }
+  cursor = 0;
+  while (allocated < length) {
+    const idx = order[cursor % order.length];
+    out[idx] += 1;
+    allocated += 1;
+    cursor += 1;
+  }
+  return out;
+};
+
 // Split a canvas into N rectangular rooms, one per populated vibe.
 // Adapts to the cohort count so empty rooms never appear: 1 room takes
 // the whole canvas; 2 split side-by-side; 3 use a 2-top, 1-bottom
-// arrangement; 4 form a 2×2. Picked over a fixed 2×2 with an empty
-// "stuck — nothing" slot because the user wants absent cohorts to
-// give their space to the populated ones.
+// arrangement; 4 form a 2×2. Within each layout, both axes are sized
+// proportionally to creature count — a 1-creature cohort gets a
+// minimum-sized room while a 20-creature cohort gets the lion's share
+// of its row / column.
 const computeRoomRects = (
-  count: number,
+  rooms: { count: number }[],
   W: number,
   H: number
 ): RoomRect[] => {
-  if (count <= 0 || W <= 0 || H <= 0) return [];
-  if (count === 1) {
+  const n = rooms.length;
+  if (n <= 0 || W <= 0 || H <= 0) return [];
+  if (n === 1) {
     return [{ x: 0, y: 0, width: W, height: H }];
   }
-  if (count === 2) {
-    const w1 = Math.floor(W / 2);
+  if (n === 2) {
+    const widths = splitLen(W, [rooms[0].count, rooms[1].count], MIN_ROOM_W);
     return [
-      { x: 0, y: 0, width: w1, height: H },
-      { x: w1, y: 0, width: W - w1, height: H }
+      { x: 0, y: 0, width: widths[0], height: H },
+      { x: widths[0], y: 0, width: widths[1], height: H }
     ];
   }
-  if (count === 3) {
-    const w1 = Math.floor(W / 2);
-    const h1 = Math.floor(H / 2);
+  if (n === 3) {
+    // Top row gets rooms[0..1]; bottom row gets rooms[2] full-width.
+    const topCount = rooms[0].count + rooms[1].count;
+    const bottomCount = rooms[2].count;
+    const heights = splitLen(H, [topCount, bottomCount], MIN_ROOM_H);
+    const topWidths = splitLen(W, [rooms[0].count, rooms[1].count], MIN_ROOM_W);
     return [
-      { x: 0, y: 0, width: w1, height: h1 },
-      { x: w1, y: 0, width: W - w1, height: h1 },
-      { x: 0, y: h1, width: W, height: H - h1 }
+      { x: 0, y: 0, width: topWidths[0], height: heights[0] },
+      { x: topWidths[0], y: 0, width: topWidths[1], height: heights[0] },
+      { x: 0, y: heights[0], width: W, height: heights[1] }
     ];
   }
-  // 4+ rooms: only ever happens with 4 vibes, so 2×2 grid.
-  const w1 = Math.floor(W / 2);
-  const h1 = Math.floor(H / 2);
+  // 4 rooms: 2×2 with both axes proportional. Column widths can differ
+  // between rows so each row's split reflects only its own members'
+  // counts — the vertical separator therefore sits at different
+  // columns in top vs bottom rows when the proportions diverge.
+  const topCount = rooms[0].count + rooms[1].count;
+  const bottomCount = rooms[2].count + rooms[3].count;
+  const heights = splitLen(H, [topCount, bottomCount], MIN_ROOM_H);
+  const topWidths = splitLen(W, [rooms[0].count, rooms[1].count], MIN_ROOM_W);
+  const botWidths = splitLen(W, [rooms[2].count, rooms[3].count], MIN_ROOM_W);
   return [
-    { x: 0, y: 0, width: w1, height: h1 },
-    { x: w1, y: 0, width: W - w1, height: h1 },
-    { x: 0, y: h1, width: w1, height: H - h1 },
-    { x: w1, y: h1, width: W - w1, height: H - h1 }
+    { x: 0, y: 0, width: topWidths[0], height: heights[0] },
+    { x: topWidths[0], y: 0, width: topWidths[1], height: heights[0] },
+    { x: 0, y: heights[0], width: botWidths[0], height: heights[1] },
+    { x: botWidths[0], y: heights[0], width: botWidths[1], height: heights[1] }
   ];
 };
 
@@ -290,6 +354,12 @@ const clipTopRightZone = (
 // Header height per room: 1 row for the divider label + 1 spacer row
 // before the room's content starts.
 const ROOM_HEADER_ROWS = 2;
+// Footer buffer per room: 1 row of unused space at the room's bottom
+// so the last name row of a creature in this room doesn't sit
+// immediately above the next room's divider line. Without this the
+// name + divider read as one visual cluster and it looks like the
+// names belong to the room below.
+const ROOM_FOOTER_ROWS = 1;
 
 // Place creatures into vibe-grouped rooms (1–4 quadrants on the
 // panel canvas). Each populated vibe gets its own sub-canvas and the
@@ -337,7 +407,11 @@ export const placeInRooms = (
     return { placements: [], dividers: [], overflows: [] };
   }
 
-  const rects = computeRoomRects(rooms.length, innerW, innerH);
+  const rects = computeRoomRects(
+    rooms.map((r) => ({ count: r.tiles.length })),
+    innerW,
+    innerH
+  );
 
   // Vertical separators between rooms that share a top edge. Drawn at
   // the row range of whichever row those rooms occupy; for 2×2 the top
@@ -385,9 +459,11 @@ export const placeInRooms = (
       width: rect.width
     });
 
-    // Sub-canvas for the organic placer: room rect minus its header.
+    // Sub-canvas for the organic placer: room rect minus its header
+    // AND a footer buffer (so names land at least ROOM_FOOTER_ROWS
+    // above the room's bottom edge).
     const subW = rect.width;
-    const subH = Math.max(0, rect.height - ROOM_HEADER_ROWS);
+    const subH = Math.max(0, rect.height - ROOM_HEADER_ROWS - ROOM_FOOTER_ROWS);
     // Pathologically small rooms (e.g. a 2×2 split on a tiny terminal):
     // skip placement rather than crash the organic placer's minSlot math.
     if (subW < 6 || subH < 4) return;
@@ -423,12 +499,15 @@ export const placeInRooms = (
     // rooms it lands in the *next room's content*. Dropping is the
     // safer choice — fewer creatures shown in the cramped room, but
     // no names bleeding through the divider into the room below.
-    const roomBottom = absY + rect.height;
+    // Reserve ROOM_FOOTER_ROWS at the bottom for visual breathing room
+    // before the next room's divider, so the last name row of THIS
+    // room can't visually merge with the divider of the NEXT room.
+    const safeBottom = absY + rect.height - ROOM_FOOTER_ROWS;
     for (const placement of sub) {
       const translatedY = placement.charY + absY + ROOM_HEADER_ROWS;
       const nameRowBottom =
         translatedY + placement.tile.charRows + NAME_GAP_ROWS + NAME_H - 1;
-      if (nameRowBottom >= roomBottom) continue;
+      if (nameRowBottom >= safeBottom) continue;
       placements.push({
         ...placement,
         x: placement.x + absX,
