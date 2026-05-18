@@ -71,11 +71,17 @@ export const Badge = ({
     );
   }
 
+  // flexShrink={0} keeps the bordered badge at its natural 3-row height even
+  // when a constrained-height parent (workbench, overlays) runs out of
+  // vertical space. Without it Yoga shrinks the box to 2 rows and the
+  // bottom border fuses with the next sibling row — see manual-qa B3 where
+  // the section tabs' bottom border collided with the alert text below.
   return (
     <Box
       borderStyle={borderStyle}
       borderColor={variantColor}
       paddingX={paddingX}
+      flexShrink={0}
     >
       <Text color={variantColor} bold={bold}>
         {children}

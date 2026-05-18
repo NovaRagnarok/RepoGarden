@@ -1,6 +1,7 @@
 import { Box, Text } from "ink";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { ScrollBar } from "@/components/ui/scroll-bar";
 import { useTheme } from "@/components/ui/theme-provider";
 import { useFocus } from "@/hooks/use-focus";
 import { useInput } from "@/hooks/use-input";
@@ -1239,32 +1240,17 @@ export const TextArea = ({
 
   // Scrollbar — thumb-on-track on the right edge. Default visible when
   // wrapping (where content height is meaningful and we have meaningful
-  // viewport math). Hidden when content fits in one viewport.
-  const scrollbarVisible =
-    (showScrollbar ?? wrapWidth > 0) && visualLines.length > safeRows;
-  const thumbSize =
-    visualLines.length <= safeRows
-      ? safeRows
-      : Math.max(1, Math.round((safeRows / visualLines.length) * safeRows));
-  const thumbPosition =
-    visualLines.length <= safeRows || maxScroll === 0
-      ? 0
-      : Math.round((effectiveScrollOffset / maxScroll) * (safeRows - thumbSize));
-
+  // viewport math). Hidden when content fits in one viewport. Extracted
+  // into the reusable `<ScrollBar>` component so the journal event list
+  // can reuse the same look without duplicating the geometry math.
+  const scrollbarVisible = showScrollbar ?? wrapWidth > 0;
   const scrollbar = scrollbarVisible ? (
-    <Box width={1} flexDirection="column" flexShrink={0}>
-      {Array.from({ length: safeRows }, (_, i) => {
-        const isThumb = i >= thumbPosition && i < thumbPosition + thumbSize;
-        return (
-          <Text
-            key={i}
-            color={isThumb ? theme.colors.primary : theme.colors.mutedForeground}
-          >
-            {isThumb ? "█" : "│"}
-          </Text>
-        );
-      })}
-    </Box>
+    <ScrollBar
+      rows={safeRows}
+      total={visualLines.length}
+      offset={effectiveScrollOffset}
+      active={isInteractive}
+    />
   ) : null;
 
   const bodyWithScrollbar = (

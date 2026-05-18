@@ -226,10 +226,15 @@ export const OnboardingScreen = ({
           <Text dimColor color={theme.colors.mutedForeground}>
             one or more folders, comma-separated — Enter to {editing ? "rescan" : "scan"}
           </Text>
+          {/* minHeight={3} pins this to top-border / content / bottom-border.
+              Without it, Ink/Yoga occasionally collapses the inline-Text content
+              row to height 0 under a height-constrained ancestor and the box
+              renders as two adjacent border lines (manual-qa-report B7). */}
           <Box
             borderStyle={theme.border.style}
             borderColor={theme.border.focusColor}
             paddingX={1}
+            minHeight={3}
           >
             <Text color={theme.colors.primary}>{"> "}</Text>
             <Text color={theme.colors.foreground} wrap="truncate-end">{value || " "}</Text>

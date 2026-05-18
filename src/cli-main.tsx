@@ -7,12 +7,20 @@ import {
   ThemeProvider,
   type Theme
 } from "@/components/ui/theme-provider";
-import { DISABLE_MOUSE, ENABLE_MOUSE, parseStdinChunk } from "@/lib/mouse";
+import {
+  DISABLE_MOUSE,
+  ENABLE_MOUSE,
+  flushPending as flushMousePending,
+  hasPending as hasMousePending,
+  parseStdinChunk,
+} from "@/lib/mouse";
 import {
   DISABLE_FOCUS,
   ENABLE_FOCUS,
+  flushPending as flushFocusPending,
+  hasPending as hasFocusPending,
   parseFocusChunk,
-  subscribeFocus
+  subscribeFocus,
 } from "@/lib/focus";
 import { PrivacyProvider, usePrivacy } from "@/components/privacy-context";
 import { ToastProvider, useToasts } from "@/components/ui/toast-host";
@@ -848,13 +856,42 @@ const buildWrappedStdin = (): NodeJS.ReadStream => {
     if (typeof process.stdin.unref === "function") process.stdin.unref();
     return wrapped;
   };
+  // When parseStdinChunk holds a partial mouse-prefix (most often a bare
+  // `\x1b`), nothing reaches Ink until the next chunk arrives. A user who
+  // presses Escape and waits would otherwise be stranded — flush after a
+  // short delay if no follow-up came.
+  let pendingFlush: ReturnType<typeof setTimeout> | null = null;
+  const PENDING_FLUSH_MS = 30;
+  const cancelPendingFlush = (): void => {
+    if (pendingFlush !== null) {
+      clearTimeout(pendingFlush);
+      pendingFlush = null;
+    }
+  };
+  const schedulePendingFlush = (): void => {
+    cancelPendingFlush();
+    if (!hasMousePending() && !hasFocusPending()) return;
+    pendingFlush = setTimeout(() => {
+      pendingFlush = null;
+      // Pull bytes out of both parsers and forward verbatim — at this point
+      // there's no pending sequence to complete, so anything held back must
+      // be treated as plain keystrokes (typically a lone Escape).
+      const mouseRemainder = flushMousePending();
+      const focusRemainder = flushFocusPending();
+      const out = mouseRemainder + focusRemainder;
+      if (out.length > 0) wrapped.write(out);
+    }, PENDING_FLUSH_MS);
+  };
+
   process.stdin.on("data", (chunk: Buffer) => {
     const text = typeof chunk === "string" ? chunk : chunk.toString("utf8");
     // Strip mouse and focus sequences before Ink sees the stream — both
     // would otherwise look like Esc + printable garbage to the keyboard
     // parser. Order is independent: each only consumes its own pattern.
+    cancelPendingFlush();
     const passthrough = parseFocusChunk(parseStdinChunk(text));
     if (passthrough.length > 0) wrapped.write(passthrough);
+    schedulePendingFlush();
   });
   process.stdin.resume();
   return wrapped;

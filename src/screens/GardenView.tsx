@@ -8,6 +8,7 @@ import { GardenEngine } from "@/garden/engine";
 import type {
   GardenDeadZone,
   GardenEngineProps,
+  GardenPaintExclusion,
   GardenTopRightDeadZone,
   GardenThemeColors
 } from "@/garden/types";
@@ -29,6 +30,7 @@ export interface GardenViewProps {
   }>) => void;
   deadZone?: GardenDeadZone;
   topRightDeadZone?: GardenTopRightDeadZone;
+  paintExclusions?: GardenPaintExclusion[];
   placementMode?: "organic" | "shelf";
   density?: GardenDensity;
 }
@@ -47,6 +49,7 @@ const GardenViewInner = ({
   onCreaturePlacementChange,
   deadZone,
   topRightDeadZone,
+  paintExclusions,
   placementMode = "organic",
   density = "comfortable"
 }: GardenViewProps) => {
@@ -56,6 +59,17 @@ const GardenViewInner = ({
   const innerWidth = Math.max(20, width - 4);
   const canvasH = Math.max(10, (height ?? 22) - 4);
   const engineRef = useRef<GardenEngine | null>(null);
+
+  // Serialize the exclusion list for the memo's dep array — a fresh
+  // empty/identical-shape array on every parent render would otherwise
+  // re-identify engineProps every tick.
+  const paintExclusionsKey = useMemo(
+    () =>
+      (paintExclusions ?? [])
+        .map((rect) => `${rect.x},${rect.y},${rect.width},${rect.height}`)
+        .join("|"),
+    [paintExclusions]
+  );
 
   const engineProps = useMemo<GardenEngineProps | null>(() => {
     if (originRow === undefined || originCol === undefined) return null;
@@ -71,6 +85,7 @@ const GardenViewInner = ({
       onCreaturePlacementChange,
       deadZone,
       topRightDeadZone,
+      paintExclusions,
       placementMode,
       density,
       reducedMotion,
@@ -99,6 +114,11 @@ const GardenViewInner = ({
     onCreaturePlacementChange,
     deadZone,
     topRightDeadZone,
+    // paintExclusions intentionally omitted — paintExclusionsKey above
+    // serializes its content so identical-shape arrays don't churn the
+    // engineProps reference (and therefore don't trigger setProps every
+    // render). Kept in the closure via the memo body, not the dep list.
+    paintExclusionsKey,
     placementMode,
     density,
     reducedMotion,

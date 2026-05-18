@@ -86,6 +86,22 @@ export interface ReadyShellProps {
   gardenDensity?: GardenDensity;
 }
 
+// Toast layout knobs shared between the Toaster mount below and the paint
+// mask the garden engine consumes. Single source of truth — drift between
+// the two used to produce a mask that missed the toast by N rows.
+//
+// TOASTER_MARGIN_TOP feeds the absolute Toaster Box's `marginTop = rows - N`,
+// putting the toast stack inside the garden Panel rather than across its
+// bottom border. The mask reads the same constant to compute the toast's
+// top screen row.
+//
+// TOAST_WIDTH_PADDING matches `Toast`'s Yoga box with showProgress=false:
+// border(2) + paddingX(2) + icon(1) + gap(1).
+const TOASTER_MARGIN_TOP = 9;
+const TOAST_MAX_VISIBLE = 3;
+const TOAST_ROWS_EACH = 3;
+const TOAST_WIDTH_PADDING = 6;
+
 export const ReadyShell = ({
   creatures: rawCreatures,
   rootsLabel,
@@ -111,7 +127,7 @@ export const ReadyShell = ({
 }: ReadyShellProps) => {
   const theme = useTheme();
   const { reduced: reducedMotion } = useMotion();
-  const { latest: latestStatus, push: pushToast } = useToasts();
+  const { latest: latestStatus, push: pushToast, active: activeToasts } = useToasts();
   const { columns, rows } = useTerminalSize();
   const responsive = getTerminalLayout(columns, rows);
   const usage = useUsage(undefined, { disabled: usageBarDisabled });
@@ -148,6 +164,22 @@ export const ReadyShell = ({
   // Garden-mode pagination. Only meaningful when displayView === "garden";
   // shelf and journal render the full creature list. [ / ] flip pages.
   const [gardenPageIndex, setGardenPageIndex] = useState(0);
+  // Journal two-pane focus model. The journal view has two keyboard zones —
+  // the event-list pane and the repo sidebar — and Esc toggles between them
+  // (with an active filter consumed first). ↑↓ / jk both operate on the
+  // focused zone; Enter always opens the workbench for the sidebar
+  // selection. Reset to "pane" whenever the user enters journal mode so
+  // they land scrolling events with `home` scoped to all repos.
+  const [journalFocus, setJournalFocus] = useState<"pane" | "sidebar">("pane");
+  useEffect(() => {
+    if (view === "journal") {
+      setJournalFocus("pane");
+      // Land on `home` so the timeline scopes to "all events" by default —
+      // the user can drill into a single repo by switching pane focus
+      // (Esc) and pressing ↓.
+      setHomeSelected(true);
+    }
+  }, [view]);
 
   // ---- view transition machinery --------------------------------------
   // `view` is the user's intent (set the instant they click a segment).
@@ -387,8 +419,15 @@ export const ReadyShell = ({
         privacy.toggle();
         return;
       }
-      if (key.escape && filter) {
-        setFilter("");
+      // Esc cascades. Active filter wins (clear it); otherwise toggle which
+      // of the two journal panes owns the keyboard. This is the entry point
+      // for the two-pane focus model — see the `journalFocus` state above.
+      if (key.escape) {
+        if (filter) {
+          setFilter("");
+        } else {
+          setJournalFocus((current) => (current === "pane" ? "sidebar" : "pane"));
+        }
         return;
       }
       if (input === "q" && onQuit) {
@@ -396,12 +435,25 @@ export const ReadyShell = ({
         return;
       }
 
-      // Sidebar navigation in journal mode. The sidebar now has a virtual
-      // "home" row above the creatures; ↑↓ walk through both. j/k stay
-      // with JournalView for event scrolling so the panes navigate independently
-      // (Vim-pane style: arrows outside, j/k inside).
-      if (key.upArrow) {
-        if (homeSelected) return; // already at the top
+      // Enter always opens the workbench for whatever creature the sidebar
+      // currently has selected, regardless of which pane has keyboard
+      // focus. `home` is a no-op (it isn't a workbench target).
+      if (key.return && onOpenWorkbench) {
+        if (homeSelected) return;
+        const creature = focusList[focusIndex];
+        const target = creature ? (unmaskById(creature.id) ?? creature) : undefined;
+        if (target) onOpenWorkbench(target);
+        return;
+      }
+
+      // Two-pane focus model: ↑↓ (and j/k as aliases) operate on whichever
+      // pane is currently focused. Sidebar-focused → walk repos through the
+      // virtual home row; pane-focused → let JournalView's own useInput
+      // handle scrolling. j/k arrive via `input` so we have to swallow them
+      // here when the sidebar owns focus, otherwise JournalView would also
+      // consume them and both panes would move at once.
+      if (journalFocus === "sidebar" && (key.upArrow || input === "k")) {
+        if (homeSelected) return;
         if (focusIndex <= 0) {
           setHomeSelected(true);
         } else {
@@ -409,7 +461,7 @@ export const ReadyShell = ({
         }
         return;
       }
-      if (key.downArrow) {
+      if (journalFocus === "sidebar" && (key.downArrow || input === "j")) {
         if (homeSelected) {
           if (focusList.length > 0) setHomeSelected(false);
           return;
@@ -418,8 +470,7 @@ export const ReadyShell = ({
         return;
       }
 
-      // Let JournalView own event scrolling (j/k), detail toggles, kind/time
-      // filters, and the workbench open shortcut.
+      // Pane-focused → JournalView owns ↑↓/jk plus its filter/detail keys.
       return;
     }
 
@@ -1028,6 +1079,11 @@ export const ReadyShell = ({
         //   focusIdx === -1: the journal "home" row → scope = all.
         //   focusIdx >= 0:  a creature row → focus that creature; in journal
         //                   mode, also flip scope = focused.
+        // Two-pane focus model: clicking a sidebar row in journal mode
+        // updates the sidebar selection BUT keeps keyboard focus on the
+        // event-list pane, so arrows continue to scroll events. The mouse
+        // is for picking the scope; the keyboard stays where the reader's
+        // attention is.
         for (const zone of sidebarHitZones) {
           if (
             event.row === zone.topRow &&
@@ -1040,6 +1096,7 @@ export const ReadyShell = ({
               setFocusIndex(zone.focusIdx);
               setHomeSelected(false);
             }
+            if (journalActive) setJournalFocus("pane");
             return;
           }
         }
@@ -1081,7 +1138,88 @@ export const ReadyShell = ({
   const wideGardenContentCol = 1 + gardenSidebarWidth + 1 + 1 + 1 + 1;
   const stackedGardenContentCol = 1 + 1 + 1 + 1;
 
-  const sidebar = (width?: number, height?: number) => {
+  // Paint-mask the toast's screen footprint so the garden engine's
+  // direct-stdout star/sprite painter doesn't overpaint Ink's toast.
+  //
+  // The toast is positioned by the absolutely-placed Toaster Box at the
+  // bottom of this component (`marginTop = rows - TOASTER_MARGIN_TOP`).
+  // Its `position="absolute"` resolves against the outer shell Box
+  // (`flexDirection="column" paddingX={1} paddingY={1}` further down in
+  // this file), so the toast's screen origin is shell-padding +
+  // marginTop, not Toaster-parent padding — there is no padding on the
+  // immediate wrapper Box. The mask is consumed by GardenView in
+  // canvas-local coords; we convert via the same origin math the engine
+  // uses to place itself.
+  //
+  // !! If you change `paddingX` / `paddingY` on the outer shell Box, or
+  // !! introduce padding on the Toaster wrapper, this mask shifts by the
+  // !! same amount and silently misses the toast. Keep both in sync.
+  const visibleToasts = activeToasts.slice(-TOAST_MAX_VISIBLE);
+  // Serialized message lengths so the paintExclusions memo doesn't see
+  // a fresh reference every render (the active list is rebuilt on each
+  // push/dismiss). Exclusion geometry is purely a function of message
+  // width and count.
+  const visibleToastSig = visibleToasts.map((t) => t.message.length).join(",");
+  const gardenContentCol = responsive.showSidebar
+    ? wideGardenContentCol
+    : stackedGardenContentCol;
+  const gardenContentRowForCanvas = responsive.showSidebar
+    ? gardenContentRow
+    : gardenContentRow + 1;
+  const gardenCanvasInnerWidth = responsive.showSidebar
+    ? gardenInnerWidth
+    : Math.max(20, stackedWidth - 4);
+  const gardenCanvasInnerHeight = gardenInnerHeight;
+  const paintExclusions = useMemo(() => {
+    if (visibleToasts.length === 0) return undefined;
+    const widestMessage = visibleToasts.reduce(
+      (acc, t) => Math.max(acc, t.message.length),
+      0
+    );
+    const boxWidth = widestMessage + TOAST_WIDTH_PADDING;
+    const stackHeight = visibleToasts.length * TOAST_ROWS_EACH;
+    // Outer shell Box has paddingY=1 — content origin is row 2
+    // (1-indexed); Toaster wrapper's marginTop pushes further from there.
+    const screenTopRow = 1 + 1 + (rows - TOASTER_MARGIN_TOP);
+    // The Toaster's `alignSelf="flex-end"` in toast-host.tsx LOOKS like
+    // it should right-align the box, but the wrapping Box uses
+    // `position="absolute"` with the default row-direction, and
+    // alignSelf on the cross axis of a row container moves things
+    // vertically — not horizontally. Net: the toast renders at the
+    // shell Box's left content edge (paddingX=1 → col 2, 1-indexed).
+    //
+    // !! If you "fix" the alignSelf in toast-host.tsx so toasts actually
+    // !! right-align, this mask will point at the wrong half of the
+    // !! garden — re-derive screenLeftCol from `columns - boxWidth - …`.
+    const screenLeftCol = 1 + 1;
+    const localX = screenLeftCol - gardenContentCol;
+    const localY = screenTopRow - gardenContentRowForCanvas;
+    // Clamp to canvas — over-wide rects waste no work but keep
+    // semantics clean. Negative coords are valid (engine renders only
+    // the in-bounds intersection) but we trim to keep the mask compact.
+    const clampedX = Math.max(0, localX);
+    const clampedY = Math.max(0, localY);
+    const clampedW = Math.max(
+      0,
+      Math.min(gardenCanvasInnerWidth - clampedX, boxWidth - (clampedX - localX))
+    );
+    const clampedH = Math.max(
+      0,
+      Math.min(gardenCanvasInnerHeight - clampedY, stackHeight - (clampedY - localY))
+    );
+    if (clampedW <= 0 || clampedH <= 0) return undefined;
+    return [{ x: clampedX, y: clampedY, width: clampedW, height: clampedH }];
+  }, [
+    visibleToastSig,
+    rows,
+    columns,
+    gardenContentCol,
+    gardenContentRowForCanvas,
+    gardenCanvasInnerWidth,
+    gardenCanvasInnerHeight
+  ]);
+
+  const sidebar = (width?: number, height?: number, borderColor?: string) => {
     // Content rows = panel height minus 4 rows of chrome (top border, title
     // header, title bottom border, bottom border), (-1) for the inline status
     // row when present, and (-1) for the "home" row, which is always rendered
@@ -1182,7 +1320,7 @@ export const ReadyShell = ({
     );
 
     return (
-      <Panel title={title} paddingY={0} width={width} height={height}>
+      <Panel title={title} paddingY={0} width={width} height={height} borderColor={borderColor}>
         {homeRow}
         {visibleCreatures.length === 0 ? (
           isRescanning && !creatureFilter ? (
@@ -1737,6 +1875,7 @@ export const ReadyShell = ({
               onFocusDelta={handleGardenFocusDelta}
               onCreaturePlacementChange={handleGardenCreaturePlacementChange}
               deadZone={overlayDeadZone}
+              paintExclusions={paintExclusions}
               placementMode={habitatPlacementMode}
               density={gardenDensity}
             />
@@ -1776,16 +1915,25 @@ export const ReadyShell = ({
             onCreatureSelect={handleGardenCreatureSelect}
             onFocusDelta={handleGardenFocusDelta}
             onCreaturePlacementChange={handleGardenCreaturePlacementChange}
+            paintExclusions={paintExclusions}
             placementMode={habitatPlacementMode}
             density={gardenDensity}
           />
         </Box>
       ) : responsive.showSidebar ? (
         // Wide journal: sidebar (creature selection scopes timeline to one
-        // repo) + JournalView in the garden's content rect.
+        // repo) + JournalView in the garden's content rect. The two-pane
+        // focus model tints whichever pane currently owns ↑↓/jk — the
+        // sidebar's Panel border switches to the theme focus ring when
+        // `journalFocus === "sidebar"`, JournalView mirrors the same on
+        // its own border when `paneFocused`.
         <Box flexDirection="row">
           <Box width={gardenSidebarWidth} flexDirection="column" marginRight={1}>
-            {sidebar(gardenSidebarWidth, gardenHeight)}
+            {sidebar(
+              gardenSidebarWidth,
+              gardenHeight,
+              journalFocus === "sidebar" ? theme.colors.focusRing : undefined
+            )}
             <Box flexGrow={1} />
           </Box>
           <Box flexGrow={1} flexDirection="column">
@@ -1797,7 +1945,7 @@ export const ReadyShell = ({
               selectedRepoId={homeSelected ? undefined : focus?.scan.id}
               filter={filter}
               isActive={journalActive && !filterMode}
-              onOpenWorkbench={onOpenWorkbench ? (c) => onOpenWorkbench(unmaskById(c.id) ?? c) : undefined}
+              paneFocused={journalFocus === "pane"}
               onSelectRepo={(id) => {
                 if (!id) {
                   setHomeSelected(true);
@@ -1823,7 +1971,7 @@ export const ReadyShell = ({
             selectedRepoId={homeSelected ? undefined : focus?.scan.id}
             filter={filter}
             isActive={journalActive && !filterMode}
-            onOpenWorkbench={onOpenWorkbench ? (c) => onOpenWorkbench(unmaskById(c.id) ?? c) : undefined}
+            paneFocused={journalFocus === "pane"}
             onSelectRepo={(id) => {
               if (!id) {
                 setHomeSelected(true);
@@ -1846,20 +1994,28 @@ export const ReadyShell = ({
         starfield + sprite painters write to absolute screen coords, so they
         ended up painting at stale positions until the next layout settled —
         the visible "flicker" on startup the user reported.
+
+        marginTop bumped up by 2 rows (rows-7 → rows-9) so the toast sits
+        clearly inside the garden panel instead of straddling its bottom
+        border — the toast box is 3 rows tall, the footer below the panel
+        is 1–2 rows, so rows-7 put the toast bottom border on the same row
+        as the panel bottom border (manual-qa-report B8).
       */}
       <Box
         position="absolute"
-        marginTop={Math.max(0, rows - 7)}
+        marginTop={Math.max(0, rows - TOASTER_MARGIN_TOP)}
         width={Math.max(0, columns - 2)}
       >
         <Toaster />
       </Box>
       {ditherStartedAt !== null ? (
         // Inset by one cell on every side so the Panel border stays clean —
-        // gardenContentRow/wideGardenContentCol already sit inside the
-        // border + the Panel's 1-cell pad, so backing each up by 1 puts the
-        // origin on the paddingX/paddingY row, and the dimensions exclude
-        // just the borders (gardenWidth − 2, gardenHeight − 2).
+        // gardenContentRow/wideGardenContentCol are 1-indexed absolute
+        // terminal coords pointing at the first content cell inside the
+        // Panel border. DitherOverlay wants 0-indexed coords relative to
+        // its parent (ReadyShell's outer shell Box), so we subtract 1.
+        // The −2 on width/height drops just the Panel borders, keeping
+        // the sweep inside the visible content area.
         <DitherOverlay
           originRow={(responsive.showSidebar ? gardenContentRow : gardenContentRow + 1) - 1}
           originCol={(responsive.showSidebar ? wideGardenContentCol : stackedGardenContentCol) - 1}
@@ -1886,7 +2042,7 @@ export const ReadyShell = ({
         <Box flexShrink={1}>
           <Text dimColor color={theme.colors.mutedForeground} wrap="truncate-end">
             {journalActive
-              ? "↑↓ repo · jk events · ↵ open · / search · g view · s settings · ? help"
+              ? "↑↓/jk scroll · esc switch pane · ↵ workbench · / search · g view · s settings · ? help"
               : isGardenView && gardenPageCount > 1
                 ? "↑↓ move · ↵ open · / filter · g view · [] page · s settings · ? help · q quit"
                 : "↑↓ move · ↵ open · / filter · g view · s settings · ? help · q quit"}

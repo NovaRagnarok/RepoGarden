@@ -33,6 +33,16 @@ const emit = (kind: FocusEventKind): void => {
 // until the next chunk so we don't mistake it for an Esc keypress).
 let pending = "";
 
+/** Release the buffered prefix (typically a bare `\x1b`) and clear it. */
+export const flushPending = (): string => {
+  const out = pending;
+  pending = "";
+  return out;
+};
+
+/** True if the partial buffer currently holds bytes. */
+export const hasPending = (): boolean => pending.length > 0;
+
 /**
  * Parse a stdin chunk, returning the bytes the rest of the pipeline should
  * still see (with focus sequences stripped out) and emitting focus events

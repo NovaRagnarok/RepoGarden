@@ -64,6 +64,22 @@ const isInDeadZone = (model: GardenModel, x: number, y: number): boolean => {
   return x >= left && y >= top;
 };
 
+const isInPaintExclusion = (model: GardenModel, x: number, y: number): boolean => {
+  const exclusions = model.props.paintExclusions;
+  if (!exclusions || exclusions.length === 0) return false;
+  for (const rect of exclusions) {
+    if (
+      x >= rect.x &&
+      y >= rect.y &&
+      x < rect.x + rect.width &&
+      y < rect.y + rect.height
+    ) {
+      return true;
+    }
+  }
+  return false;
+};
+
 const setCell = (
   frame: GardenFrame,
   x: number,
@@ -81,11 +97,18 @@ const blockStarsForOverlays = (
   x: number,
   y: number
 ): boolean => {
-  const { deadZone, topRightDeadZone, innerWidth, canvasH } = model.props;
+  const { deadZone, topRightDeadZone, paintExclusions, innerWidth, canvasH } = model.props;
   if (deadZone) {
     const left = innerWidth - deadZone.width;
     const top = canvasH - deadZone.height;
     if (x >= left && y >= top) return true;
+  }
+  if (paintExclusions) {
+    for (const rect of paintExclusions) {
+      if (x >= rect.x && y >= rect.y && x < rect.x + rect.width && y < rect.y + rect.height) {
+        return true;
+      }
+    }
   }
   if (topRightDeadZone) {
     const left = innerWidth - topRightDeadZone.width;
@@ -154,7 +177,14 @@ export const renderGardenFrame = (
     cells: Array.from({ length: model.props.innerWidth * model.props.canvasH }, (_, index) => {
       const x = index % model.props.innerWidth;
       const y = Math.floor(index / model.props.innerWidth);
-      return isInDeadZone(model, x, y) ? transparentCell() : emptyCell();
+      // Both branches mark the cell transparent so the diff writer skips
+      // it — Ink owns those screen positions while the exclusion is live
+      // (e.g. a transient toast). When the rect clears, the next frame
+      // paints normally and any stars/sprites in those cells re-emerge.
+      if (isInDeadZone(model, x, y) || isInPaintExclusion(model, x, y)) {
+        return transparentCell();
+      }
+      return emptyCell();
     })
   };
 

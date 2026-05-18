@@ -12,6 +12,23 @@ export interface GardenTopRightDeadZone {
   starBlockRanges?: Array<{ top: number; height: number }>;
 }
 
+/**
+ * Paint-only exclusion rectangle in canvas-local coordinates. Cells inside
+ * the rect are skipped by the star/sprite painter (rendered as transparent
+ * so the diff writer emits no escape sequences for them), letting whatever
+ * Ink draws at the same screen position survive between frames. Unlike
+ * `deadZone` and `topRightDeadZone`, the placement/wander/drag math does
+ * not consult these — they're a layer-mask, not a layout constraint. Used
+ * for transient overlays like the bottom-right toast, which lives inside
+ * the garden panel but is owned by Ink rather than the engine.
+ */
+export interface GardenPaintExclusion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface GardenThemeColors {
   foreground: string;
   background: string;
@@ -34,6 +51,7 @@ export interface GardenSceneProps {
   canvasH: number;
   deadZone?: GardenDeadZone;
   topRightDeadZone?: GardenTopRightDeadZone;
+  paintExclusions?: GardenPaintExclusion[];
   placementMode: "organic" | "shelf";
   theme: GardenThemeColors;
   reducedMotion?: boolean;

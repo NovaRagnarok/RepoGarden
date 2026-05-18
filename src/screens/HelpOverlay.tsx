@@ -25,6 +25,8 @@ const shortcuts: Shortcut[] = [
   { key: "t / T", description: "copy habitat as text — small (≤2000 chars, Discord-ready) / big (full canvas)", category: "garden" },
   { key: "r", description: "rescan roots", category: "garden" },
   { key: "p", description: "edit scan paths", category: "garden" },
+  { key: "↑↓ / jk", description: "journal: scroll focused pane (events or sidebar)", category: "garden" },
+  { key: "esc", description: "journal: clear filter, else toggle pane focus", category: "garden" },
   { key: "f / F", description: "journal: type filter", category: "garden" },
   { key: "t / T", description: "journal: time range", category: "garden" },
   { key: "d", description: "journal: toggle event details", category: "garden" },
@@ -72,7 +74,7 @@ export const HelpOverlay = ({ onClose }: HelpOverlayProps) => {
   const compactRows = [
     "garden  ↑↓ pick · ↵ open · / filter · g view · h hide · [/] page",
     "share  x gif · t small text · T big text",
-    "journal  jk events · f/F type · t/T time · d details",
+    "journal  ↑↓/jk scroll · esc switch pane · f/F type · t/T time · d details",
     "workbench  1-6 section · n notes · ctrl+1/2 mode",
     "notes  ctrl+n new · ctrl+p palette · ctrl+s save",
     "anywhere  r rescan · p roots · s settings · m mask · ? help · q quit",

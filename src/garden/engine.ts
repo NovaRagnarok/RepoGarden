@@ -41,6 +41,24 @@ const sameTopRightDeadZone = (
   return left.width === right.width && left.height === right.height;
 };
 
+const samePaintExclusions = (
+  left: GardenEngineProps["paintExclusions"],
+  right: GardenEngineProps["paintExclusions"]
+): boolean => {
+  const leftLen = left?.length ?? 0;
+  const rightLen = right?.length ?? 0;
+  if (leftLen !== rightLen) return false;
+  if (leftLen === 0) return true;
+  for (let i = 0; i < leftLen; i += 1) {
+    const a = left![i];
+    const b = right![i];
+    if (a.x !== b.x || a.y !== b.y || a.width !== b.width || a.height !== b.height) {
+      return false;
+    }
+  }
+  return true;
+};
+
 // Compare the fields scenePropsFromEngineProps copies into the model.
 // When these are unchanged, syncGardenModel would be a no-op AT BEST —
 // but its current implementation tears down `dragPreviewPlacements` and
@@ -125,6 +143,10 @@ export class GardenEngine {
     if (this.destroyed) return;
     const canvasChanged = !sameCanvas(this.props, nextProps);
     const sceneChanged = !sameSceneProps(this.props, nextProps);
+    const paintExclusionsChanged = !samePaintExclusions(
+      this.props.paintExclusions,
+      nextProps.paintExclusions
+    );
     const now = performance.now();
     if (canvasChanged) {
       this.previousFrame = null;
@@ -145,6 +167,15 @@ export class GardenEngine {
       // Origin moved but the scene is identical (rare — happens on
       // layout shifts that don't change canvas dims). Repaint without
       // re-syncing so an in-flight drag survives.
+      this.render(now);
+    } else if (paintExclusionsChanged) {
+      // Mask-only change (toast appeared/dismissed). The mask is a layer
+      // mask, not a layout constraint — placement/wander state is
+      // unaffected — so we skip syncGardenModel (which would tear down
+      // any in-flight drag). Patch the model's view of props so the next
+      // render sees the new mask, then repaint immediately so Ink's
+      // newly-rendered toast doesn't get overpainted by the next tick.
+      this.model.props = this.scenePropsFromEngineProps(nextProps);
       this.render(now);
     }
   }
@@ -390,6 +421,7 @@ export class GardenEngine {
       canvasH: props.canvasH,
       deadZone: props.deadZone,
       topRightDeadZone: props.topRightDeadZone,
+      paintExclusions: props.paintExclusions,
       placementMode: props.placementMode,
       density: props.density,
       theme: props.theme,
