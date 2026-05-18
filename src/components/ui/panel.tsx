@@ -70,13 +70,13 @@ export const Panel = ({
     </>
   );
 
-  // flexShrink={0} on the outer Panel box is the load-bearing fix for the
-  // manual-qa B3 family: at small terminal heights the workbench's
-  // section-content Panel was being shrunk to ~3 rows (just the title
-  // border) and its actual content escaped *below* the bottom border.
-  // Pinning shrink to 0 preserves the natural height; the outer container
-  // already owns overflow="hidden" so clipping (rather than collapse)
-  // becomes the failure mode at very small sizes.
+  // Pin flexShrink={0} on the outer box. Inside an overflow="hidden"
+  // ancestor with a finite height, Yoga's default shrink=1 squeezes
+  // bordered children below their natural row count — collapsing the
+  // Panel into its title/border rows and letting its real content
+  // render *outside* the panel. With shrink=0 the Panel keeps its
+  // natural height and the parent's overflow handles too-small
+  // terminals by clipping rather than collapsing.
   if (!bordered) {
     return (
       <Box flexDirection="column" width={width} height={height} flexShrink={0}>

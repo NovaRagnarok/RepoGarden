@@ -64,7 +64,6 @@ export interface JournalViewProps {
    * pane has keyboard focus, so the parent handles that.
    */
   paneFocused?: boolean;
-  onOpenWorkbench?: (creature: RepoCreature) => void;
   /**
    * Called when the journal wants the parent to change the sidebar selection.
    * `null` requests the "everything" row; a string id requests that creature.
@@ -160,7 +159,6 @@ export const JournalView = ({
   filter,
   isActive = true,
   paneFocused = true,
-  onOpenWorkbench,
 }: JournalViewProps) => {
   const theme = useTheme();
   const [scrollOffset, setScrollOffset] = useState(0);
@@ -313,12 +311,6 @@ export const JournalView = ({
         setSelectedIndex(maxEventIndex);
         return;
       }
-      if (key.return && onOpenWorkbench) {
-        const event = capped[selectedIndex];
-        if (!event) return;
-        const creature = creatures.find((c) => c.id === event.repoId);
-        if (creature) onOpenWorkbench(creature);
-      }
     },
     { isActive }
   );
@@ -456,63 +448,63 @@ export const JournalView = ({
 
       <Box flexDirection="row">
         <Box flexDirection="column" flexGrow={1}>
-      {windowedRows.map((row, idx) => {
-        if (row.kind === "day-header") {
-          return (
-            <Box key={`dh-${row.key}-${idx}`}>
-              <Text bold dimColor color={theme.colors.mutedForeground}>
-                {row.label}
-              </Text>
-            </Box>
-          );
-        }
+          {windowedRows.map((row, idx) => {
+            if (row.kind === "day-header") {
+              return (
+                <Box key={`dh-${row.key}-${idx}`}>
+                  <Text bold dimColor color={theme.colors.mutedForeground}>
+                    {row.label}
+                  </Text>
+                </Box>
+              );
+            }
 
-        if (row.kind === "trailing") {
-          return (
-            <Box key="trailing">
-              <Text dimColor color={theme.colors.mutedForeground}>
-                … {row.count} older {row.count === 1 ? "entry" : "entries"} hidden by the cap.
-              </Text>
-            </Box>
-          );
-        }
+            if (row.kind === "trailing") {
+              return (
+                <Box key="trailing">
+                  <Text dimColor color={theme.colors.mutedForeground}>
+                    … {row.count} older {row.count === 1 ? "entry" : "entries"} hidden by the cap.
+                  </Text>
+                </Box>
+              );
+            }
 
-        const { event, eventIndex } = row;
-        const focused = eventIndex === selectedIndex;
-        const glyphDef = glyphFor(event);
-        const glyphColor = resolveGlyphColor(glyphDef);
-        const timeStr = formatEventTime(event.ts);
-        const repoStr = padTrunc(event.repoName, REPO_W);
-        const kindStr = padTrunc(journalKindLabel(event.kind).replace(/^notes? /, "note "), KIND_W);
-        // Pad to a fixed width so Ink's per-line diff always rewrites the full
-        // column. With a bare `truncate` the rendered Text length contracts
-        // between frames (e.g. a long previous-frame summary leaves residue
-        // like `…"ences"` trailing a shorter current summary). Padding to
-        // `summaryWidth` keeps the line's character count constant. See the
-        // "loose end" entry in docs/manual-qa-report.md.
-        const summary = padTrunc(eventSummary(event, summaryWidth), summaryWidth);
+            const { event, eventIndex } = row;
+            const focused = eventIndex === selectedIndex;
+            const glyphDef = glyphFor(event);
+            const glyphColor = resolveGlyphColor(glyphDef);
+            const timeStr = formatEventTime(event.ts);
+            const repoStr = padTrunc(event.repoName, REPO_W);
+            const kindStr = padTrunc(journalKindLabel(event.kind).replace(/^notes? /, "note "), KIND_W);
+            // Pad to a fixed width so Ink's per-line diff always rewrites the full
+            // column. With a bare `truncate` the rendered Text length contracts
+            // between frames (e.g. a long previous-frame summary leaves residue
+            // like `…"ences"` trailing a shorter current summary). Padding to
+            // `summaryWidth` keeps the line's character count constant. See the
+            // "loose end" entry in docs/manual-qa-report.md.
+            const summary = padTrunc(eventSummary(event, summaryWidth), summaryWidth);
 
-        return (
-          <Box key={`ev-${event.ts}-${event.repoId}-${event.kind}-${eventIndex}-${idx}`} flexDirection="row">
-            <Text color={focused ? theme.colors.primary : theme.colors.mutedForeground}>
-              {focused ? "▸" : " "}
-            </Text>
-            <Text color={glyphColor}>{glyphDef.glyph}</Text>
-            <Text color={theme.colors.mutedForeground}> </Text>
-            <Text dimColor color={theme.colors.mutedForeground}>{timeStr}</Text>
-            <Text color={theme.colors.mutedForeground}> </Text>
-            <Text color={focused ? theme.colors.primary : theme.colors.foreground} bold={focused}>
-              {repoStr}
-            </Text>
-            <Text color={theme.colors.mutedForeground}> </Text>
-            <Text dimColor color={theme.colors.mutedForeground}>{kindStr}</Text>
-            <Text color={theme.colors.mutedForeground}> </Text>
-            <Text color={focused ? theme.colors.foreground : theme.colors.mutedForeground} wrap="truncate-end">
-              {summary}
-            </Text>
-          </Box>
-        );
-      })}
+            return (
+              <Box key={`ev-${event.ts}-${event.repoId}-${event.kind}-${eventIndex}-${idx}`} flexDirection="row">
+                <Text color={focused ? theme.colors.primary : theme.colors.mutedForeground}>
+                  {focused ? "▸" : " "}
+                </Text>
+                <Text color={glyphColor}>{glyphDef.glyph}</Text>
+                <Text color={theme.colors.mutedForeground}> </Text>
+                <Text dimColor color={theme.colors.mutedForeground}>{timeStr}</Text>
+                <Text color={theme.colors.mutedForeground}> </Text>
+                <Text color={focused ? theme.colors.primary : theme.colors.foreground} bold={focused}>
+                  {repoStr}
+                </Text>
+                <Text color={theme.colors.mutedForeground}> </Text>
+                <Text dimColor color={theme.colors.mutedForeground}>{kindStr}</Text>
+                <Text color={theme.colors.mutedForeground}> </Text>
+                <Text color={focused ? theme.colors.foreground : theme.colors.mutedForeground} wrap="truncate-end">
+                  {summary}
+                </Text>
+              </Box>
+            );
+          })}
         </Box>
         {scrollbarVisible ? (
           <ScrollBar

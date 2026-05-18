@@ -229,27 +229,36 @@ ctrl chords, or arbitrary text input. Extended to:
 | B7 | `minHeight={3}` on the scan-path input wrapper so Yoga can't collapse its content row to 0. | `src/screens/OnboardingScreen.tsx` |
 | B8 | Bump the absolute Toaster `marginTop` from `rows - 7` to `rows - 9` so the toast sits inside the garden panel instead of straddling its bottom border. | `src/screens/ReadyShell.tsx` |
 
-The fixes landed across four commits on `feat/usage-overlay`:
+The fixes landed across six commits on `feat/usage-overlay`:
 
-1. `3109647` — B1 + B5 + harness extensions + this report.
+1. `3109647` — B1 + B5 + harness extensions + initial report.
 2. `aece371` — B2/B3/B4 layout fixes (subagent worktree, then merged).
 3. `99b1633` — B6/B7/B8 cosmetic fixes (subagent worktree, then merged).
+4. `31fdc8d` — Report update marking B1–B8 done.
+5. `92c5b94` — Journal two-pane focus model + `<ScrollBar>` extraction +
+   journal stale-tail (`truncate` → `padTrunc`).
+6. `8af10bd` — Garden engine paint-mask so the direct-stdout star/sprite
+   painter stops clobbering Ink-rendered toasts.
 
 497/497 tests pass at every commit. Verification captures live under
-`/tmp/repogarden-tui-observe/session.k1nBIL/captures/` and
-`/tmp/rg-onboard/` for the final pass.
+`/tmp/repogarden-tui-observe/session.*/captures/` and `/tmp/rg-onboard/`
+for the onboarding pass.
 
-## Remaining loose ends (not in the original B1–B8 list)
+## Originally loose ends (now resolved)
 
 - **Event-summary stale tail** on the first journal row
-  (`shipped "Refresh live mobile data on focus"ences"`). Predates the
-  sweep; visible in both broken and clean journal captures. Likely a
-  per-line wrap/truncation quirk in `JournalView` when consecutive
-  events render strings of different lengths into the same Text element.
-- **Toast content visibility** during the brief rescan toast at 100×32
-  is sometimes overwritten by the starfield/sprite painters — only the
-  left border is visible while the toast is on screen. The toast
-  *position* (B8) is correct now; this is a separate z-ordering issue
-  caused by the same painters mentioned at `ReadyShell.tsx:1842-1849`.
-  Lower priority — the toast is right-edge-aligned and short-lived in
-  practice.
+  (`shipped "Refresh live mobile data on focus"ences"`). Root cause: the
+  summary column used variable-length `truncate(...)` while neighbouring
+  columns used fixed-width `padTrunc(...)`. Ink's per-line diff writer
+  only rewrites the run of changed cells, so when a frame's summary
+  contracted vs. the prior frame, the tail leaked. Fixed in commit 5 by
+  swapping to `padTrunc` so the rendered Text length is constant.
+- **Toast content overwritten by starfield/sprite painter.** `GardenEngine`
+  writes ANSI cursor escapes straight to stdout, after Ink renders —
+  anything in its rectangle gets clobbered. Fixed in commit 6 by adding
+  a `paintExclusions` API on `GardenSceneProps`; `ReadyShell` computes
+  the toast's screen rect (derived from `useToasts().active` plus the
+  shared `TOASTER_MARGIN_TOP` constant) and passes it through. The
+  renderer treats those cells as `transparent`, and the diff writer
+  plus `setCell` short-circuit on transparent, so sprite/divider/focus-
+  frame writes also can't touch them.

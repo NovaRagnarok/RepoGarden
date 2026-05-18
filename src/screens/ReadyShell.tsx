@@ -86,6 +86,22 @@ export interface ReadyShellProps {
   gardenDensity?: GardenDensity;
 }
 
+// Toast layout knobs shared between the Toaster mount below and the paint
+// mask the garden engine consumes. Single source of truth — drift between
+// the two used to produce a mask that missed the toast by N rows.
+//
+// TOASTER_MARGIN_TOP feeds the absolute Toaster Box's `marginTop = rows - N`,
+// putting the toast stack inside the garden Panel rather than across its
+// bottom border. The mask reads the same constant to compute the toast's
+// top screen row.
+//
+// TOAST_WIDTH_PADDING matches `Toast`'s Yoga box with showProgress=false:
+// border(2) + paddingX(2) + icon(1) + gap(1).
+const TOASTER_MARGIN_TOP = 9;
+const TOAST_MAX_VISIBLE = 3;
+const TOAST_ROWS_EACH = 3;
+const TOAST_WIDTH_PADDING = 6;
+
 export const ReadyShell = ({
   creatures: rawCreatures,
   rootsLabel,
@@ -1124,23 +1140,20 @@ export const ReadyShell = ({
 
   // Paint-mask the toast's screen footprint so the garden engine's
   // direct-stdout star/sprite painter doesn't overpaint Ink's toast.
-  // The toast is positioned by the absolutely-placed Toaster Box below
-  // (`marginTop = rows - TOASTER_MARGIN_TOP`, right-aligned within
-  // `width = columns - 2`), so its top-left screen position is
-  // deterministic from `rows` / `columns` plus the visible toast widths.
-  // The mask is consumed by GardenView in canvas-local coords, so we
-  // convert from absolute screen rows/cols to canvas-local via the same
-  // origin math used to place the engine.
   //
-  // Mask geometry per toast (matches `Toast`'s Yoga box with
-  // showProgress=false): width = message.length + border(2) +
-  // paddingX(2) + icon(1) + gap(1); height = 3 (top border + content +
-  // bottom border). Stacked vertically inside the Toaster's column,
-  // newest at the bottom; `max=3` cap.
-  const TOASTER_MARGIN_TOP = 9; // keep in sync with the Toaster Box below
-  const TOAST_MAX_VISIBLE = 3;
-  const TOAST_ROWS_EACH = 3;
-  const TOAST_WIDTH_PADDING = 6; // border(2) + paddingX(2) + icon(1) + gap(1)
+  // The toast is positioned by the absolutely-placed Toaster Box at the
+  // bottom of this component (`marginTop = rows - TOASTER_MARGIN_TOP`).
+  // Its `position="absolute"` resolves against the outer shell Box
+  // (`flexDirection="column" paddingX={1} paddingY={1}` further down in
+  // this file), so the toast's screen origin is shell-padding +
+  // marginTop, not Toaster-parent padding — there is no padding on the
+  // immediate wrapper Box. The mask is consumed by GardenView in
+  // canvas-local coords; we convert via the same origin math the engine
+  // uses to place itself.
+  //
+  // !! If you change `paddingX` / `paddingY` on the outer shell Box, or
+  // !! introduce padding on the Toaster wrapper, this mask shifts by the
+  // !! same amount and silently misses the toast. Keep both in sync.
   const visibleToasts = activeToasts.slice(-TOAST_MAX_VISIBLE);
   // Serialized message lengths so the paintExclusions memo doesn't see
   // a fresh reference every render (the active list is rebuilt on each
@@ -1165,15 +1178,19 @@ export const ReadyShell = ({
     );
     const boxWidth = widestMessage + TOAST_WIDTH_PADDING;
     const stackHeight = visibleToasts.length * TOAST_ROWS_EACH;
-    // Toaster's parent has paddingY=1 (parent's content origin row = 2,
-    // 1-indexed); marginTop adds further offset.
+    // Outer shell Box has paddingY=1 — content origin is row 2
+    // (1-indexed); Toaster wrapper's marginTop pushes further from there.
     const screenTopRow = 1 + 1 + (rows - TOASTER_MARGIN_TOP);
-    // The Toaster's `alignSelf="flex-end"` was intended to right-align
-    // the box, but the wrapping `position="absolute"` Box defaults to
-    // row-direction, so flex-end pushes vertically (cross-axis) rather
-    // than horizontally. Toasts render at the LEFT edge of the absolute
-    // Box, offset by the parent's paddingX=1 — so left col (1-indexed)
-    // is 1 + 1 = 2.
+    // The Toaster's `alignSelf="flex-end"` in toast-host.tsx LOOKS like
+    // it should right-align the box, but the wrapping Box uses
+    // `position="absolute"` with the default row-direction, and
+    // alignSelf on the cross axis of a row container moves things
+    // vertically — not horizontally. Net: the toast renders at the
+    // shell Box's left content edge (paddingX=1 → col 2, 1-indexed).
+    //
+    // !! If you "fix" the alignSelf in toast-host.tsx so toasts actually
+    // !! right-align, this mask will point at the wrong half of the
+    // !! garden — re-derive screenLeftCol from `columns - boxWidth - …`.
     const screenLeftCol = 1 + 1;
     const localX = screenLeftCol - gardenContentCol;
     const localY = screenTopRow - gardenContentRowForCanvas;
@@ -1929,7 +1946,6 @@ export const ReadyShell = ({
               filter={filter}
               isActive={journalActive && !filterMode}
               paneFocused={journalFocus === "pane"}
-              onOpenWorkbench={onOpenWorkbench ? (c) => onOpenWorkbench(unmaskById(c.id) ?? c) : undefined}
               onSelectRepo={(id) => {
                 if (!id) {
                   setHomeSelected(true);
@@ -1956,7 +1972,6 @@ export const ReadyShell = ({
             filter={filter}
             isActive={journalActive && !filterMode}
             paneFocused={journalFocus === "pane"}
-            onOpenWorkbench={onOpenWorkbench ? (c) => onOpenWorkbench(unmaskById(c.id) ?? c) : undefined}
             onSelectRepo={(id) => {
               if (!id) {
                 setHomeSelected(true);
@@ -1988,17 +2003,19 @@ export const ReadyShell = ({
       */}
       <Box
         position="absolute"
-        marginTop={Math.max(0, rows - 9)}
+        marginTop={Math.max(0, rows - TOASTER_MARGIN_TOP)}
         width={Math.max(0, columns - 2)}
       >
         <Toaster />
       </Box>
       {ditherStartedAt !== null ? (
         // Inset by one cell on every side so the Panel border stays clean —
-        // gardenContentRow/wideGardenContentCol already sit inside the
-        // border + the Panel's 1-cell pad, so backing each up by 1 puts the
-        // origin on the paddingX/paddingY row, and the dimensions exclude
-        // just the borders (gardenWidth − 2, gardenHeight − 2).
+        // gardenContentRow/wideGardenContentCol are 1-indexed absolute
+        // terminal coords pointing at the first content cell inside the
+        // Panel border. DitherOverlay wants 0-indexed coords relative to
+        // its parent (ReadyShell's outer shell Box), so we subtract 1.
+        // The −2 on width/height drops just the Panel borders, keeping
+        // the sweep inside the visible content area.
         <DitherOverlay
           originRow={(responsive.showSidebar ? gardenContentRow : gardenContentRow + 1) - 1}
           originCol={(responsive.showSidebar ? wideGardenContentCol : stackedGardenContentCol) - 1}
