@@ -359,8 +359,7 @@ export const JournalView = ({
     `f ${journalKindLabel(kindFilter)}`,
     `t ${journalRangeLabel(rangeFilter)}`,
     `d ${detailsOpen ? "details" : "compact"}`,
-    "esc switch pane",
-    "↵ workbench",
+    paneFocused ? "esc back to sidebar" : "↵ enter journal",
   ].join(" · ");
 
   const title = `journal · ${scopeLabel}`;

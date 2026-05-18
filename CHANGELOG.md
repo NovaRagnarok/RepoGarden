@@ -4,6 +4,36 @@ All notable changes to RepoGarden land here. Format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+## [0.9.1] — 2026-05-17
+
+### Added
+
+- New `<ScrollBar>` component (`src/components/ui/scroll-bar.tsx`) lifted out of the TextArea's inline scroll indicator. Both the notes editor and the journal event list consume it.
+
+### Changed
+
+- Journal view now uses a two-pane focus model. ↑↓ (and `j`/`k` as aliases) scroll whichever pane currently has focus — the sidebar repo list or the event list. Esc toggles between panes (clearing an active filter first). Enter from the sidebar drills into the event pane instead of jumping out to the workbench; workbench access stays one keystroke away via `g` to garden or shelf, where Enter still opens it.
+- High Contrast theme's focus ring is now cyan (`#00FFFF`) instead of yellow (`#FFFF00`) so a focused pane border no longer shares its hue with `warning`. Still 16.7:1 on black, well above AA.
+- The `★ RepoGarden` Credit footer no longer appends a literal ` (URL)` fallback on terminals without OSC-8 hyperlink support — the brand mark stays on one line on narrow hotbars (Settings, Help, etc.). Hyperlink-capable terminals still get the clickable link.
+
+### Fixed
+
+- **Journal text no longer keeps stale characters after a transition.** `DitherOverlay` was painting "stars" over the journal area via absolute-cursor escape sequences written directly to stdout, then erasing them by writing spaces at the same screen positions. The spaces overwrote whatever Ink had rendered, and Ink's diff cache didn't repaint. Rewritten to render the stars as Ink children so the natural unmount path reconciles the cells back.
+- **Single Escape now reliably closes the workbench, help, settings, usage, and edit-roots screens.** The mouse and focus parsers held a trailing `\x1b` in a pending buffer waiting for a follow-up byte that disambiguates it (so split SGR-mouse sequences don't leak as Esc keystrokes). With no follow-up the byte sat forever. A 30 ms timer in `cli-main.tsx` now flushes both parsers' pending buffers after each chunk, so a paused Esc resolves on its own.
+- **Workbench overview no longer renders the value on top of the label**, the section tabs no longer fuse with the "1 file changed" alert at small heights, the snapshot / top-actions panels keep their borders, and the help overlay's `┌─┐` key boxes render with full top and bottom borders. Single shared root cause: Yoga's default `flexShrink=1` was letting `overflow="hidden"` ancestors squeeze multi-row bordered children below their natural row count. `flexShrink={0}` applied to Panel, Badge, the workbench section rows, and the KeyboardShortcuts grid.
+- **Onboarding scan-path input renders its content row** (prompt + cursor) inside the box instead of on the bottom border. `minHeight={3}` on the bordered wrapper.
+- **Toasts sit inside the garden panel** instead of straddling its bottom border. Toaster `marginTop` bumped from `rows - 7` to `rows - 9`; the constant is hoisted to module scope (`TOASTER_MARGIN_TOP`) so the paint mask below reads from one source of truth.
+- **Garden engine's direct-stdout star/sprite painter no longer overpaints Ink-rendered toasts.** New `paintExclusions` API on `GardenSceneProps`: a list of canvas-local rects whose cells the renderer marks `transparent`. The diff writer and `setCell` both short-circuit on transparent, and `blockStarsForOverlays` skips star-gen work entirely for excluded cells. `ReadyShell` derives the toast rect from `useToasts().active` and the shared layout constants, in canvas-local coords, and threads it through to both `GardenView` call sites.
+- **Journal event-summary no longer leaves a stale tail** (`shipped "Refresh live mobile data on focus"ences"`) when a long previous-frame summary contracts. Variable-length `truncate(eventSummary(...), summaryWidth)` swapped for fixed-width `padTrunc(...)` so the Text length is constant between frames.
+
+### Internal
+
+- `flushPending` / `hasPending` exports on `src/lib/mouse.ts` and `src/lib/focus.ts`; cli-main schedules the 30 ms flush timer.
+- Toast layout knobs (`TOASTER_MARGIN_TOP`, `TOAST_MAX_VISIBLE`, `TOAST_ROWS_EACH`, `TOAST_WIDTH_PADDING`) hoisted to module-level constants in `ReadyShell.tsx`.
+- `scripts/tui-observe.sh send` now accepts any single printable char, `C-*` chords, `Tab` / `Space` synonyms, and `text:<string>` for literal multi-char input — enough to drive every surface from the harness.
+- End-to-end QA report at `docs/manual-qa-report.md` with the inventory, root causes, and verification captures for every bug fixed this release.
+- Test count: 491 → 497 (one new regression test covers the bare-Escape flush).
+
 ## [0.9.0] — 2026-05-16
 
 ### Added

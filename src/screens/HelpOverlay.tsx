@@ -26,7 +26,8 @@ const shortcuts: Shortcut[] = [
   { key: "r", description: "rescan roots", category: "garden" },
   { key: "p", description: "edit scan paths", category: "garden" },
   { key: "↑↓ / jk", description: "journal: scroll focused pane (events or sidebar)", category: "garden" },
-  { key: "esc", description: "journal: clear filter, else toggle pane focus", category: "garden" },
+  { key: "↵", description: "journal: drill into event pane from the sidebar", category: "garden" },
+  { key: "esc", description: "journal: clear filter, else back to sidebar / toggle pane", category: "garden" },
   { key: "f / F", description: "journal: type filter", category: "garden" },
   { key: "t / T", description: "journal: time range", category: "garden" },
   { key: "d", description: "journal: toggle event details", category: "garden" },
@@ -74,7 +75,7 @@ export const HelpOverlay = ({ onClose }: HelpOverlayProps) => {
   const compactRows = [
     "garden  ↑↓ pick · ↵ open · / filter · g view · h hide · [/] page",
     "share  x gif · t small text · T big text",
-    "journal  ↑↓/jk scroll · esc switch pane · f/F type · t/T time · d details",
+    "journal  ↑↓/jk scroll · ↵ enter pane · esc back · f/F type · t/T time · d details",
     "workbench  1-6 section · n notes · ctrl+1/2 mode",
     "notes  ctrl+n new · ctrl+p palette · ctrl+s save",
     "anywhere  r rescan · p roots · s settings · m mask · ? help · q quit",

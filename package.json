@@ -1,9 +1,12 @@
 {
   "name": "@outsideheaven/repogarden",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "private": false,
   "license": "MIT",
-  "author": "RepoGarden contributors",
+  "author": {
+    "name": "Outsideheaven",
+    "url": "https://github.com/NovaRagnarok"
+  },
   "description": "A little local habitat where your repos live.",
   "keywords": [
     "tui",

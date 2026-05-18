@@ -25,8 +25,9 @@ export const highContrastTheme = createTheme({
     // 5.1:1 on #000 — meets AA; uses symbol + color
     error: "#FF4444",
     errorForeground: "#FFFFFF",
-    // 19.1:1 — visually distinct for focus
-    focusRing: "#FFFF00",
+    // 16.7:1 on #000 — visually distinct for focus, and not the same
+    // hue as `warning` (yellow) so a focused pane doesn't read as alarm.
+    focusRing: "#00FFFF",
     // 21:1 — exceeds AAA
     foreground: "#FFFFFF",
     // 7.5:1 on #000 — exceeds AA
