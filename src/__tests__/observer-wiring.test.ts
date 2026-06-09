@@ -4,10 +4,16 @@ import { spawnSync } from "node:child_process";
 import {
   mkdirSync,
   mkdtempSync,
+  realpathSync,
   rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+// Long-form temp root: Node 24's libuv asserts (and kills the process) when
+// fs.watch fires on a path with Windows 8.3 short-name components, which is
+// what os.tmpdir() returns on GitHub's Windows runners. See events.test.ts.
+const TMP_ROOT = realpathSync.native(tmpdir());
 
 import { startObserver } from "../lib/observer";
 import { inspectRepo } from "../lib/scanner";
@@ -38,7 +44,7 @@ const commitEmpty = (path: string, message: string) => {
 };
 
 const withFakeHome = async (run: (home: string) => Promise<void>): Promise<void> => {
-  const fake = mkdtempSync(join(tmpdir(), "repogarden-observer-wiring-"));
+  const fake = mkdtempSync(join(TMP_ROOT,"repogarden-observer-wiring-"));
   const oldHome = process.env.HOME;
   const oldUserProfile = process.env.USERPROFILE;
   process.env.HOME = fake;
@@ -60,7 +66,7 @@ test("observer + cli wiring: a new commit produces a 'commit' journal event", as
     // the snapshot reconcile, not from seed.
     saveEventsMeta({ seeded: true, seededAt: new Date().toISOString() });
 
-    const workspaceRoot = mkdtempSync(join(tmpdir(), "repogarden-observer-ws-"));
+    const workspaceRoot = mkdtempSync(join(TMP_ROOT,"repogarden-observer-ws-"));
     try {
       const repoPath = join(workspaceRoot, "alpha");
       initRepo(repoPath);
@@ -122,7 +128,7 @@ test("observer + cli wiring: dropping a new repo into a scan root surfaces a 're
   await withFakeHome(async () => {
     saveEventsMeta({ seeded: true, seededAt: new Date().toISOString() });
 
-    const workspaceRoot = mkdtempSync(join(tmpdir(), "repogarden-observer-ws-"));
+    const workspaceRoot = mkdtempSync(join(TMP_ROOT,"repogarden-observer-ws-"));
     try {
       // Start with one repo already known.
       const alphaPath = join(workspaceRoot, "alpha");
