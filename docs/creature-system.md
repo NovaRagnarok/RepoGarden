@@ -64,7 +64,7 @@ Do not use randomness for:
 A single static sprite per creature is enough. Terminal cells can't fake smooth animation; don't try. Charm comes from:
 - timing of state changes
 - creature placement and spacing
-- shelf transition polish
+- rooms transition polish
 - bubble overlays
 - occasional motion in the surrounding chrome (selection, scan progress)
 
@@ -89,7 +89,7 @@ Glyph vocabulary (single-cell, deliberately distinct from the vibe glyphs `!` `â
 | lonely | `â€¦` | muted |
 
 ### Vibes, mood, and confidence
-Vibe is the shelf-level state. It decides where a creature is grouped and which accent color/glyph it carries:
+Vibe is the grouping-level state. It decides which room a creature belongs to and which accent color/glyph it carries:
 
 - `awake`: uncommitted changes or unpushed commits
 - `happy`: clean working tree, in sync with remote
