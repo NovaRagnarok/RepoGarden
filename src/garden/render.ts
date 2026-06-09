@@ -146,17 +146,25 @@ const dividerLabelColor = (model: GardenModel, vibe: Vibe): string =>
 // sprite+label footprint, the rooms chrome (divider/separator strokes), and
 // the Ink-owned rects (dead zones, paint exclusions — those cells render
 // transparent, so painting into them would silently clip a caption mid-word).
-const collectOverlayObstacles = (
-  model: GardenModel,
-  excludeCreatureId: string
-): CaptionObstacle[] => {
-  const obstacles: CaptionObstacle[] = [];
+// Almost all of this is frame-global, so it is built once per frame
+// (lazily — only when a cue or caption actually needs it) and queried
+// per creature, instead of being recollected inside the cue loop.
+interface OverlayObstacleIndex {
+  /** Chrome + exclusion rects that apply to every creature. */
+  shared: CaptionObstacle[];
+  /** Every creature's sprite+label footprint, tagged so a query can skip
+   *  the candidate creature's own cells. */
+  footprints: Array<{ creatureId: string; rect: CaptionObstacle }>;
+}
+
+const buildOverlayObstacleIndex = (model: GardenModel): OverlayObstacleIndex => {
+  const footprints: OverlayObstacleIndex["footprints"] = [];
   for (const placement of model.scene.placements) {
     const creature = placement.tile.creature;
-    if (creature.id === excludeCreatureId) continue;
     const visual = model.visualPlacements.get(creature.id) ?? placement;
-    obstacles.push(spriteFullFootprint(visual));
+    footprints.push({ creatureId: creature.id, rect: spriteFullFootprint(visual) });
   }
+  const obstacles: CaptionObstacle[] = [];
   for (const divider of model.scene.dividers) {
     obstacles.push({
       left: divider.canvasCol,
@@ -198,11 +206,36 @@ const collectOverlayObstacles = (
       bottom: topRightDeadZone.height - 1
     });
   }
-  return obstacles;
+  return { shared: obstacles, footprints };
 };
 
 const rectContains = (rect: CaptionObstacle, x: number, y: number): boolean =>
   x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+
+/** Point test against the index, skipping the candidate's own footprint —
+ *  no per-creature array rebuild. */
+const overlayPointBlocked = (
+  index: OverlayObstacleIndex,
+  excludeCreatureId: string,
+  x: number,
+  y: number
+): boolean =>
+  index.shared.some((rect) => rectContains(rect, x, y)) ||
+  index.footprints.some(
+    (entry) => entry.creatureId !== excludeCreatureId && rectContains(entry.rect, x, y)
+  );
+
+/** Flat obstacle list for the caption planner (one focused creature per
+ *  frame, so this materializes at most once). */
+const overlayObstaclesFor = (
+  index: OverlayObstacleIndex,
+  excludeCreatureId: string
+): CaptionObstacle[] => [
+  ...index.shared,
+  ...index.footprints
+    .filter((entry) => entry.creatureId !== excludeCreatureId)
+    .map((entry) => entry.rect)
+];
 
 // Mid-tone separator color: 40% of the way from the theme's dark `muted`
 // toward the brighter `mutedForeground`. Sits clearly below the sprite
@@ -481,6 +514,8 @@ export const renderGardenFrame = (
   // the mood signal. The global cap keeps the scene sparse when several
   // creatures' windows happen to line up. Export renders show no cues
   // either — pinForExport pins every cue schedule to never-fire.
+  let obstacleIndex: OverlayObstacleIndex | null = null;
+  const getObstacleIndex = () => (obstacleIndex ??= buildOverlayObstacleIndex(model));
   if (!reducedMotion) {
     const candidates: Array<{ id: string; x: number; y: number; glyph: string; color: string }> =
       [];
@@ -500,8 +535,7 @@ export const renderGardenFrame = (
       if (y < 0 || x < 0 || x >= frame.width) continue;
       // Slack cells only — never punch the glyph into a neighbour's
       // footprint or the rooms chrome.
-      const obstacles = collectOverlayObstacles(model, creature.id);
-      if (obstacles.some((rect) => rectContains(rect, x, y))) continue;
+      if (overlayPointBlocked(getObstacleIndex(), creature.id, x, y)) continue;
       candidates.push({ id: creature.id, x, y, glyph: info.moodGlyph, color: info.moodColor });
     }
     const selected = selectCueIds(candidates.map((candidate) => candidate.id));
@@ -535,7 +569,7 @@ export const renderGardenFrame = (
         captionLen: captionLength(caption),
         canvasW: frame.width,
         canvasH: frame.height,
-        obstacles: collectOverlayObstacles(model, creature.id)
+        obstacles: overlayObstaclesFor(getObstacleIndex(), creature.id)
       });
       if (spot) {
         // The spot may be narrower than the full caption (gap-aware
