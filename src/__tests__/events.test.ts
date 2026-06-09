@@ -1,8 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+// On Windows runners os.tmpdir() comes back in 8.3 short form
+// (C:\Users\RUNNER~1\...). Node 24's libuv hard-crashes the process with
+// "Assertion failed: !_wcsnicmp(filename, dir, dirlen)" when fs.watch fires
+// on a path with short-name components, which kills every test in this file.
+// realpathSync.native resolves the long form up front (no-op elsewhere).
+const TMP_ROOT = realpathSync.native(tmpdir());
 
 import {
   appendEvent,
@@ -25,7 +32,7 @@ import type { ScannedRepo } from "../lib/scanner";
 // ---------------------------------------------------------------------------
 
 const withFakeHome = (run: (home: string) => void) => {
-  const fake = mkdtempSync(join(tmpdir(), "repogarden-events-test-"));
+  const fake = mkdtempSync(join(TMP_ROOT,"repogarden-events-test-"));
   const oldHome = process.env.HOME;
   const oldUserProfile = process.env.USERPROFILE;
   process.env.HOME = fake;
@@ -725,7 +732,7 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 // Async-aware HOME isolation. The sync `withFakeHome` would unwind HOME
 // before async work in the callback resolves, so we can't reuse it here.
 const withAsyncFakeHome = async (run: () => Promise<void>): Promise<void> => {
-  const fake = mkdtempSync(join(tmpdir(), "repogarden-watcher-test-"));
+  const fake = mkdtempSync(join(TMP_ROOT,"repogarden-watcher-test-"));
   const oldHome = process.env.HOME;
   const oldUserProfile = process.env.USERPROFILE;
   process.env.HOME = fake;
