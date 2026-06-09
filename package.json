@@ -60,7 +60,7 @@
     "prepack": "pnpm run build",
     "start": "node dist/cli.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test --test-concurrency=1 src/__tests__/*.test.ts",
+    "test": "node --import tsx --test --test-concurrency=1 src/__tests__/*.test.ts src/__tests__/*.test.tsx",
     "observe:tui": "./scripts/tui-observe.sh",
     "gen:site-creatures": "tsx scripts/gen-site-creatures.ts"
   },
