@@ -3,6 +3,7 @@ import type { JournalEvent } from "@/lib/events";
 import { eventSummary } from "@/lib/event-summary";
 import { buildActivityBuckets, parseEventTime } from "@/lib/journal";
 import type { NotesState } from "@/lib/notes";
+import { MOOD_DISPLAY_CONFIDENCE_THRESHOLD } from "@/lib/vibe";
 
 export type PortraitSectionId =
   | "overview"
@@ -374,10 +375,10 @@ export const computePortraitHealthScore = (
   return { score: finalScore, label: "critical", severity: "error", reasons };
 };
 
-// Confidence floor for surfacing a mood chip. Higher than the 0.5 used in
-// the clipboard text — we want the chip slot reserved for moods that
-// actually stand out, since chip rack real estate is scarce.
-const MOOD_CHIP_CONFIDENCE_THRESHOLD = 0.65;
+// Confidence floor for surfacing a mood chip — shared with the garden's
+// focus caption / emotion cues so "is this mood worth showing?" answers
+// the same everywhere (see MOOD_DISPLAY_CONFIDENCE_THRESHOLD in vibe.ts).
+const MOOD_CHIP_CONFIDENCE_THRESHOLD = MOOD_DISPLAY_CONFIDENCE_THRESHOLD;
 
 const moodChipSeverity = (mood: import("@/lib/vibe").Mood): PortraitChip["severity"] => {
   switch (mood) {

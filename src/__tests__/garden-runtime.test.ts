@@ -108,7 +108,10 @@ const makeSprite = (placement: Placement): GardenSpriteInfo => ({
     frameB: { left: { cx: -1, cy: -1 }, right: { cx: -1, cy: -1 } }
   },
   eyesClosed: false,
-  blink: { intervalMs: 5000, durationMs: 140, phaseMs: 0 }
+  blink: { intervalMs: 5000, durationMs: 140, phaseMs: 0 },
+  cue: { periodMs: Number.POSITIVE_INFINITY, visibleMs: 0, phaseMs: 0 },
+  moodGlyph: null,
+  moodColor: "#888888"
 });
 
 const emptySprite = (placement: Placement): GardenSpriteInfo => ({

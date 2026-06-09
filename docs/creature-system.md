@@ -68,6 +68,26 @@ A single static sprite per creature is enough. Terminal cells can't fake smooth 
 - bubble overlays
 - occasional motion in the surrounding chrome (selection, scan progress)
 
+### Captions and emotion cues
+
+Two terminal-native ways mood reaches the garden itself (`src/lib/garden-captions.ts` + `src/garden/render.ts`), both within the budget above — chrome cues, not facial animation:
+
+- **Focus caption.** The focused creature gets one muted line adjacent to its focus frame: `<glyph> <mood> — <moodReason>` (e.g. `✶ excited — 6 unpushed commits stacked up`). At most one caption is ever on screen. It prefers the sky row above the frame, falls back below the name row, squeezes into the clear gap next to neighbours (ellipsis truncation, never wrapping), and skips entirely rather than paint over another creature. It is static information, so it shows under reduced motion too.
+- **Transient emotion cues.** Occasionally a creature's mood glyph blinks into the sky-row slack above its shoulder for ~1.2–1.8 s, on a deterministic per-identity schedule (seeded mulberry32, period ~9–15 s with phase jitter — same pattern as blink timing). At most **2** creatures show a cue in any frame (deterministic lowest-identity-hash tie-break), the focused creature never does (its caption owns the signal), and cues are fully disabled under reduced motion and in pinned/export renders.
+
+Both surfaces share the same gate: mood confidence must be ≥ 0.65 (`MOOD_DISPLAY_CONFIDENCE_THRESHOLD` in `src/lib/vibe.ts`, shared with the portrait chip) and `content` — the no-signal mood — renders nothing.
+
+Glyph vocabulary (single-cell, deliberately distinct from the vibe glyphs `!` `•` `✕` `z`, the git bubbles `↓` `!`, and the starfield `·` `*` `+` `✦` `✧` `⋆`):
+
+| mood | glyph | accent |
+| --- | --- | --- |
+| excited | `✶` | info |
+| proud | `★` | success |
+| curious | `◦` | info |
+| anxious | `~` | warning |
+| confused | `¿` | error |
+| lonely | `…` | muted |
+
 ### Vibes, mood, and confidence
 Vibe is the shelf-level state. It decides where a creature is grouped and which accent color/glyph it carries:
 

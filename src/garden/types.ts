@@ -1,4 +1,5 @@
 import type { RepoCreature } from "@/lib/creature";
+import type { CueProfile } from "@/lib/garden-captions";
 import type { Vibe } from "@/lib/vibe";
 import type {
   DividerPlacement,
@@ -137,6 +138,16 @@ export interface GardenSpriteInfo {
    *  of blink timing. */
   eyesClosed: boolean;
   blink: BlinkProfile;
+  /** Transient emotion-cue schedule (see garden-captions.ts). Pinned to
+   *  never-visible by `pinForExport`. */
+  cue: CueProfile;
+  /** Single-cell mood glyph, or null when the mood is gated off (low
+   *  confidence, or the `content` no-signal mood). Doubles as the cue
+   *  eligibility flag in the render pass. */
+  moodGlyph: string | null;
+  /** Accent colour for `moodGlyph` (mood-severity mapping shared with the
+   *  portrait chip). */
+  moodColor: string;
 }
 
 export interface GardenScene {
