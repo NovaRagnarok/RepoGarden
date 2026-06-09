@@ -56,7 +56,7 @@ Examples of safe current slices:
 - tighten or extend `ARCHITECTURE.md` as the code evolves
 - add the workbench mode-toggle keybinding
 - make the portrait panel scroll on short terminals
-- improve SHELF grouping labels or copy without changing the habitat-first layout
+- improve ROOMS grouping labels or copy without changing the habitat-first layout
 
 Higher-risk slices:
 

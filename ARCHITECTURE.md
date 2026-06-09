@@ -72,7 +72,7 @@ The app is easiest to work on when state stays where it already belongs.
 - current phase
 - configured scan roots
 - current theme id
-- current top-level ready view (`garden | shelf | journal`)
+- current top-level ready view (`garden | rooms | journal`)
 - scanned `RepoCreature[]`
 - rescan progress/errors
 - currently open workbench target
@@ -87,12 +87,15 @@ Owns the main habitat shell once scanning is done:
 - focus index and the virtual `home` row
 - local filter mode and filter text
 - overlay-card visibility
-- garden/shelf/journal transition state
+- garden/rooms/journal transition state
 - wide-layout sidebar click hit zones
 
 `ReadyShell` is the coordinator for the three ready-state surfaces:
 
-- `GardenView` for the habitat and shelf layouts
+- `GardenView` for the habitat and rooms layouts (rooms partitions the canvas
+  into per-vibe quadrants via `placeInRooms` in `src/lib/garden-layout.ts`,
+  with per-vibe pagination and a compact one-vibe-at-a-time fallback on small
+  terminals)
 - `JournalView` for the event timeline
 - sidebar, chrome, footer, toasts, usage bar, and view switching
 

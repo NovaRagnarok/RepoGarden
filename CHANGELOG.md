@@ -4,6 +4,17 @@ All notable changes to RepoGarden land here. Format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+## [0.9.3] — 2026-06-09
+
+### Added
+
+- **Rooms view** replaces the shelf view as the middle `g` stop (Garden → Rooms → Journal; the `GARDEN | ROOMS | JOURNAL` header buttons jump directly). Rooms keeps the garden's natural sprite size and layout but partitions the canvas into 1–4 quadrants by populated vibe (`awake` / `happy` / `stuck` / `sleepy`), weighted by cohort count with a minimum floor so a one-creature cohort still gets a usable cell. Solid labeled separators name each vibe and count. Cohorts that overflow their room paginate per-vibe — `[` / `]` flips pages on the focused vibe's room. Narrow or short terminals fall back to a compact mode that drops the dividers and shows one vibe at a time on the full canvas, with `[` / `]` cycling vibes. Sprites line up uniformly (no wander) so rooms stay tidy and space-efficient.
+
+### Changed
+
+- Vibe palette: `awake` is now a bright electric cyan (was warning yellow) and `sleepy` a washed white-blue in the same hue family, so the two read as high/low energy states of one family rather than unrelated colors. Color picks are centralized in `vibeColor(vibe, palette)` with a shared `blendHex` helper.
+- A saved `view: "shelf"` in `~/.repogarden/tui.json` is no longer a recognized view and falls back to `garden` on next load.
+
 ## [0.9.2] — 2026-05-17
 
 ### Changed
