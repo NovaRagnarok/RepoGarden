@@ -256,7 +256,12 @@ export const renderInk = (tree: ReactElement, opts: RenderOptions = {}): InkHarn
     stdout: stdout as unknown as NodeJS.WriteStream,
     stdin: stdin as unknown as NodeJS.ReadStream,
     exitOnCtrlC: false,
-    patchConsole: false
+    patchConsole: false,
+    // Ink consults is-in-ci before stdout.isTTY: under CI=true (GitHub
+    // Actions) it goes non-interactive and writes nothing until unmount,
+    // so lastFrame() never sees a frame and every waitFor times out.
+    // The fake streams ARE the terminal here — force interactive mode.
+    interactive: true
   });
 
   let unmounted = false;
