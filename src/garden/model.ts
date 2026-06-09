@@ -17,6 +17,13 @@ import {
   mulberry32,
   pickSpriteColors
 } from "@/lib/sprite";
+import {
+  buildCueProfile,
+  moodAccentColor,
+  moodCueGlyph,
+  moodSignalVisible,
+  NEVER_VISIBLE_CUE
+} from "@/lib/garden-captions";
 import { vibeColor, vibeGlyph, type Vibe } from "@/lib/vibe";
 
 import { sceneSeedForCreatures } from "@/garden/stars";
@@ -128,6 +135,8 @@ export const blinkClosedAt = (profile: BlinkProfile, now: number): boolean => {
  *  2. Wander is frozen (every creature's drift radius is zeroed, and any
  *     accumulated offset cleared) so labels stay over their static placement
  *     and don't drift off-canvas across frames.
+ *  3. Transient emotion cues never fire — a momentary glyph frozen into a
+ *     captured frame would read as permanent chrome.
  *
  *  Wiggle (the body's 2-frame bob) is left running on purpose — it makes the
  *  GIF feel alive without moving creatures out of their slots. The mutation
@@ -142,6 +151,7 @@ export const pinForExport = (model: GardenModel): void => {
       durationMs: 0,
       phaseMs: 0
     };
+    sprite.cue = NEVER_VISIBLE_CUE;
   }
   for (const state of model.wander.values()) {
     state.profile = {
@@ -362,7 +372,12 @@ const buildScene = (props: GardenSceneProps): GardenScene => {
       blink: buildBlinkProfile(
         creature.scan.path || creature.id,
         creature.vibe.activity
-      )
+      ),
+      cue: buildCueProfile(creature.scan.path || creature.id, creature.vibe.mood),
+      // Null glyph = mood gated off (low confidence / `content`) — the
+      // render pass treats it as "no cue, ever" for this scene.
+      moodGlyph: moodSignalVisible(creature.vibe) ? moodCueGlyph(creature.vibe.mood) : null,
+      moodColor: moodAccentColor(creature.vibe.mood, props.theme)
     });
   }
   return {

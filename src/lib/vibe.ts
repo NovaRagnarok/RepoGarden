@@ -19,6 +19,14 @@ const BURST_MIN_COMMITS = 3;
 const BURST_RATIO = 2;
 
 /**
+ * Confidence floor for surfacing a mood anywhere in the habitat UI
+ * (portrait mood chip, garden focus caption, transient emotion cues).
+ * Higher than the 0.5 used in the clipboard text — visible mood signals
+ * are reserved for moods that actually stand out.
+ */
+export const MOOD_DISPLAY_CONFIDENCE_THRESHOLD = 0.65;
+
+/**
  * Half-life (in days) for the per-repo activity decay. A 7-day half-life
  * means a commit from yesterday reads as nearly fully active, a week-old
  * commit reads as half active, and a 60-day-old commit reads as

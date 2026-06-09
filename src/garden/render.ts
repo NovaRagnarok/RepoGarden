@@ -1,5 +1,19 @@
 import { blendHex } from "@/lib/color";
-import { computeFocusFrameCells, formatShelfDividerLabel, NAME_GAP_ROWS } from "@/lib/garden-layout";
+import {
+  buildFocusCaption,
+  captionLength,
+  cueVisibleAt,
+  planFocusCaptionPosition,
+  selectCueIds,
+  truncateWithEllipsis,
+  type CaptionObstacle
+} from "@/lib/garden-captions";
+import {
+  computeFocusFrameCells,
+  formatShelfDividerLabel,
+  spriteFullFootprint,
+  NAME_GAP_ROWS
+} from "@/lib/garden-layout";
 import { quadrantChar } from "@/lib/sprite";
 
 import { computeStarVisual, greyHex, starAtCell } from "@/garden/stars";
@@ -127,6 +141,101 @@ const blockStarsForOverlays = (
 
 const dividerLabelColor = (model: GardenModel, vibe: Vibe): string =>
   vibeColor(vibe, model.props.theme);
+
+// Cells the caption/cue painters must keep clear: every other creature's
+// sprite+label footprint, the rooms chrome (divider/separator strokes), and
+// the Ink-owned rects (dead zones, paint exclusions — those cells render
+// transparent, so painting into them would silently clip a caption mid-word).
+// Almost all of this is frame-global, so it is built once per frame
+// (lazily — only when a cue or caption actually needs it) and queried
+// per creature, instead of being recollected inside the cue loop.
+interface OverlayObstacleIndex {
+  /** Chrome + exclusion rects that apply to every creature. */
+  shared: CaptionObstacle[];
+  /** Every creature's sprite+label footprint, tagged so a query can skip
+   *  the candidate creature's own cells. */
+  footprints: Array<{ creatureId: string; rect: CaptionObstacle }>;
+}
+
+const buildOverlayObstacleIndex = (model: GardenModel): OverlayObstacleIndex => {
+  const footprints: OverlayObstacleIndex["footprints"] = [];
+  for (const placement of model.scene.placements) {
+    const creature = placement.tile.creature;
+    const visual = model.visualPlacements.get(creature.id) ?? placement;
+    footprints.push({ creatureId: creature.id, rect: spriteFullFootprint(visual) });
+  }
+  const obstacles: CaptionObstacle[] = [];
+  for (const divider of model.scene.dividers) {
+    obstacles.push({
+      left: divider.canvasCol,
+      right: divider.canvasCol + divider.width - 1,
+      top: divider.canvasRow,
+      bottom: divider.canvasRow
+    });
+  }
+  for (const separator of model.scene.separators ?? []) {
+    obstacles.push({
+      left: separator.canvasCol,
+      right: separator.canvasCol,
+      top: separator.canvasRow,
+      bottom: separator.canvasRow + separator.length - 1
+    });
+  }
+  for (const rect of model.props.paintExclusions ?? []) {
+    obstacles.push({
+      left: rect.x,
+      right: rect.x + rect.width - 1,
+      top: rect.y,
+      bottom: rect.y + rect.height - 1
+    });
+  }
+  const { deadZone, topRightDeadZone, innerWidth, canvasH } = model.props;
+  if (deadZone) {
+    obstacles.push({
+      left: innerWidth - deadZone.width,
+      right: innerWidth - 1,
+      top: canvasH - deadZone.height,
+      bottom: canvasH - 1
+    });
+  }
+  if (topRightDeadZone) {
+    obstacles.push({
+      left: innerWidth - topRightDeadZone.width,
+      right: innerWidth - 1,
+      top: 0,
+      bottom: topRightDeadZone.height - 1
+    });
+  }
+  return { shared: obstacles, footprints };
+};
+
+const rectContains = (rect: CaptionObstacle, x: number, y: number): boolean =>
+  x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+
+/** Point test against the index, skipping the candidate's own footprint —
+ *  no per-creature array rebuild. */
+const overlayPointBlocked = (
+  index: OverlayObstacleIndex,
+  excludeCreatureId: string,
+  x: number,
+  y: number
+): boolean =>
+  index.shared.some((rect) => rectContains(rect, x, y)) ||
+  index.footprints.some(
+    (entry) => entry.creatureId !== excludeCreatureId && rectContains(entry.rect, x, y)
+  );
+
+/** Flat obstacle list for the caption planner (one focused creature per
+ *  frame, so this materializes at most once). */
+const overlayObstaclesFor = (
+  index: OverlayObstacleIndex,
+  excludeCreatureId: string
+): CaptionObstacle[] => [
+  ...index.shared,
+  ...index.footprints
+    .filter((entry) => entry.creatureId !== excludeCreatureId)
+    .map((entry) => entry.rect)
+];
 
 // Mid-tone separator color: 40% of the way from the theme's dark `muted`
 // toward the brighter `mutedForeground`. Sits clearly below the sprite
@@ -353,6 +462,7 @@ export const renderGardenFrame = (
   const focusPlacement = model.scene.placements.find(
     (placement) => placement.tile.index === model.props.focusIndex
   );
+  let focusFrameBox: { top: number; left: number; right: number } | null = null;
   if (focusPlacement) {
     const visual = model.visualPlacements.get(focusPlacement.tile.creature.id) ?? focusPlacement;
     const focusInfo = model.scene.sprites.get(focusPlacement.tile.creature.id);
@@ -383,6 +493,103 @@ export const renderGardenFrame = (
         fg: model.props.theme.primary,
         bold: cell.alwaysBold
       });
+    }
+    if (focusCells.length > 0) {
+      let top = frame.height;
+      let left = frame.width;
+      let right = -1;
+      for (const cell of focusCells) {
+        if (cell.row < top) top = cell.row;
+        if (cell.col < left) left = cell.col;
+        if (cell.col > right) right = cell.col;
+      }
+      focusFrameBox = { top, left, right };
+    }
+  }
+
+  // Transient emotion cues — a momentary mood glyph in a creature's sky-row
+  // slack (top-right corner of its sprite box). Disabled wholesale under
+  // reduced motion (cues are attention-pulling motion, unlike the static
+  // caption below) and for the focused creature, whose caption already owns
+  // the mood signal. The global cap keeps the scene sparse when several
+  // creatures' windows happen to line up. Export renders show no cues
+  // either — pinForExport pins every cue schedule to never-fire.
+  let obstacleIndex: OverlayObstacleIndex | null = null;
+  const getObstacleIndex = () => (obstacleIndex ??= buildOverlayObstacleIndex(model));
+  if (!reducedMotion) {
+    const candidates: Array<{ id: string; x: number; y: number; glyph: string; color: string }> =
+      [];
+    for (const placement of model.scene.placements) {
+      if (placement.tile.index === model.props.focusIndex) continue;
+      const creature = placement.tile.creature;
+      const info = model.scene.sprites.get(creature.id);
+      if (!info?.moodGlyph) continue;
+      if (!cueVisibleAt(info.cue, now)) continue;
+      const visual = model.visualPlacements.get(creature.id) ?? placement;
+      // Anchor to the visible body's top-right shoulder, not the bitmap
+      // bbox corner — bbox tops are often rows of empty cells, and a glyph
+      // floating above the slot reads as backdrop noise.
+      const bounds = visibleCellBounds(info);
+      const x = visual.x + bounds.maxCx;
+      const y = visual.charY + bounds.minCy - 1;
+      if (y < 0 || x < 0 || x >= frame.width) continue;
+      // Slack cells only — never punch the glyph into a neighbour's
+      // footprint or the rooms chrome.
+      if (overlayPointBlocked(getObstacleIndex(), creature.id, x, y)) continue;
+      candidates.push({ id: creature.id, x, y, glyph: info.moodGlyph, color: info.moodColor });
+    }
+    const selected = selectCueIds(candidates.map((candidate) => candidate.id));
+    for (const candidate of candidates) {
+      if (!selected.has(candidate.id)) continue;
+      setCell(frame, candidate.x, candidate.y, {
+        char: candidate.glyph,
+        fg: candidate.color,
+        bold: true
+      });
+    }
+  }
+
+  // Focus caption — one muted line of mood context adjacent to the focus
+  // frame. Static information rather than motion, so it shows under reduced
+  // motion too; at most one caption is ever on screen (focused creature
+  // only). Painted last so a cue can never punch a hole in it.
+  if (focusPlacement && focusFrameBox) {
+    const creature = focusPlacement.tile.creature;
+    const caption = buildFocusCaption(creature.vibe, frame.width);
+    if (caption) {
+      const visual = model.visualPlacements.get(creature.id) ?? focusPlacement;
+      const info = model.scene.sprites.get(creature.id);
+      const bodyRows = info?.charH ?? focusPlacement.tile.charRows;
+      const nameRow = visual.charY + bodyRows + NAME_GAP_ROWS;
+      const spot = planFocusCaptionPosition({
+        frameTop: focusFrameBox.top,
+        frameLeft: focusFrameBox.left,
+        frameRight: focusFrameBox.right,
+        belowRow: nameRow + 1,
+        captionLen: captionLength(caption),
+        canvasW: frame.width,
+        canvasH: frame.height,
+        obstacles: overlayObstaclesFor(getObstacleIndex(), creature.id)
+      });
+      if (spot) {
+        // The spot may be narrower than the full caption (gap-aware
+        // planning) — re-truncate the body into the placed budget.
+        const text = truncateWithEllipsis(caption.text, spot.maxLen - 2);
+        setCell(frame, spot.x, spot.y, {
+          char: caption.glyph,
+          fg: info?.moodColor ?? model.props.theme.mutedForeground,
+          bold: true
+        });
+        // Clear the separator cell so a backdrop star can't sit inside
+        // the caption.
+        setCell(frame, spot.x + 1, spot.y, { char: " " });
+        for (let i = 0; i < text.length; i += 1) {
+          setCell(frame, spot.x + 2 + i, spot.y, {
+            char: text[i],
+            fg: model.props.theme.mutedForeground
+          });
+        }
+      }
     }
   }
 

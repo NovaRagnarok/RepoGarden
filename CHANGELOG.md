@@ -4,6 +4,10 @@ All notable changes to RepoGarden land here. Format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Added
+
+- **In-garden mood captions + transient emotion cues** — the two top "flagged for recovery" items from `docs/legacy-not-ported.md` (§1.5 / §1.4), in a terminal-native shape. The focused creature now shows one muted caption line adjacent to its focus frame (`✶ excited — 6 unpushed commits stacked up`): prefers the sky row above the frame, falls back below the name row, squeezes into the clear gap next to neighbours with ellipsis truncation, and skips rather than paint over anything. Non-focused creatures occasionally flash their mood glyph above their shoulder on a deterministic seeded schedule (period ~9–15 s, visible ~1.2–1.8 s — same pattern as blink timing), capped at 2 cues per frame with a deterministic tie-break. Both gate on mood confidence ≥ 0.65 (threshold now shared with the portrait chip via `MOOD_DISPLAY_CONFIDENCE_THRESHOLD` in `src/lib/vibe.ts`); `content` renders nothing. Captions are information and stay on under reduced motion; cues are motion and turn off — and never appear in pinned GIF/text exports. New glyph vocabulary (`✶ ★ ◦ ~ ¿ …`) documented in `docs/creature-system.md`; pure model logic in `src/lib/garden-captions.ts`.
+
 ## [0.9.3] — 2026-06-09
 
 ### Added

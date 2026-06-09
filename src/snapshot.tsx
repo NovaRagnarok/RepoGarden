@@ -43,7 +43,7 @@ const sampleCreatures: RepoCreature[] = [
       ]
     },
     memory: {},
-    vibe: { vibe: "awake", reason: "uncommitted changes · 2 unpushed commits", daysSinceCommit: 2, activity: computeActivity(2), mood: "content", confidence: 0.5, moodReason: "nothing remarkable" }
+    vibe: { vibe: "awake", reason: "uncommitted changes · 2 unpushed commits", daysSinceCommit: 2, activity: computeActivity(2), mood: "excited", confidence: 0.8, moodReason: "9 commits in the last 7 days" }
   },
   {
     id: "cc",

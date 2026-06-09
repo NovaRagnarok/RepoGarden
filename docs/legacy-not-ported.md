@@ -25,13 +25,13 @@ For each item: **Was** (legacy desktop behavior + path), **TUI** (PORTED / PARTI
 
 ### Emotion playback + motion model
 - **Was:** tween-driven emotion cycles (blink, excited, anxious, confused, proud, lonely) plus per-creature energy / presence / motion-amplitude / cadenceMs derived from heuristics. `legacy/src/components/habitatWorld/emotionPlayback.ts`, `legacy/src/features/inference/projectHeuristics.ts`.
-- **TUI:** DROPPED *for now*. The TUI has a 4-state vibe (awake / happy / stuck / sleepy) plus advisory mood/confidence in `src/lib/vibe.ts`, and a single sprite per creature. Selectively bringing some emotion cues back is on the table — not committed, no concrete design yet.
-- **Why:** Smooth tweened motion has no terminal analog, and the full mood/energy axes were the most "video-game"-shaped part of the desktop client. A narrower terminal-native subset (e.g., blink, momentary excited/anxious cues) might still earn its keep.
+- **TUI:** PARTIAL. The narrow terminal-native subset landed: per-creature blink (`buildBlinkProfile` in `src/garden/model.ts`) and momentary mood-glyph emotion cues (`buildCueProfile`/`cueVisibleAt` in `src/lib/garden-captions.ts`, painted in `src/garden/render.ts`) — deterministic seeded schedules, confidence-gated, capped at 2 cues per frame, off under reduced motion and in exports. The legacy energy / presence / motion-amplitude / cadence axes stay dropped.
+- **Why:** Smooth tweened motion has no terminal analog, and the full mood/energy axes were the most "video-game"-shaped part of the desktop client. The subset that earned its keep is the part that reads as chrome cues rather than animation.
 
 ### Caption renderer (mood bubbles, quick summary)
 - **Was:** in-canvas labels positioned next to each sprite — status, mood, mood confidence, emotion cue, quick summary, bubble text. `legacy/src/components/habitatWorld/captionRenderer.ts`.
-- **TUI:** PARTIAL *for now*. The same information lives in the workbench portrait (`src/lib/portrait.ts`, `src/screens/WorkbenchScreen.tsx`), not floating next to the sprite. Bringing some in-garden captions/bubbles back is on the table — pending design.
-- **Why:** Floating labels next to terminal-cell sprites are tractable (the row layout has slack), so this isn't a permanent drop — it's a "the workbench earns its keep first, garden captions come back once they have a concrete shape."
+- **TUI:** PARTIAL. In-garden mood captions are back in a narrower shape: the *focused* creature gets one `<glyph> <mood> — <moodReason>` line adjacent to its focus frame (`src/lib/garden-captions.ts` + `src/garden/render.ts`), confidence-gated and collision-aware. The fuller per-sprite label set (status, quick summary, free bubble text on every creature) intentionally stays in the workbench portrait — captions on all creatures at once would turn the habitat into a labeled diagram.
+- **Why:** The terminal row layout had the slack the legacy renderer exploited; the one-caption-max constraint is what keeps the scene calm where the desktop canvas could afford more.
 
 ### Placement persistence
 - **Was:** users could drag creatures to specific (xRatio, yRatio) positions in the habitat, persisted via Tauri IPC and localStorage. `legacy/src/components/habitatWorld/placementPersistence.ts`, command `set_creature_habitat_position`.
@@ -103,7 +103,7 @@ For each item: **Was** (legacy desktop behavior + path), **TUI** (PORTED / PARTI
 
 ### Project heuristics (status + mood + emotion + motion)
 - **Was:** ~22KB module deriving ProjectStatus (awake / stirring / dozing / sleeping), ProjectMood (curious / excited / sleepy / anxious / confused / proud / lonely) with confidence, ProjectEmotionCue, ProjectEmotionBurst, plus energy / presenceScale / motionAmplitude / cadenceMs. `legacy/src/features/inference/projectHeuristics.ts`.
-- **TUI:** PARTIAL *for now* — flagged for recovery. `src/lib/vibe.ts` now derives four shelf states (awake / happy / stuck / sleepy) from `lastCommitAt`, dirty state, ahead count, and the user's blocker field. It also carries advisory mood (`curious` / `excited` / `proud` / `anxious` / `confused` / `lonely` / `content`) with confidence and a mood reason, but the richer emotion-cue / burst / motion axes remain dropped.
+- **TUI:** PARTIAL *for now* — flagged for recovery. `src/lib/vibe.ts` now derives four shelf states (awake / happy / stuck / sleepy) from `lastCommitAt`, dirty state, ahead count, and the user's blocker field. It also carries advisory mood (`curious` / `excited` / `proud` / `anxious` / `confused` / `lonely` / `content`) with confidence and a mood reason — now surfaced in-garden via captions and cues (§1.4 / §1.5) — but the richer burst / motion derivation axes remain dropped.
 - **Why:** The 4-state vibe is the floor — enough to answer "is this repo alive right now?" — while mood/confidence restores some softer context without bringing back the desktop animation model. Emotion playback still needs a terminal-native shape before it returns.
 
 ## 6. Persistence
@@ -181,10 +181,8 @@ Items the TUI is missing today. Split between **flagged for recovery** (we want 
 
 ### Flagged for recovery
 
-1. **Emotion / motion cues** (§1.4) — narrower terminal-native subset of mood + emotion-cue + confidence, paired with §5.1.
-2. **In-garden captions / bubbles** (§1.5) — some sprite-adjacent info, not just workbench-only.
-3. **Richer project heuristics** (§5.1) — emotion-cue / burst / motion axes beyond the 4-state vibe and current mood layer.
-4. **App-shell / Ink integration tests** (§8.1) — end-to-end coverage on top of the existing unit suite.
+1. **Richer project heuristics** (§5.1) — emotion-cue / burst / motion axes beyond the 4-state vibe and current mood layer. (The display side of cues recovered in §1.4 / §1.5 — focus captions + transient mood-glyph cues; what's still missing is the richer *derivation*.)
+2. **App-shell / Ink integration tests** (§8.1) — end-to-end coverage on top of the existing unit suite.
 
 ### Trade-offs (not coming back)
 
