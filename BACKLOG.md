@@ -4,7 +4,7 @@
 
 ### Immediate target
 
-Polish the daily-use loop: scanning, garden/shelf/journal views, per-repo workbench, mouse + keyboard parity. The core loop (scan → notice → resume) works; what's left is the rough edges around it.
+Bring back the habitat's expressive layer, safely. The daily-use loop (scan → notice → resume) and the three views (garden / rooms / journal) are solid; the next slices are the two top "flagged for recovery" items from [`docs/legacy-not-ported.md`](docs/legacy-not-ported.md) — in-garden captions/bubbles and a terminal-native emotion-cue subset — plus an Ink-level integration test suite so screen regressions get caught before manual QA.
 
 ### Active risk
 
@@ -26,6 +26,12 @@ Open `pnpm dev` from the repo root and the terminal should read like a little lo
 2. Pick the highest-value polish slice in Priority A.
 
 ## Priority A
+
+- in-garden captions / bubbles: sprite-adjacent info in the habitat itself (not workbench-only) — see `docs/legacy-not-ported.md` §1.5. Keep it sparse: the scene must still read as a habitat, not a labeled diagram.
+- terminal-native emotion cues: a narrow subset (blink, momentary excited/anxious cues) layered on the existing vibe + advisory mood — see `docs/legacy-not-ported.md` §1.4 / §5.1. Must respect reduced motion.
+- Ink-level App-shell integration tests: drive the rendered TUI end-to-end on top of the unit suite — see `docs/legacy-not-ported.md` §8.1. Target the bug classes fixed by hand in 0.9.1 (stale cells after transitions, Esc handling, flexShrink squeezes).
+
+<!-- rooms view — done in 0.9.3: vibe-grouped quadrants replace the shelf view (PR #51); per-vibe pagination, compact fallback, awake/sleepy palette retune. -->
 <!-- richer SHELF view grouping labels — done: dividers now explain each shelf's role (active changes / flowing / blockers to clear / quiet lately) with narrow fallbacks. -->
 <!-- memory editing polish — done: note save feedback now distinguishes regular notes, blocker, and note-to-future-self edits with line/char deltas and blocker shelf-state hints. -->
 <!-- workbench mode toggle keybinding — done: ctrl+1 selects portrait, ctrl+2 selects notes (see WorkbenchScreen.tsx, listed in HelpOverlay). -->

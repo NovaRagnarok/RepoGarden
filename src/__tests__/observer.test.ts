@@ -1,15 +1,27 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+// Long-form temp root: Node 24's libuv asserts (and kills the process) when
+// fs.watch fires on a path with Windows 8.3 short-name components, which is
+// what os.tmpdir() returns on GitHub's Windows runners. See events.test.ts.
+const TMP_ROOT = realpathSync.native(tmpdir());
 
 import { startObserver } from "../lib/observer";
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 const withTempDir = async (run: (dir: string) => Promise<void>): Promise<void> => {
-  const dir = mkdtempSync(join(tmpdir(), "repogarden-observer-test-"));
+  const dir = mkdtempSync(join(TMP_ROOT,"repogarden-observer-test-"));
   try {
     await run(dir);
   } finally {

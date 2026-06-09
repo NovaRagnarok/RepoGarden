@@ -49,7 +49,7 @@ Sleep 600ms
 Down
 Sleep 1s
 
-# View cycle is garden → shelf → journal, then we stop. The cross-fade /
+# View cycle is garden → rooms → journal, then we stop. The cross-fade /
 # placement tween (TRANSITION_MS in ReadyShell.tsx) is 1400ms, so any
 # sleep after `g` needs to comfortably exceed that to leave a settled
 # view on screen long enough to read.
