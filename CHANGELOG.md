@@ -4,11 +4,22 @@ All notable changes to RepoGarden land here. Format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+## [0.9.4] — 2026-06-10
+
 ### Added
 
 - **In-garden mood captions + transient emotion cues** — the two top "flagged for recovery" items from `docs/legacy-not-ported.md` (§1.5 / §1.4), in a terminal-native shape. The focused creature now shows one muted caption line adjacent to its focus frame (`✶ excited — 6 unpushed commits stacked up`): prefers the sky row above the frame, falls back below the name row, squeezes into the clear gap next to neighbours with ellipsis truncation, and skips rather than paint over anything. Non-focused creatures occasionally flash their mood glyph above their shoulder on a deterministic seeded schedule (period ~9–15 s, visible ~1.2–1.8 s — same pattern as blink timing), capped at 2 cues per frame with a deterministic tie-break. Both gate on mood confidence ≥ 0.65 (threshold now shared with the portrait chip via `MOOD_DISPLAY_CONFIDENCE_THRESHOLD` in `src/lib/vibe.ts`); `content` renders nothing. Captions are information and stay on under reduced motion; cues are motion and turn off — and never appear in pinned GIF/text exports. New glyph vocabulary (`✶ ★ ◦ ~ ¿ …`) documented in `docs/creature-system.md`; pure model logic in `src/lib/garden-captions.ts`.
 
+### Internal
+
+- First Ink-level integration test suite: a hand-rolled fake-TTY harness (`src/__tests__/helpers/ink-harness.tsx`, no new dependencies) renders real screens through Ink and drives them with keystrokes — ReadyShell view cycling, rooms dividers, journal pane focus, workbench mode toggles, and the new captions all have end-to-end coverage. The harness passes `interactive: true` to Ink's render: under `CI=true` Ink's is-in-ci detection otherwise writes no frames until unmount, which times out every frame assertion.
+- The garden's caption/cue painters share a lazily-built per-frame obstacle index instead of recollecting every placement per creature (cue pass was O(n²) in roster size).
+- fs.watch tests resolve their temp roots via `realpathSync.native()` — GitHub's Windows runners hand out 8.3 short paths (`RUNNER~1`), and Node 24's libuv hard-crashes the test process when `fs.watch` fires on a short-name path. This had the `verify (windows-latest, 24)` CI lane red on every PR.
+- Test count: 496 → 532.
+
 ## [0.9.3] — 2026-06-09
+
+_Not published to npm separately — its changes ship with 0.9.4._
 
 ### Added
 
