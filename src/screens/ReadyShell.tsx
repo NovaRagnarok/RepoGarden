@@ -50,10 +50,13 @@ import { UsageBar, UsageBarPlaceholder } from "@/components/UsageBar";
 import { useUsage } from "@/hooks/use-usage";
 import { useEvents } from "@/hooks/use-events";
 import { JournalView } from "@/screens/JournalView";
+import { GitHubCatalogView } from "@/screens/GitHubCatalogView";
 import { ResizePrompt } from "@/components/ResizePrompt";
 import { computeOverlayCardSlot, getTerminalLayout } from "@/lib/responsive-layout";
+import type { GitHubCatalogResult } from "@/lib/github";
+import type { GitHubRepoSnapshot } from "@/lib/scanner-types";
 
-export type ReadyView = "garden" | "rooms" | "journal";
+export type ReadyView = "garden" | "rooms" | "journal" | "github";
 
 export interface ReadyShellProps {
   creatures: RepoCreature[];
@@ -88,6 +91,12 @@ export interface ReadyShellProps {
   /** Per-page slot density (garden) and per-cell breathing room (shelf).
    *  Default `comfortable`. */
   gardenDensity?: GardenDensity;
+  githubRepos?: GitHubRepoSnapshot[];
+  githubStatus?: GitHubCatalogResult;
+  githubEnabled?: boolean;
+  onRefreshGitHub?: () => void;
+  onCloneGitHubRepo?: (repo: GitHubRepoSnapshot) => void;
+  onOpenGitHubRepo?: (repo: GitHubRepoSnapshot) => void;
 }
 
 // Toast layout knobs shared between the Toaster mount below and the paint
@@ -125,7 +134,13 @@ export const ReadyShell = ({
   scanProgressByRoot,
   usageBarDisabled = true,
   gardenPaginate = true,
-  gardenDensity = "comfortable"
+  gardenDensity = "comfortable",
+  githubRepos = [],
+  githubStatus,
+  githubEnabled = false,
+  onRefreshGitHub,
+  onCloneGitHubRepo,
+  onOpenGitHubRepo
 }: ReadyShellProps) => {
   const theme = useTheme();
   const { reduced: reducedMotion } = useMotion();
@@ -209,6 +224,7 @@ export const ReadyShell = ({
   // selection. Reset to "pane" whenever the user enters journal mode so
   // they land scrolling events with `home` scoped to all repos.
   const [journalFocus, setJournalFocus] = useState<"pane" | "sidebar">("pane");
+  const [githubFocusIndex, setGithubFocusIndex] = useState(0);
   useEffect(() => {
     if (view === "journal") {
       setJournalFocus("pane");
@@ -251,10 +267,9 @@ export const ReadyShell = ({
       setDisplayView(view);
       return;
     }
-    const crossesJournalBoundary =
-      (view === "journal" && displayView !== "journal") ||
-      (displayView === "journal" && view !== "journal");
-    if (!crossesJournalBoundary) {
+    const viewIsText = view === "journal" || view === "github";
+    const displayIsText = displayView === "journal" || displayView === "github";
+    if (viewIsText === displayIsText) {
       // garden ↔ shelf — GardenView's own tween handles the creature motion.
       // Keep the detail card hidden until that short placement swap settles;
       // otherwise the moving sprite cuts through the card's text block.
@@ -291,7 +306,8 @@ export const ReadyShell = ({
   const [filterMode, setFilterMode] = useState(false);
   const [cardVisible, setCardVisible] = useState(true);
   const journalActive = view === "journal";
-  const creatureFilter = journalActive ? "" : filter;
+  const githubActive = view === "github";
+  const creatureFilter = journalActive || githubActive ? "" : filter;
 
   const shownCreatures = useMemo(
     () => creatures.filter((c) => !c.memory.hidden),
@@ -311,6 +327,33 @@ export const ReadyShell = ({
     const needle = creatureFilter.toLowerCase();
     return hiddenCreatures.filter((c) => c.scan.name.toLowerCase().includes(needle));
   }, [hiddenCreatures, creatureFilter]);
+  const matchedGitHubFullNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const creature of rawCreatures) {
+      const fullName = creature.scan.github?.fullName ?? creature.scan.remote?.fullName;
+      if (fullName) names.add(fullName.toLowerCase());
+    }
+    return names;
+  }, [rawCreatures]);
+  const visibleGitHubRepos = useMemo(() => {
+    const unmatched = githubRepos.filter(
+      (repo) => !matchedGitHubFullNames.has(repo.fullName.toLowerCase())
+    );
+    if (!githubActive || !filter.trim()) return unmatched;
+    const needle = filter.toLowerCase();
+    return unmatched.filter((repo) =>
+      repo.fullName.toLowerCase().includes(needle) ||
+      (repo.language ?? "").toLowerCase().includes(needle)
+    );
+  }, [githubRepos, matchedGitHubFullNames, filter, githubActive]);
+  useEffect(() => {
+    setGithubFocusIndex(0);
+  }, [filter]);
+  useEffect(() => {
+    if (githubFocusIndex >= visibleGitHubRepos.length && visibleGitHubRepos.length > 0) {
+      setGithubFocusIndex(visibleGitHubRepos.length - 1);
+    }
+  }, [githubFocusIndex, visibleGitHubRepos.length]);
   // focusList, gardenFocusIndex, and related effects are derived further
   // down — after gardenWidth/gardenHeight/overlayDeadZone are known — so
   // pagination can slice visibleCreatures before the cursor walks it.
@@ -416,6 +459,60 @@ export const ReadyShell = ({
       return;
     }
 
+    if (githubActive) {
+      if (key.upArrow || input === "k") {
+        setGithubFocusIndex((current) => Math.max(0, current - 1));
+        return;
+      }
+      if (key.downArrow || input === "j") {
+        setGithubFocusIndex((current) =>
+          Math.min(Math.max(0, visibleGitHubRepos.length - 1), current + 1)
+        );
+        return;
+      }
+      if (key.return && onCloneGitHubRepo) {
+        const repo = visibleGitHubRepos[githubFocusIndex];
+        if (repo) onCloneGitHubRepo(repo);
+        return;
+      }
+      if (input === "o" && onOpenGitHubRepo) {
+        const repo = visibleGitHubRepos[githubFocusIndex];
+        if (repo) onOpenGitHubRepo(repo);
+        return;
+      }
+      if (input === "r" && onRefreshGitHub) {
+        onRefreshGitHub();
+        return;
+      }
+      if (input === "s" && onOpenSettings) {
+        onOpenSettings();
+        return;
+      }
+      if (input === "g" && onSetView) {
+        const order: ReadyView[] = ["garden", "rooms", "journal", "github"];
+        const next = order[(order.indexOf(view) + 1) % order.length];
+        onSetView(next);
+        return;
+      }
+      if (input === "?" && onOpenHelp) {
+        onOpenHelp();
+        return;
+      }
+      if (input === "p" && onEditRoots) {
+        onEditRoots();
+        return;
+      }
+      if (key.escape && filter) {
+        setFilter("");
+        return;
+      }
+      if (input === "q" && onQuit) {
+        onQuit();
+        return;
+      }
+      return;
+    }
+
     if (journalActive) {
       if (input === "s" && onOpenSettings) {
         onOpenSettings();
@@ -426,7 +523,7 @@ export const ReadyShell = ({
         return;
       }
       if (input === "g" && onSetView) {
-        const order: ReadyView[] = ["garden", "rooms", "journal"];
+        const order: ReadyView[] = ["garden", "rooms", "journal", "github"];
         const next = order[(order.indexOf(view) + 1) % order.length];
         onSetView(next);
         return;
@@ -578,9 +675,9 @@ export const ReadyShell = ({
       return;
     }
     if (input === "g" && onSetView) {
-      // Cycle through the three view modes so the keyboard exposes everything
+      // Cycle through the ready view modes so the keyboard exposes everything
       // the badge does plus the legacy list view.
-      const order: ReadyView[] = ["garden", "rooms", "journal"];
+      const order: ReadyView[] = ["garden", "rooms", "journal", "github"];
       const next = order[(order.indexOf(view) + 1) % order.length];
       onSetView(next);
       return;
@@ -1183,6 +1280,7 @@ export const ReadyShell = ({
           { view: "garden", label: "GARDEN" },
           { view: "rooms", label: "ROOMS" },
           { view: "journal", label: "JOURNAL" },
+          { view: "github", label: "GITHUB" },
         ];
         // Each bordered Badge: text + 2 padding + 2 borders. Row gap=1.
         const widths = segments.map((s) => s.label.length + 4);
@@ -1849,6 +1947,7 @@ export const ReadyShell = ({
                     { view: "garden", label: "GARDEN" },
                     { view: "rooms", label: "ROOMS" },
                     { view: "journal", label: "JOURNAL" },
+                    { view: "github", label: "GITHUB" },
                   ] as { view: ReadyView; label: string }[]
                 ).map((segment) => {
                   const active = view === segment.view;
@@ -1925,6 +2024,8 @@ export const ReadyShell = ({
             <Text dimColor color={theme.colors.mutedForeground}>
               {journalActive
                 ? " (journal search)"
+                : githubActive
+                  ? ` (${visibleGitHubRepos.length} GitHub match${visibleGitHubRepos.length === 1 ? "" : "es"})`
                 : ` (${visibleCreatures.length} match${visibleCreatures.length === 1 ? "" : "es"})`}
             </Text>
           )}
@@ -2035,6 +2136,27 @@ export const ReadyShell = ({
             roomsPageIndex={roomsPageByVibe}
             disableWander={isRoomsView}
           />
+        </Box>
+      ) : displayView === "github" ? (
+        <Box flexDirection="column">
+          {githubEnabled ? (
+            <GitHubCatalogView
+              repos={visibleGitHubRepos}
+              focusIndex={githubFocusIndex}
+              width={responsive.showSidebar ? columns - 2 : stackedWidth}
+              height={gardenHeight}
+              status={githubStatus}
+            />
+          ) : (
+            <Panel title="github" width={responsive.showSidebar ? columns - 2 : stackedWidth} height={gardenHeight}>
+              <Text color={theme.colors.foreground}>
+                GitHub discovery is off.
+              </Text>
+              <Text dimColor color={theme.colors.mutedForeground}>
+                Open Settings and press G to connect using the GitHub CLI.
+              </Text>
+            </Panel>
+          )}
         </Box>
       ) : responsive.showSidebar ? (
         // Wide journal: sidebar (creature selection scopes timeline to one
@@ -2228,6 +2350,8 @@ export const ReadyShell = ({
           <Text dimColor color={theme.colors.mutedForeground} wrap="truncate-end">
             {journalActive
               ? "↑↓/jk scroll · ↵ enter journal · esc back to sidebar · / search · g view · s settings · ? help"
+              : githubActive
+                ? "↑↓/jk move · ↵ clone · o open GitHub · r refresh · / filter · g view · s settings · ? help"
               : isGardenView && gardenPageCount > 1
                 ? "↑↓ move · ↵ open · / filter · g view · [] page · s settings · ? help · q quit"
                 : "↑↓ move · ↵ open · / filter · g view · s settings · ? help · q quit"}

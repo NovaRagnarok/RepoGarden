@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 
 import {
   loadConfig,
+  githubEnabled,
   observerEnabled,
   reducedMotionEnabled,
   saveConfig,
@@ -46,6 +47,13 @@ test("loadConfig returns current schema defaults when config is missing", () => 
     assert.equal(config.view, "garden");
     assert.equal(config.usageBarDisabled, true);
     assert.equal(config.observer.enabled, true);
+    assert.deepEqual(config.github, {
+      enabled: false,
+      includePrivate: true,
+      affiliations: ["owner", "collaborator", "organization_member"],
+      cacheTtlMinutes: 30,
+      cloneProtocol: "ssh"
+    });
   });
 });
 
@@ -83,6 +91,13 @@ test("loadConfig migrates schema-less config and preserves valid fields", () => 
       gardenPaginate: false,
       gardenDensity: "dense",
       bellOnVibeChange: true,
+      github: {
+        enabled: true,
+        includePrivate: false,
+        affiliations: ["owner"],
+        cacheTtlMinutes: 5,
+        cloneProtocol: "https",
+      },
     });
 
     const config = loadConfig();
@@ -96,6 +111,13 @@ test("loadConfig migrates schema-less config and preserves valid fields", () => 
     assert.equal(config.gardenPaginate, false);
     assert.equal(config.gardenDensity, "dense");
     assert.equal(config.bellOnVibeChange, true);
+    assert.deepEqual(config.github, {
+      enabled: true,
+      includePrivate: false,
+      affiliations: ["owner"],
+      cacheTtlMinutes: 5,
+      cloneProtocol: "https"
+    });
   });
 });
 
@@ -111,6 +133,13 @@ test("loadConfig sanitizes invalid legacy fields to current defaults", () => {
       gardenPaginate: "no",
       gardenDensity: "tiny",
       bellOnVibeChange: true,
+      github: {
+        enabled: "yes",
+        includePrivate: "sure",
+        affiliations: ["owner", "bad", 7],
+        cacheTtlMinutes: -4,
+        cloneProtocol: "git",
+      },
     });
 
     const config = loadConfig();
@@ -124,10 +153,17 @@ test("loadConfig sanitizes invalid legacy fields to current defaults", () => {
     assert.equal(config.gardenPaginate, true);
     assert.equal(config.gardenDensity, "comfortable");
     assert.equal(config.bellOnVibeChange, true);
+    assert.deepEqual(config.github, {
+      enabled: false,
+      includePrivate: true,
+      affiliations: ["owner"],
+      cacheTtlMinutes: 30,
+      cloneProtocol: "ssh"
+    });
   });
 });
 
-test("saveConfig writes tui.json with schemaVersion 1", () => {
+test("saveConfig writes tui.json with current schemaVersion", () => {
   withFakeHome((home) => {
     const config: TuiConfig = {
       ...loadConfig(),
@@ -183,6 +219,24 @@ test("observerEnabled lets per-run env override persisted config", () => {
       delete process.env.REPOGARDEN_DISABLE_OBSERVER;
     } else {
       process.env.REPOGARDEN_DISABLE_OBSERVER = old;
+    }
+  }
+});
+
+test("githubEnabled lets per-run env override persisted config", () => {
+  const old = process.env.REPOGARDEN_DISABLE_GITHUB;
+  try {
+    withFakeHome(() => {
+      delete process.env.REPOGARDEN_DISABLE_GITHUB;
+      assert.equal(githubEnabled({ ...loadConfig(), github: { ...loadConfig().github, enabled: true } }), true);
+      process.env.REPOGARDEN_DISABLE_GITHUB = "1";
+      assert.equal(githubEnabled({ ...loadConfig(), github: { ...loadConfig().github, enabled: true } }), false);
+    });
+  } finally {
+    if (old === undefined) {
+      delete process.env.REPOGARDEN_DISABLE_GITHUB;
+    } else {
+      process.env.REPOGARDEN_DISABLE_GITHUB = old;
     }
   }
 });

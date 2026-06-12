@@ -19,10 +19,16 @@ import {
   saveScanCache,
   type ScanCacheMap
 } from "./scan-cache";
+import {
+  buildGitHubRepoMap,
+  parseGitHubRemoteUrl
+} from "./github";
 import type {
   DirtyFileChange,
   DirtyFileStatus,
+  GitHubRepoSnapshot,
   RecentCommit,
+  RepoRemote,
   RootProgress,
   ScannedRepo
 } from "./scanner-types";
@@ -31,7 +37,9 @@ export type {
   DirtyFileChange,
   DirtyFileSkipReason,
   DirtyFileStatus,
+  GitHubRepoSnapshot,
   RecentCommit,
+  RepoRemote,
   RootProgress,
   ScannedRepo
 } from "./scanner-types";
@@ -171,6 +179,32 @@ const runGitAsync = (cwd: string, args: string[]): Promise<GitResult> => {
     child.on("error", () => finish(false));
     child.on("close", (code) => finish(code === 0));
   });
+};
+
+const attachGitHubMetadata = (
+  scan: ScannedRepo,
+  remote: RepoRemote | undefined,
+  githubByFullName?: ReadonlyMap<string, GitHubRepoSnapshot>
+): ScannedRepo => {
+  if (!remote) return scan;
+  const github = githubByFullName?.get(remote.fullName.toLowerCase());
+  return {
+    ...scan,
+    remote,
+    github
+  };
+};
+
+const readGitHubRemote = (repoPath: string): RepoRemote | undefined => {
+  const remote = runGit(repoPath, ["config", "--get", "remote.origin.url"]);
+  if (!remote.ok || !remote.stdout) return undefined;
+  return parseGitHubRemoteUrl(remote.stdout) ?? undefined;
+};
+
+const readGitHubRemoteAsync = async (repoPath: string): Promise<RepoRemote | undefined> => {
+  const remote = await runGitAsync(repoPath, ["config", "--get", "remote.origin.url"]);
+  if (!remote.ok || !remote.stdout) return undefined;
+  return parseGitHubRemoteUrl(remote.stdout) ?? undefined;
 };
 
 const SPARKLINE_DAYS = 30;
@@ -723,7 +757,14 @@ const scanRepoTree = (repoPath: string): RepoTreeStats => {
   return { primaryLanguage, fileCount, sourceLines };
 };
 
-export const inspectRepo = (repoPath: string): ScannedRepo => {
+export interface InspectRepoOptions {
+  githubByFullName?: ReadonlyMap<string, GitHubRepoSnapshot>;
+}
+
+export const inspectRepo = (
+  repoPath: string,
+  options: InspectRepoOptions = {}
+): ScannedRepo => {
   const name = basename(repoPath);
   const id = `${name}-${Buffer.from(repoPath).toString("base64url").slice(-8)}`;
   const base: ScannedRepo = { id, path: repoPath, name, isDirty: false };
@@ -789,7 +830,7 @@ export const inspectRepo = (repoPath: string): ScannedRepo => {
   const dirtyStatus = isDirty ? buildDirtyFileStatuses(repoPath) : undefined;
   const tree = scanRepoTree(repoPath);
 
-  return {
+  const scan: ScannedRepo = {
     ...base,
     branch: branch.ok ? branch.stdout : undefined,
     isDirty,
@@ -808,6 +849,7 @@ export const inspectRepo = (repoPath: string): ScannedRepo => {
     dirtyFiles: dirtyStatus?.files,
     dirtyFileCount: dirtyStatus?.total ?? dirtySnapshot?.total
   };
+  return attachGitHubMetadata(scan, readGitHubRemote(repoPath), options.githubByFullName);
 };
 
 /**
@@ -992,7 +1034,8 @@ export const inspectRepoPreskeletonAsync = async (
  * or if git refused to talk — phase 2 is skipped in those cases.
  */
 export const inspectRepoSkeletonAsync = async (
-  repoPath: string
+  repoPath: string,
+  options: InspectRepoOptions = {}
 ): Promise<ScannedRepo> => {
   const name = basename(repoPath);
   const id = makeRepoId(repoPath);
@@ -1012,7 +1055,7 @@ export const inspectRepoSkeletonAsync = async (
   }
 
   const parsed = parseStatusBranch(status.stdout);
-  return {
+  const scan: ScannedRepo = {
     ...base,
     branch: parsed.branch,
     ahead: parsed.ahead,
@@ -1020,6 +1063,7 @@ export const inspectRepoSkeletonAsync = async (
     isDirty: parsed.isDirty,
     lastCommitSha: parsed.headSha
   };
+  return attachGitHubMetadata(scan, await readGitHubRemoteAsync(repoPath), options.githubByFullName);
 };
 
 /**
@@ -1121,9 +1165,20 @@ export interface ScanResult {
   errors: { root: string; message: string }[];
 }
 
-export const scanRoots = (roots: string[], maxDepth = 4): ScanResult => {
+export interface ScanRootsOptions {
+  githubRepos?: GitHubRepoSnapshot[];
+}
+
+export const scanRoots = (
+  roots: string[],
+  maxDepth = 4,
+  options: ScanRootsOptions = {}
+): ScanResult => {
   const result: ScanResult = { repos: [], rootsUsed: [], errors: [] };
   const seen = new Set<string>();
+  const githubByFullName = options.githubRepos
+    ? buildGitHubRepoMap(options.githubRepos)
+    : undefined;
 
   for (const raw of roots) {
     const root = expandPath(raw);
@@ -1143,7 +1198,7 @@ export const scanRoots = (roots: string[], maxDepth = 4): ScanResult => {
       if (seen.has(repoPath)) continue;
       seen.add(repoPath);
       try {
-        result.repos.push(inspectRepo(repoPath));
+        result.repos.push(inspectRepo(repoPath, { githubByFullName }));
       } catch (error) {
         result.repos.push({
           id: basename(repoPath),
@@ -1229,6 +1284,10 @@ export interface ScanOptions {
   /** Override the cache file path. Mainly for tests; production reads from
    *  `~/.repogarden/scan-cache.json` (or `$REPOGARDEN_SCAN_CACHE`). */
   cacheFile?: string;
+  /** Optional GitHub metadata fetched before the scan. Local git remains
+   *  authoritative; this only annotates repos whose origin remote matches
+   *  a fetched GitHub repo full_name. */
+  githubRepos?: GitHubRepoSnapshot[];
 }
 
 export const scanRootsProgressive = async (
@@ -1245,6 +1304,9 @@ export const scanRootsProgressive = async (
   const pathOwners: string[] = [];
   const rootTotals = new Map<string, number>();
   const rootDone = new Map<string, number>();
+  const githubByFullName = options.githubRepos
+    ? buildGitHubRepoMap(options.githubRepos)
+    : undefined;
 
   for (const raw of roots) {
     const root = expandPath(raw);
@@ -1353,15 +1415,22 @@ export const scanRootsProgressive = async (
       // skip the entire git pipeline for this repo.
       const cached = lookupCachedScan(priorCache, scan.path, scan.lastCommitSha);
       if (cached && !cached.scanError) {
+        const hydrated = githubByFullName
+          ? attachGitHubMetadata(
+              cached,
+              cached.remote ?? (await readGitHubRemoteAsync(cached.path)),
+              githubByFullName
+            )
+          : cached;
         cachedIndices.add(index);
-        slots[index] = cached;
+        slots[index] = hydrated;
         statusDone += 1;
-        events.onRepoStatus?.(cached, statusDone, total);
+        events.onRepoStatus?.(hydrated, statusDone, total);
         enrichedDone += 1;
-        events.onRepo?.(cached, enrichedDone, total);
+        events.onRepo?.(hydrated, enrichedDone, total);
         advanceRoot(pathOwners[index]);
         extrasDone += 1;
-        events.onRepoExtras?.(cached, extrasDone, total);
+        events.onRepoExtras?.(hydrated, extrasDone, total);
       }
     })
   );
@@ -1389,7 +1458,7 @@ export const scanRootsProgressive = async (
       }
       let scan: ScannedRepo;
       try {
-        scan = await inspectRepoSkeletonAsync(repoPath);
+        scan = await inspectRepoSkeletonAsync(repoPath, { githubByFullName });
         // Preserve any preskeleton fields that the status call doesn't
         // overwrite (id is identical via makeRepoId, but be explicit).
         if (preskeleton) scan = { ...preskeleton, ...scan };

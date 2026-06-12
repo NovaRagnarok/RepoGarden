@@ -91,7 +91,7 @@ test("ReadyShell mounts in garden view with chrome, view badges, and sidebar rep
   }
 });
 
-test("pressing g cycles view garden → rooms → journal → garden", async () => {
+test("pressing g cycles view garden → rooms → journal → github → garden", async () => {
   const seen: ReadyView[] = [];
   const harness = renderScreen(<ShellHost onViewChange={(v) => seen.push(v)} />, WIDE);
   try {
@@ -110,7 +110,14 @@ test("pressing g cycles view garden → rooms → journal → garden", async () 
     });
     assert.deepEqual(seen, ["rooms", "journal"]);
 
-    // journal → garden. Footer reverts to the garden hint.
+    // journal → github. Catalog footer exposes GitHub actions.
+    harness.press("g");
+    await waitFor(() => harness.lastFrame().includes("↵ clone"), {
+      onTimeout: () => harness.lastFrame()
+    });
+    assert.deepEqual(seen, ["rooms", "journal", "github"]);
+
+    // github → garden. Footer reverts to the garden hint.
     harness.press("g");
     await waitFor(
       () => {
@@ -119,7 +126,7 @@ test("pressing g cycles view garden → rooms → journal → garden", async () 
       },
       { onTimeout: () => harness.lastFrame() }
     );
-    assert.deepEqual(seen, ["rooms", "journal", "garden"]);
+    assert.deepEqual(seen, ["rooms", "journal", "github", "garden"]);
   } finally {
     harness.unmount();
   }

@@ -28,10 +28,44 @@ export interface DirtyFileStatus {
   renamedFrom?: string;
 }
 
+export interface RepoRemote {
+  provider: "github";
+  fullName: string;
+  url: string;
+}
+
+export interface GitHubRepoSnapshot {
+  id: number;
+  nodeId?: string;
+  fullName: string;
+  owner: string;
+  name: string;
+  private: boolean;
+  visibility?: "public" | "private" | "internal";
+  fork: boolean;
+  archived: boolean;
+  disabled: boolean;
+  htmlUrl: string;
+  cloneUrl?: string;
+  sshUrl?: string;
+  defaultBranch?: string;
+  pushedAt?: string;
+  updatedAt?: string;
+  createdAt?: string;
+  language?: string;
+  permissions?: {
+    admin?: boolean;
+    push?: boolean;
+    pull?: boolean;
+  };
+}
+
 export interface ScannedRepo {
   id: string;
   path: string;
   name: string;
+  remote?: RepoRemote;
+  github?: GitHubRepoSnapshot;
   branch?: string;
   isDirty: boolean;
   ahead?: number;

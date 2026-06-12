@@ -115,6 +115,41 @@ test("scanRoots inspects each repo and assigns a stable id", () => {
   }
 });
 
+test("scanRoots annotates local repos whose origin matches fetched GitHub metadata", () => {
+  const root = mkdtempSync(join(tmpdir(), "repogarden-github-match-"));
+  try {
+    const repo = join(root, "alpha");
+    initRepo(repo);
+    spawnSync("git", ["remote", "add", "origin", "git@github.com:octo/alpha.git"], { cwd: repo });
+    const scan = scanRoots([root], 2, {
+      githubRepos: [
+        {
+          id: 1,
+          fullName: "octo/alpha",
+          owner: "octo",
+          name: "alpha",
+          private: false,
+          fork: false,
+          archived: false,
+          disabled: false,
+          htmlUrl: "https://github.com/octo/alpha",
+          cloneUrl: "https://github.com/octo/alpha.git",
+          sshUrl: "git@github.com:octo/alpha.git",
+          defaultBranch: "main",
+          language: "TypeScript",
+        },
+      ],
+    });
+
+    assert.equal(scan.repos.length, 1);
+    assert.equal(scan.repos[0].remote?.fullName, "octo/alpha");
+    assert.equal(scan.repos[0].github?.fullName, "octo/alpha");
+    assert.match(scan.repos[0].id, /^alpha-/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("parseGitStatusPorcelain parses ordinary, untracked, and renamed files", async () => {
   const { parseGitStatusPorcelain } = await import("../lib/scanner");
   const parsed = parseGitStatusPorcelain(" M src/app.ts\n?? scratch.md\nR  old.ts -> new.ts\n");

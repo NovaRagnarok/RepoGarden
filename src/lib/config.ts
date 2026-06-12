@@ -2,12 +2,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-export const TUI_CONFIG_SCHEMA_VERSION = 1 as const;
+export const TUI_CONFIG_SCHEMA_VERSION = 2 as const;
 
 const configDir = (): string => join(homedir(), ".repogarden");
 const configFile = (): string => join(configDir(), "tui.json");
 
-export type ReadyView = "garden" | "rooms" | "journal";
+export type ReadyView = "garden" | "rooms" | "journal" | "github";
 
 /** How tightly creatures pack into a page (garden) or shelf row.
  *  `comfortable` is the historical default — generous slot padding,
@@ -20,6 +20,16 @@ export interface ObserverConfig {
   /** Cap on per-repo watch handles. Beyond this, per-repo commit
    *  watching is skipped and the safety-net poll covers updates. */
   maxWatches?: number;
+}
+
+export type GitHubCloneProtocol = "ssh" | "https";
+
+export interface GitHubConfig {
+  enabled: boolean;
+  includePrivate: boolean;
+  affiliations: string[];
+  cacheTtlMinutes: number;
+  cloneProtocol: GitHubCloneProtocol;
 }
 
 export interface TuiConfig {
@@ -52,6 +62,11 @@ export interface TuiConfig {
    *  bells are polarizing. Only fires from the ready/home views, not
    *  during boot, edit-roots, or workbench focus. */
   bellOnVibeChange: boolean;
+  /** Optional GitHub discovery. Disabled by default; when enabled,
+   *  RepoGarden reads metadata directly from api.github.com using the
+   *  user's `gh` CLI authentication and caches only normalized repo
+   *  metadata under ~/.repogarden. */
+  github: GitHubConfig;
 }
 
 const DEFAULT_CONFIG: TuiConfig = {
@@ -64,14 +79,24 @@ const DEFAULT_CONFIG: TuiConfig = {
   observer: { enabled: true },
   gardenPaginate: true,
   gardenDensity: "comfortable",
-  bellOnVibeChange: false
+  bellOnVibeChange: false,
+  github: {
+    enabled: false,
+    includePrivate: true,
+    affiliations: ["owner", "collaborator", "organization_member"],
+    cacheTtlMinutes: 30,
+    cloneProtocol: "ssh"
+  }
 };
 
 const isGardenDensity = (value: unknown): value is GardenDensity =>
   value === "cozy" || value === "comfortable" || value === "dense";
 
 const isReadyView = (value: unknown): value is ReadyView =>
-  value === "garden" || value === "rooms" || value === "journal";
+  value === "garden" || value === "rooms" || value === "journal" || value === "github";
+
+const isGitHubCloneProtocol = (value: unknown): value is GitHubCloneProtocol =>
+  value === "ssh" || value === "https";
 
 const ENV_TRUE_VALUES = new Set(["1", "true"]);
 const ENV_FALSE_VALUES = new Set(["0", "false"]);
@@ -113,7 +138,37 @@ const normalizeConfig = (raw: unknown): TuiConfig => {
     bellOnVibeChange:
       typeof parsed.bellOnVibeChange === "boolean"
         ? parsed.bellOnVibeChange
-        : DEFAULT_CONFIG.bellOnVibeChange
+        : DEFAULT_CONFIG.bellOnVibeChange,
+    github: parseGitHubConfig(parsed.github)
+  };
+};
+
+const GITHUB_AFFILIATIONS = new Set(["owner", "collaborator", "organization_member"]);
+
+const parseGitHubConfig = (raw: unknown): GitHubConfig => {
+  if (!raw || typeof raw !== "object") return { ...DEFAULT_CONFIG.github };
+  const partial = raw as Partial<GitHubConfig>;
+  const affiliations = Array.isArray(partial.affiliations)
+    ? partial.affiliations.filter((entry): entry is string => GITHUB_AFFILIATIONS.has(entry))
+    : DEFAULT_CONFIG.github.affiliations;
+  const cacheTtl =
+    typeof partial.cacheTtlMinutes === "number" && partial.cacheTtlMinutes > 0
+      ? Math.floor(partial.cacheTtlMinutes)
+      : DEFAULT_CONFIG.github.cacheTtlMinutes;
+  return {
+    enabled:
+      typeof partial.enabled === "boolean"
+        ? partial.enabled
+        : DEFAULT_CONFIG.github.enabled,
+    includePrivate:
+      typeof partial.includePrivate === "boolean"
+        ? partial.includePrivate
+        : DEFAULT_CONFIG.github.includePrivate,
+    affiliations: affiliations.length > 0 ? affiliations : [...DEFAULT_CONFIG.github.affiliations],
+    cacheTtlMinutes: cacheTtl,
+    cloneProtocol: isGitHubCloneProtocol(partial.cloneProtocol)
+      ? partial.cloneProtocol
+      : DEFAULT_CONFIG.github.cloneProtocol
   };
 };
 
@@ -150,6 +205,11 @@ const parseObserver = (raw: unknown): ObserverConfig => {
 export const observerEnabled = (config: TuiConfig): boolean => {
   if (process.env.REPOGARDEN_DISABLE_OBSERVER === "1") return false;
   return config.observer.enabled;
+};
+
+export const githubEnabled = (config: TuiConfig): boolean => {
+  if (process.env.REPOGARDEN_DISABLE_GITHUB === "1") return false;
+  return config.github.enabled;
 };
 
 export const reducedMotionEnvOverride = (

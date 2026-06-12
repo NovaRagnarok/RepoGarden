@@ -145,8 +145,10 @@ The core pipeline is:
 
 ```text
 scan roots
+  -> optionally fetch GitHub repo metadata
   -> find repo paths
   -> inspect each repo with git
+  -> match GitHub metadata by origin remote
   -> build ScannedRepo
   -> load ProjectMemory
   -> infer vibe
@@ -158,6 +160,7 @@ scan roots
 Relevant files:
 
 - `src/lib/scanner.ts`
+- `src/lib/github.ts`
 - `src/lib/creature.ts`
 - `src/lib/vibe.ts`
 - `src/lib/events.ts`
@@ -166,6 +169,10 @@ Important behavior:
 
 - Full scans use `scanRootsProgressive()`, which streams repos back into the
   UI while scanning.
+- GitHub discovery is opt-in. `src/lib/github.ts` fetches and caches repository
+  metadata through the user's `gh` CLI authentication before a scan; local git
+  data remains authoritative, and remote-only GitHub repos stay in the catalog
+  until explicitly cloned into a scan root.
 - `enrichScans()` is the "make this UI-ready" step. It sorts creatures and, by
   default, reconciles them against the persisted scan snapshot.
 - Snapshot reconciliation emits `repo-added`, `commit`, `vibe-changed`, and
@@ -190,7 +197,7 @@ the garden after rescans, follow this pipeline before touching UI code.
 
 Everything lives under `~/.repogarden`.
 
-- `tui.json`: app config from `src/lib/config.ts` (`schemaVersion: 1`)
+- `tui.json`: app config from `src/lib/config.ts` (`schemaVersion: 2`)
 - `projects/<repo-id>.json`: legacy per-repo memory from `src/lib/memory.ts`
 - `projects/<repo-id>/notes.json`: note index from `src/lib/notes.ts`
 - `projects/<repo-id>/notes/*.md`: note bodies
@@ -202,9 +209,9 @@ Everything lives under `~/.repogarden`.
 
 This layout is treated as supported local storage while RepoGarden moves toward
 a stable release. Schema-less older `tui.json` files are normalized on read and
-written back with `schemaVersion: 1` the next time settings are saved. Future
-breaking storage changes should add explicit migrations instead of changing
-these shapes in place.
+written back with the current `schemaVersion` the next time settings are saved.
+Future breaking storage changes should add explicit migrations instead of
+changing these shapes in place.
 
 Two details matter when editing persistence code:
 

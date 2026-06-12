@@ -14,7 +14,7 @@ We aim to respond within a few business days.
 
 RepoGarden is local-first. It reads only the repository roots you explicitly configure and stores all app state under `~/.repogarden/`. No repository data is sent to any RepoGarden-operated server.
 
-Local app data stored under `~/.repogarden/` includes configured roots, project notes, blockers, event logs, repo paths, commit subjects, and branch/vibe snapshots. User-written notes may contain sensitive information and remain local unless the user copies or shares them elsewhere.
+Local app data stored under `~/.repogarden/` includes configured roots, project notes, blockers, event logs, repo paths, commit subjects, branch/vibe snapshots, and optional cached GitHub repository metadata. User-written notes may contain sensitive information and remain local unless the user copies or shares them elsewhere.
 
 For each configured repository, RepoGarden reads:
 
@@ -23,6 +23,20 @@ For each configured repository, RepoGarden reads:
 - commit subjects and author names
 - dirty (uncommitted) file names
 - small diff previews of dirty files for display
+
+## GitHub discovery
+
+GitHub discovery is off by default. Turn it on from Settings (`s`) with `G`.
+
+When enabled, RepoGarden asks the GitHub CLI for an access token via `gh auth token`, then calls `https://api.github.com/user/repos` directly from your machine. It stores normalized repository metadata under `~/.repogarden/github-repos.json`, including repository names, URLs, visibility, default branch, pushed/updated timestamps, language, and clone URLs. It does not store the GitHub token.
+
+RepoGarden uses this metadata to annotate local repos whose `origin` remote points at GitHub and to show unmatched GitHub repos in a catalog. Selecting a catalog repo and pressing Enter runs an explicit local `git clone` into the first configured scan root; RepoGarden does not clone automatically.
+
+For a one-off run that suppresses all GitHub reads regardless of saved settings:
+
+```bash
+REPOGARDEN_DISABLE_GITHUB=1 repogarden
+```
 
 ## Update check
 

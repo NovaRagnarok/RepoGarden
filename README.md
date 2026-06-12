@@ -85,6 +85,8 @@ RepoGarden stores local app data under `~/.repogarden`, including configured roo
 
 During normal operation the app reads repo paths, branch names, commit subjects and authors, dirty file names, and small diff previews for display in the habitat.
 
+GitHub discovery is optional and off by default. If enabled in Settings, RepoGarden uses your existing `gh` CLI login to fetch repository metadata directly from `api.github.com`, matches it to local repos by `origin`, and shows unmatched GitHub repos in a catalog where you can explicitly clone one into a configured local root.
+
 User-written notes, blockers, and journal content may contain private information. RepoGarden keeps that data local unless you explicitly copy or share it elsewhere.
 
 ### Local data layout
@@ -99,6 +101,7 @@ The `~/.repogarden` layout is the supported local storage location for the 0.9 l
 - `events.meta.json` — journal seed/backfill marker
 - `scan-snapshot.json` — last known vibe, mood, branch, and head per repo
 - `scan-cache.json` — cached scan details for faster startup
+- `github-repos.json` — optional cached GitHub repo metadata when GitHub discovery is enabled
 - `update-check.json` — cached npm update-check result
 
 ### Reset local data

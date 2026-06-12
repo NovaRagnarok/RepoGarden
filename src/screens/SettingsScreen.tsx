@@ -32,6 +32,7 @@ import {
 import { wiggleFrameAt } from "@/garden/model";
 import { vibeColor, vibeGlyph, type Vibe } from "@/lib/vibe";
 import type { GardenDensity } from "@/lib/garden-layout";
+import type { GitHubCloneProtocol } from "@/lib/config";
 import { DEMO_NAMES, demoVibeFor } from "@/lib/demo-roster";
 
 export interface SettingsScreenProps {
@@ -42,6 +43,10 @@ export interface SettingsScreenProps {
   gardenPaginate?: boolean;
   gardenDensity?: GardenDensity;
   bellOnVibeChange?: boolean;
+  githubEnabled?: boolean;
+  githubIncludePrivate?: boolean;
+  githubCloneProtocol?: GitHubCloneProtocol;
+  githubRepoCount?: number;
   onPickTheme: (id: string) => void;
   onToggleReducedMotion?: () => void;
   onToggleUsageBar?: () => void;
@@ -49,6 +54,10 @@ export interface SettingsScreenProps {
   onToggleGardenPaginate?: () => void;
   onCycleGardenDensity?: () => void;
   onToggleBellOnVibeChange?: () => void;
+  onToggleGitHub?: () => void;
+  onToggleGitHubPrivate?: () => void;
+  onCycleGitHubCloneProtocol?: () => void;
+  onRefreshGitHub?: () => void;
   /** Fire a single BEL right now so the user can verify their terminal
    *  passes `\x07` through audibly (or visibly). Independent of the
    *  toggle state — the test rings even when the persistent bell is off. */
@@ -357,6 +366,10 @@ export const SettingsScreen = ({
   gardenPaginate = true,
   gardenDensity = "comfortable",
   bellOnVibeChange = false,
+  githubEnabled = false,
+  githubIncludePrivate = true,
+  githubCloneProtocol = "ssh",
+  githubRepoCount = 0,
   onPickTheme,
   onToggleReducedMotion,
   onToggleUsageBar,
@@ -364,6 +377,10 @@ export const SettingsScreen = ({
   onToggleGardenPaginate,
   onCycleGardenDensity,
   onToggleBellOnVibeChange,
+  onToggleGitHub,
+  onToggleGitHubPrivate,
+  onCycleGitHubCloneProtocol,
+  onRefreshGitHub,
   onTestBell,
   onClose
 }: SettingsScreenProps) => {
@@ -374,18 +391,18 @@ export const SettingsScreen = ({
   // Compact mode kicks in when the full stack (header + prefs + min 4 themes
   // + four-line footer + padding) would overflow the container. Worst-case
   // chrome cost (narrow header):
-  //   header(6) + prefs(11) + themes-chrome(5) + footer(5) + paddingY(2) = 29
+  //   header(6) + prefs(15) + themes-chrome(5) + footer(5) + paddingY(2) = 33
   // Plus min pageSize 4 + container off-by-one (1) = 34 rows. Below that we
   // switch to a tab bar that shows one section at a time, so no option ever
   // gets clipped.
-  const compactMode = rows < 34;
+  const compactMode = rows < 38;
   // reservedRows is the chrome cost that's subtracted from rows to derive
   // pageSize. We use the worst-case (narrow) numbers so themes content never
   // overflows the container — at wide widths this just leaves ~2 rows of
   // margin, which is fine.
   //   compact: header(6) + tab(1) + themes-chrome(5) + footer(3) + padding(2) + container off-by-one(1) = 18
-  //   non-compact: header(6) + prefs(11) + themes-chrome(5) + footer(5) + padding(2) + container off-by-one(1) = 30
-  const reservedRows = compactMode ? 18 : 30;
+  //   non-compact: header(6) + prefs(15) + themes-chrome(5) + footer(5) + padding(2) + container off-by-one(1) = 34
+  const reservedRows = compactMode ? 18 : 34;
   const pageSize = Math.max(4, Math.min(themeCatalogue.length, rows - reservedRows));
   const containerHeight = Math.max(8, rows - 1);
   const startIndex = Math.max(
@@ -461,6 +478,22 @@ export const SettingsScreen = ({
       onTestBell();
       return;
     }
+    if (input === "G" && onToggleGitHub) {
+      onToggleGitHub();
+      return;
+    }
+    if (input === "v" && onToggleGitHubPrivate) {
+      onToggleGitHubPrivate();
+      return;
+    }
+    if (input === "C" && onCycleGitHubCloneProtocol) {
+      onCycleGitHubCloneProtocol();
+      return;
+    }
+    if (input === "R" && onRefreshGitHub) {
+      onRefreshGitHub();
+      return;
+    }
     if (key.escape || input === "q") {
       onClose();
     }
@@ -486,7 +519,18 @@ export const SettingsScreen = ({
   });
 
   const hitZones = useMemo(() => {
-    type PrefKind = "motion" | "usage" | "observer" | "paginate" | "density" | "bell" | "test-bell";
+    type PrefKind =
+      | "motion"
+      | "usage"
+      | "observer"
+      | "paginate"
+      | "density"
+      | "bell"
+      | "test-bell"
+      | "github"
+      | "github-private"
+      | "github-protocol"
+      | "github-refresh";
     type TabKind = "tab-themes" | "tab-prefs";
     type Zone =
       | {
@@ -509,7 +553,19 @@ export const SettingsScreen = ({
 
     const innerLeft = 2;
     const innerRight = Math.max(innerLeft, innerLeft + innerContentW - 1);
-    const prefKinds: PrefKind[] = ["motion", "usage", "observer", "paginate", "density", "bell", "test-bell"];
+    const prefKinds: PrefKind[] = [
+      "motion",
+      "usage",
+      "observer",
+      "paginate",
+      "density",
+      "bell",
+      "test-bell",
+      "github",
+      "github-private",
+      "github-protocol",
+      "github-refresh"
+    ];
 
     if (compactMode) {
       // Tab bar lives in a single row directly below the header. Labels are
@@ -681,6 +737,18 @@ export const SettingsScreen = ({
                 case "test-bell":
                   onTestBell?.();
                   break;
+                case "github":
+                  onToggleGitHub?.();
+                  break;
+                case "github-private":
+                  onToggleGitHubPrivate?.();
+                  break;
+                case "github-protocol":
+                  onCycleGitHubCloneProtocol?.();
+                  break;
+                case "github-refresh":
+                  onRefreshGitHub?.();
+                  break;
                 case "tab-themes":
                   setCompactSection("themes");
                   break;
@@ -703,6 +771,10 @@ export const SettingsScreen = ({
         onToggleGardenPaginate,
         onCycleGardenDensity,
         onToggleBellOnVibeChange,
+        onToggleGitHub,
+        onToggleGitHubPrivate,
+        onCycleGitHubCloneProtocol,
+        onRefreshGitHub,
         onTestBell
       ]
     )
@@ -807,6 +879,38 @@ export const SettingsScreen = ({
         hotkey="B"
         label="test bell · ring once to check this terminal passes BEL through"
         indicator="♪ ring"
+        indicatorColor={previewTheme.colors.mutedForeground}
+        labelColor={previewTheme.colors.foreground}
+      />
+      <PrefRow
+        hotkey="G"
+        label={`github · fetch repo metadata via gh CLI${githubRepoCount > 0 ? ` (${githubRepoCount})` : ""}`}
+        indicator={githubEnabled ? "● on" : "○ off"}
+        indicatorColor={
+          githubEnabled ? previewTheme.colors.success : previewTheme.colors.mutedForeground
+        }
+        labelColor={previewTheme.colors.foreground}
+      />
+      <PrefRow
+        hotkey="v"
+        label="github private/org repos · include what gh auth can read"
+        indicator={githubIncludePrivate ? "● all" : "○ public"}
+        indicatorColor={
+          githubIncludePrivate ? previewTheme.colors.success : previewTheme.colors.mutedForeground
+        }
+        labelColor={previewTheme.colors.foreground}
+      />
+      <PrefRow
+        hotkey="C"
+        label="github clone protocol · used by catalog import"
+        indicator={githubCloneProtocol}
+        indicatorColor={previewTheme.colors.success}
+        labelColor={previewTheme.colors.foreground}
+      />
+      <PrefRow
+        hotkey="R"
+        label="github refresh · fetch catalog now"
+        indicator="↻ fetch"
         indicatorColor={previewTheme.colors.mutedForeground}
         labelColor={previewTheme.colors.foreground}
       />
@@ -924,9 +1028,9 @@ export const SettingsScreen = ({
               <Text dimColor color={previewTheme.colors.mutedForeground} wrap="truncate-end">
                 <Text bold>themes</Text>  ↑/↓ pick · enter or dbl-click apply · esc back
               </Text>
-              <Text dimColor color={previewTheme.colors.mutedForeground} wrap="truncate-end">
-                <Text bold>prefs </Text>  click row to toggle · keys m u o p g
-              </Text>
+                <Text dimColor color={previewTheme.colors.mutedForeground} wrap="truncate-end">
+                  <Text bold>prefs </Text>  click row to toggle · keys m u o p g G v C R
+                </Text>
               <Box flexDirection="row" justifyContent="space-between">
                 <Text dimColor color={previewTheme.colors.mutedForeground} wrap="truncate-end">
                   <Text bold>mouse </Text>  scroll themes · click previews · double-click applies

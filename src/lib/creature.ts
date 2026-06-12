@@ -344,7 +344,13 @@ export const refreshOneCreature = (
 ): RepoCreature[] => {
   const index = creatures.findIndex((creature) => creature.id === id);
   if (index === -1) return creatures;
-  const fresh = inspectRepo(creatures[index].scan.path);
+  const prior = creatures[index].scan;
+  const inspected = inspectRepo(prior.path);
+  const fresh = {
+    ...inspected,
+    github: prior.github,
+    remote: prior.remote ?? inspected.remote
+  };
   const nextScans = creatures.map((creature, i) => (i === index ? fresh : creature.scan));
   return enrichScans(nextScans);
 };
