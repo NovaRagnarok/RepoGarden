@@ -1,5 +1,5 @@
 import { Box, Text } from "ink";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { BigText } from "@/components/ui/big-text";
@@ -13,7 +13,8 @@ import { getTerminalLayout } from "@/lib/responsive-layout";
 
 export interface OnboardingScreenProps {
   initialPath?: string;
-  onScan: (path: string) => void;
+  onScan: (path: string) => void | Promise<void>;
+  onScanError?: (error: unknown) => void;
   onCancel?: () => void;
   /** Optional: when provided, the screen surfaces a demo-mode affordance
    *  (a one-line suggestion + the `d` hotkey). Used on first-run and on the
@@ -34,6 +35,7 @@ export interface OnboardingScreenProps {
 export const OnboardingScreen = ({
   initialPath = "",
   onScan,
+  onScanError,
   onCancel,
   onTryDemo,
   onOpenSettings,
@@ -66,12 +68,30 @@ export const OnboardingScreen = ({
   const showEmptyState =
     !editing && scanStatus?.kind === "error" && (scannedRoots?.length ?? 0) > 0;
 
+  const reportScanError = useCallback(
+    (error: unknown) => {
+      try {
+        onScanError?.(error);
+      } catch {
+        // Avoid converting an error-reporting failure into an unhandled scan rejection.
+      }
+    },
+    [onScanError]
+  );
+
+  const submitScan = useCallback(() => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    try {
+      void Promise.resolve(onScan(trimmed)).catch(reportScanError);
+    } catch (error) {
+      reportScanError(error);
+    }
+  }, [onScan, reportScanError, value]);
+
   useInput((input, key) => {
     if (key.return) {
-      const trimmed = value.trim();
-      if (trimmed) {
-        onScan(trimmed);
-      }
+      submitScan();
       return;
     }
     if (key.backspace || key.delete) {

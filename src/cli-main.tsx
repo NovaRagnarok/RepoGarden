@@ -85,6 +85,9 @@ const BOOT_SCAN_DELAY_MS = 400;
 const MIN_BOOT_PRESENTATION_MS = 900;
 const GITHUB_CLONE_TIMEOUT_MS = 120_000;
 
+const errorMessage = (error: unknown, fallback: string): string =>
+  error instanceof Error && error.message.trim().length > 0 ? error.message : fallback;
+
 const cloneGitHubRepoInto = async ({
   repo,
   root,
@@ -237,6 +240,34 @@ const App = ({
     [githubConfig, pushToast]
   );
 
+  const recordGitHubRefreshFailure = useCallback(
+    (error: unknown): GitHubRepoSnapshot[] => {
+      const message = errorMessage(error, "github refresh failed.");
+      setGitHubStatus((current) => ({
+        repos: githubRepos,
+        fetchedAt: current?.fetchedAt,
+        fromCache: current?.fromCache ?? githubRepos.length > 0,
+        stale: true,
+        error: message,
+        rateLimit: current?.rateLimit
+      }));
+      pushToast(`github · ${message}`, "error", 6000);
+      return githubRepos;
+    },
+    [githubRepos, pushToast]
+  );
+
+  const refreshGitHubCatalogSafely = useCallback(
+    async (configOverride?: GitHubConfig): Promise<GitHubRepoSnapshot[]> => {
+      try {
+        return await refreshGitHubCatalog(configOverride);
+      } catch (error) {
+        return recordGitHubRefreshFailure(error);
+      }
+    },
+    [recordGitHubRefreshFailure, refreshGitHubCatalog]
+  );
+
   const runScan = useCallback(
     async (
       rootsToScan: string[],
@@ -316,7 +347,7 @@ const App = ({
         setIsRescanning(false);
         setScanProgress(undefined);
         setScanProgressByRoot(undefined);
-        const message = error instanceof Error ? error.message : "scan failed.";
+        const message = errorMessage(error, "scan failed.");
         setRescanError(message);
         pushToast(message, "error");
         return { ok: false, count: 0, message };
@@ -463,6 +494,19 @@ const App = ({
     return stop;
   }, [phase, isRescanning, observerOn, watchedRepoKey, roots]);
 
+  const handleScanFailure = useCallback(
+    (error: unknown, fallback = "scan failed.") => {
+      const message = errorMessage(error, fallback);
+      setIsRescanning(false);
+      setScanProgress(undefined);
+      setScanProgressByRoot(undefined);
+      setRescanError(message);
+      setScanStatus({ kind: "error", message });
+      pushToast(message, "error", 6000);
+    },
+    [pushToast]
+  );
+
   // Boot sequence: if we already have roots, scan them; otherwise show onboarding.
   useEffect(() => {
     let cancelled = false;
@@ -473,24 +517,33 @@ const App = ({
         await new Promise((resolve) => setTimeout(resolve, remaining));
       }
     };
-    const timer = setTimeout(async () => {
-      if (cancelled) return;
-      if (roots.length === 0) {
-        await holdBootIntro();
-        if (cancelled) return;
-        setPhase("onboarding");
-        return;
-      }
-      const reposForScan = effectiveGitHubEnabled
-        ? await refreshGitHubCatalog(githubConfig)
-        : githubRepos;
-      const result = await runScan(roots, reposForScan);
-      if (cancelled) return;
-      await holdBootIntro();
-      if (cancelled) return;
-      const next = bootPhaseForScanOutcome(result);
-      setPhase(next.phase);
-      if (next.scanStatus) setScanStatus(next.scanStatus);
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          if (cancelled) return;
+          if (roots.length === 0) {
+            await holdBootIntro();
+            if (cancelled) return;
+            setPhase("onboarding");
+            return;
+          }
+          const reposForScan = effectiveGitHubEnabled
+            ? await refreshGitHubCatalogSafely(githubConfig)
+            : githubRepos;
+          const result = await runScan(roots, reposForScan);
+          if (cancelled) return;
+          await holdBootIntro();
+          if (cancelled) return;
+          const next = bootPhaseForScanOutcome(result);
+          setPhase(next.phase);
+          if (next.scanStatus) setScanStatus(next.scanStatus);
+        } catch (error) {
+          if (cancelled) return;
+          handleScanFailure(error, "startup scan failed.");
+          await holdBootIntro();
+          if (!cancelled) setPhase("onboarding");
+        }
+      })();
     }, BOOT_SCAN_DELAY_MS);
     return () => {
       cancelled = true;
@@ -499,21 +552,25 @@ const App = ({
   }, []);
 
   const handleScan = async (raw: string) => {
-    const nextRoots = parseScanRoots(raw);
-    if (nextRoots.length === 0) {
-      setScanStatus({ kind: "error", message: "give at least one folder path." });
-      return;
-    }
-    setScanStatus({ kind: "scanning", message: `scanning ${nextRoots.join(", ")}` });
-    setRoots(nextRoots);
-    updateConfig({ scanRoots: nextRoots });
-    const reposForScan = effectiveGitHubEnabled
-      ? await refreshGitHubCatalog(githubConfig)
-      : githubRepos;
-    const result = await runScan(nextRoots, reposForScan);
-    setScanStatus({ kind: result.ok ? "ok" : "error", message: result.message });
-    if (result.ok && result.count > 0) {
-      setPhase("ready");
+    try {
+      const nextRoots = parseScanRoots(raw);
+      if (nextRoots.length === 0) {
+        setScanStatus({ kind: "error", message: "give at least one folder path." });
+        return;
+      }
+      setScanStatus({ kind: "scanning", message: `scanning ${nextRoots.join(", ")}` });
+      setRoots(nextRoots);
+      updateConfig({ scanRoots: nextRoots });
+      const reposForScan = effectiveGitHubEnabled
+        ? await refreshGitHubCatalogSafely(githubConfig)
+        : githubRepos;
+      const result = await runScan(nextRoots, reposForScan);
+      setScanStatus({ kind: result.ok ? "ok" : "error", message: result.message });
+      if (result.ok && result.count > 0) {
+        setPhase("ready");
+      }
+    } catch (error) {
+      handleScanFailure(error);
     }
   };
 
@@ -569,7 +626,7 @@ const App = ({
     updateConfig({ github: next });
     pushToast(`github · ${next.enabled ? "on" : "off"}`, "info");
     if (next.enabled) {
-      void refreshGitHubCatalog(next);
+      void refreshGitHubCatalog(next).catch(recordGitHubRefreshFailure);
     } else {
       setGitHubRepos([]);
       setGitHubStatus(undefined);
@@ -581,7 +638,7 @@ const App = ({
     setGitHubConfig(next);
     updateConfig({ github: next });
     pushToast(`github private repos · ${next.includePrivate ? "included" : "public only"}`, "info");
-    if (next.enabled) void refreshGitHubCatalog(next);
+    if (next.enabled) void refreshGitHubCatalog(next).catch(recordGitHubRefreshFailure);
   };
 
   const handleCycleGitHubCloneProtocol = () => {
@@ -594,7 +651,7 @@ const App = ({
   };
 
   const handleRefreshGitHub = () => {
-    void refreshGitHubCatalog();
+    void refreshGitHubCatalog().catch(recordGitHubRefreshFailure);
   };
 
   // One-shot BEL so the user can confirm their terminal interprets `\x07`
@@ -755,6 +812,7 @@ const App = ({
       <OnboardingScreen
         initialPath={seedPath}
         onScan={handleScan}
+        onScanError={handleScanFailure}
         onTryDemo={handleTryDemo}
         onOpenSettings={() => setPhase("settings")}
         scanStatus={scanStatus}
@@ -808,6 +866,7 @@ const App = ({
         editing
         initialPath={roots.join(", ")}
         onScan={handleScan}
+        onScanError={handleScanFailure}
         onCancel={() => setPhase("ready")}
         scanStatus={scanStatus}
         scannedRoots={roots}

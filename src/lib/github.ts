@@ -429,7 +429,19 @@ export const fetchGitHubCatalog = async (
       };
     }
 
-    const body = await response.json();
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch {
+      return {
+        repos: prior ? flattenPages(prior.pages) : [],
+        fetchedAt: prior?.fetchedAt,
+        fromCache: Boolean(prior),
+        stale: Boolean(prior),
+        error: "GitHub response was not valid JSON.",
+        rateLimit: lastRateLimit ?? prior?.rateLimit
+      };
+    }
     const repos = Array.isArray(body)
       ? body
           .map((repo) => normalizeGitHubRepo(repo))

@@ -122,3 +122,64 @@ test("fetchGitHubCatalog follows pagination and falls back to cache on rate limi
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("fetchGitHubCatalog falls back to stale cache on malformed success response", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "repogarden-github-malformed-cache-"));
+  const cacheFile = join(dir, "github-repos.json");
+  try {
+    const fresh = await fetchGitHubCatalog(config, {
+      cacheFile,
+      token: "token",
+      fetchImpl: async () =>
+        new Response(JSON.stringify([rawRepo("alpha", 1)]), {
+          status: 200,
+          headers: { etag: "\"page-1\"" }
+        })
+    });
+    assert.equal(fresh.fromCache, false);
+    assert.deepEqual(fresh.repos.map((repo) => repo.fullName), ["octo/alpha"]);
+
+    const malformed = await fetchGitHubCatalog(
+      { ...config, cacheTtlMinutes: 0.001 },
+      {
+        cacheFile,
+        token: "token",
+        now: new Date(Date.now() + 60_000),
+        fetchImpl: async () =>
+          new Response("<html>not json</html>", {
+            status: 200,
+            headers: { "content-type": "text/html" }
+          })
+      }
+    );
+    assert.equal(malformed.fromCache, true);
+    assert.equal(malformed.stale, true);
+    assert.match(malformed.error ?? "", /not valid JSON/);
+    assert.deepEqual(malformed.repos.map((repo) => repo.fullName), ["octo/alpha"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("fetchGitHubCatalog returns empty result with error on malformed success response without cache", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "repogarden-github-malformed-empty-"));
+  const cacheFile = join(dir, "github-repos.json");
+  try {
+    const result = await fetchGitHubCatalog(config, {
+      cacheFile,
+      token: "token",
+      fetchImpl: async () =>
+        new Response("<html>not json</html>", {
+          status: 200,
+          headers: { "content-type": "text/html" }
+        })
+    });
+
+    assert.deepEqual(result.repos, []);
+    assert.equal(result.fromCache, false);
+    assert.equal(result.stale, false);
+    assert.match(result.error ?? "", /not valid JSON/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
