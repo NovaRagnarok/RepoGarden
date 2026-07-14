@@ -22,8 +22,12 @@ Export options:
   --width <cols>    inner garden width in cells (gif default 240, text 180)
   --height <rows>   inner garden height in cells (gif default 67, text 12)
   --page <n>        pick which page (1-indexed) when repos exceed one page
-  --max-chars <n>   export-text only: shrink the canvas to fit the budget
+  --max-chars <n>   export-text only: widest panorama within the budget
   --discord         export-text only: alias for --max-chars 1999
+
+Text export budgets:
+  If no supported panorama fits, export-text writes no output, explains the
+  smallest required budget on stderr, and exits with status 1.
 
 Environment:
   REPOGARDEN_DISABLE_USAGE=1     hide the Claude/Codex usage bar this run

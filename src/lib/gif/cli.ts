@@ -1,15 +1,18 @@
 import { writeFile } from "node:fs/promises";
 
 import { scanRoots } from "@/lib/scanner";
-import { enrichScans } from "@/lib/creature";
+import { enrichScans, type RepoCreature } from "@/lib/creature";
 import { defaultThemeId, themeById } from "@/themes";
 import { paginateCreatures, safeGardenCapacity } from "@/lib/garden-layout";
-import { buildTiles, createGardenModel, pinForExport } from "@/garden/model";
+import { buildTiles } from "@/garden/model";
 import type { GardenSceneProps, GardenThemeColors } from "@/garden/types";
 
 import { exportGardenGif } from "@/lib/gif/export";
-import { frameToText } from "@/lib/text-frame";
-import { renderGardenFrame } from "@/garden/render";
+import {
+  fitShareableTextFrame,
+  formatTextBudgetFailure,
+  renderTextFrame
+} from "@/lib/gif/text-export";
 
 // GIF defaults: "0.5× zoom" — render at scale 1 with a canvas twice as
 // dense as previously. 240×67 cells at 8×16 px per cell → 1920×1088 final
@@ -105,43 +108,33 @@ interface BuiltScene {
 interface BuildOptions {
   defaultWidth: number;
   defaultHeight: number;
-  /** When set, names longer than this are clipped to (n-1) chars + "…" so
-   *  the placer can pack more creatures per row. Used by `export-text` to
-   *  keep the panorama dense at the Discord paste budget. */
-  nameMaxChars?: number;
 }
 
-const truncateName = (name: string, max: number): string =>
-  name.length <= max ? name : name.slice(0, Math.max(1, max - 1)) + "…";
+interface CreatureLoaderDependencies {
+  scanRoots: typeof scanRoots;
+  enrichScans: typeof enrichScans;
+}
 
-const buildScene = (parsed: ParsedArgs, options: BuildOptions): BuiltScene => {
+const loadCreatures = (
+  parsed: ParsedArgs,
+  dependencies: CreatureLoaderDependencies = { scanRoots, enrichScans }
+): RepoCreature[] => {
   const root = parsed.root ?? process.cwd();
-  const result = scanRoots([root], 4);
-  const scanned = enrichScans(result.repos);
-  if (scanned.length === 0) {
+  const result = dependencies.scanRoots([root], 4);
+  const creatures = dependencies.enrichScans(result.repos);
+  if (creatures.length === 0) {
     throw new Error(`no git repositories found under ${root}`);
   }
-  // Strip saved drag positions so the export uses canonical placement.
-  // A user's prior manual drag in the TUI would otherwise pull creatures
-  // toward the canvas edge in the snapshot, where long labels can clip.
-  // Also optionally truncate names so a very long repo name doesn't bloat
-  // every slot.
-  const creatures = scanned.map((c) => {
-    const name = options.nameMaxChars
-      ? truncateName(c.scan.name, options.nameMaxChars)
-      : c.scan.name;
-    return {
-      ...c,
-      scan: { ...c.scan, name },
-      memory: { ...c.memory, gardenPlacement: undefined }
-    };
-  });
-  const choice = themeById(parsed.themeId ?? defaultThemeId);
+  return creatures;
+};
+
+const resolveThemeColors = (themeId: string | undefined): GardenThemeColors => {
+  const choice = themeById(themeId ?? defaultThemeId);
   if (!choice) {
-    throw new Error(`unknown theme: ${parsed.themeId}`);
+    throw new Error(`unknown theme: ${themeId}`);
   }
   const theme = choice.theme;
-  const colors: GardenThemeColors = {
+  return {
     foreground: theme.colors.foreground,
     background: theme.colors.background,
     muted: theme.colors.muted,
@@ -154,6 +147,18 @@ const buildScene = (parsed: ParsedArgs, options: BuildOptions): BuiltScene => {
     info: theme.colors.info,
     creaturePalette: theme.creaturePalette
   };
+};
+
+const buildScene = (parsed: ParsedArgs, options: BuildOptions): BuiltScene => {
+  const scanned = loadCreatures(parsed);
+  // Strip saved drag positions so the export uses canonical placement.
+  // A user's prior manual drag in the TUI would otherwise pull creatures
+  // toward the canvas edge in the snapshot, where long labels can clip.
+  const creatures = scanned.map((creature) => ({
+    ...creature,
+    memory: { ...creature.memory, gardenPlacement: undefined }
+  }));
+  const colors = resolveThemeColors(parsed.themeId);
   const innerWidth = Math.max(40, parsed.width ?? options.defaultWidth);
   const canvasH = Math.max(12, parsed.height ?? options.defaultHeight);
 
@@ -214,62 +219,73 @@ export const runExportGifCli = async (rest: string[]): Promise<number> => {
   return 0;
 };
 
-export const runExportTextCli = async (rest: string[]): Promise<number> => {
+export interface ExportTextCliDependencies extends CreatureLoaderDependencies {
+  writeStdout: (text: string) => void;
+  writeStderr: (text: string) => void;
+}
+
+export const runExportTextCli = async (
+  rest: string[],
+  overrides: Partial<ExportTextCliDependencies> = {}
+): Promise<number> => {
   const parsed = parseArgs(rest);
+  const dependencies: ExportTextCliDependencies = {
+    scanRoots: overrides.scanRoots ?? scanRoots,
+    enrichScans: overrides.enrichScans ?? enrichScans,
+    writeStdout: overrides.writeStdout ?? ((text) => {
+      process.stdout.write(text);
+    }),
+    writeStderr: overrides.writeStderr ?? ((text) => {
+      process.stderr.write(text);
+    })
+  };
   // `--discord` (or any `--max-chars` budget) implies the user is pasting
   // into a chat — wrap with fences + project-URL footer so the snippet lands
   // as a complete code block. Bare `export-text` stays raw so it pipes cleanly.
   const shareFormat = parsed.maxChars !== undefined;
-  const textBuildOptions: BuildOptions = {
-    defaultWidth: DEFAULT_TEXT_INNER_WIDTH,
-    defaultHeight: DEFAULT_TEXT_CANVAS_HEIGHT,
-    nameMaxChars: DEFAULT_TEXT_NAME_MAX
-  };
-  const renderAt = (w: number, h: number): string => {
-    const built = buildScene({ ...parsed, width: w, height: h }, textBuildOptions);
-    const model = createGardenModel(built.scene, 0);
-    pinForExport(model);
-    const frame = renderGardenFrame(model, 0);
-    return frameToText(frame, { brand: shareFormat, fenced: shareFormat });
-  };
+  const creatures = loadCreatures(parsed, dependencies);
+  const theme = resolveThemeColors(parsed.themeId);
 
   let text: string;
-  if (parsed.maxChars && parsed.maxChars > 0) {
-    // Greedy bisect: start at requested (or default) dimensions, halve until
-    // we fit, then expand back up. Width and height drop in proportion so
-    // the aspect ratio stays close to the request.
-    const startW = parsed.width ?? DEFAULT_TEXT_INNER_WIDTH;
-    const startH = parsed.height ?? DEFAULT_TEXT_CANVAS_HEIGHT;
-    const ratio = startH / startW;
-    let lo = 24;
-    let hi = startW;
-    let best = "";
-    // Pre-check: if the smallest size still overshoots, return it anyway —
-    // truncation would corrupt mid-escape and look worse than a slightly
-    // oversized frame.
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      const candidate = renderAt(mid, Math.max(8, Math.round(mid * ratio)));
-      if (candidate.length <= parsed.maxChars) {
-        best = candidate;
-        lo = mid + 1;
-      } else {
-        hi = mid - 1;
-      }
+  if (parsed.maxChars !== undefined) {
+    if (!Number.isSafeInteger(parsed.maxChars) || parsed.maxChars <= 0) {
+      dependencies.writeStderr(
+        "export-text: --max-chars must be a positive integer.\n"
+      );
+      return 1;
     }
-    text = best || renderAt(24, Math.max(8, Math.round(24 * ratio)));
+    const fit = fitShareableTextFrame(creatures, {
+      theme,
+      maxChars: parsed.maxChars,
+      nameMaxChars: DEFAULT_TEXT_NAME_MAX,
+      page: parsed.page,
+      shareFormat,
+      startWidth: parsed.width ?? DEFAULT_TEXT_INNER_WIDTH,
+      startHeight: parsed.height ?? DEFAULT_TEXT_CANVAS_HEIGHT
+    });
+    if (!fit.ok) {
+      dependencies.writeStderr(
+        `export-text: ${formatTextBudgetFailure(fit)}\n`
+      );
+      return 1;
+    }
+    text = fit.text;
   } else {
-    text = renderAt(
-      parsed.width ?? DEFAULT_TEXT_INNER_WIDTH,
-      parsed.height ?? DEFAULT_TEXT_CANVAS_HEIGHT
-    );
+    text = renderTextFrame(creatures, {
+      innerWidth: Math.max(40, parsed.width ?? DEFAULT_TEXT_INNER_WIDTH),
+      canvasH: Math.max(12, parsed.height ?? DEFAULT_TEXT_CANVAS_HEIGHT),
+      theme,
+      nameMaxChars: DEFAULT_TEXT_NAME_MAX,
+      page: parsed.page,
+      shareFormat
+    });
   }
 
   if (parsed.out) {
     await writeFile(parsed.out, text + "\n", "utf8");
-    process.stdout.write(`${parsed.out} (${text.length} chars)\n`);
+    dependencies.writeStdout(`${parsed.out} (${text.length} chars)\n`);
   } else {
-    process.stdout.write(text + "\n");
+    dependencies.writeStdout(text + "\n");
   }
   return 0;
 };

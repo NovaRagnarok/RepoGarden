@@ -29,6 +29,9 @@ export interface TextFrameOptions {
   innerWidth: number;
   canvasH: number;
   theme: GardenThemeColors;
+  /** Page to render (1-indexed), clamped to the pages available at this
+   *  width. Defaults to the first page. */
+  page?: number;
   /** Wrap with `\`\`\`` fences + right-aligned project-URL footer so a single
    *  clipboard paste lands as a complete Markdown / Discord code block. */
   shareFormat?: boolean;
@@ -38,7 +41,7 @@ export interface TextFrameOptions {
   reducedMotion?: boolean;
 }
 
-/** Render the first labels-aware-capacity page of `creatures` to text. */
+/** Render one labels-aware-capacity page of `creatures` to text. */
 export const renderTextFrame = (
   creatures: RepoCreature[],
   options: TextFrameOptions
@@ -56,7 +59,11 @@ export const renderTextFrame = (
   const tiles = buildTiles(draftProps);
   const capacity = safeGardenCapacity(tiles, options.innerWidth, options.canvasH);
   const pages = paginateCreatures(prepared, capacity);
-  const pageCreatures = pages[0] ?? [];
+  const pageIndex = Math.max(
+    0,
+    Math.min(pages.length - 1, (options.page ?? 1) - 1)
+  );
+  const pageCreatures = pages[pageIndex] ?? [];
   const model = createGardenModel(
     { ...draftProps, creatures: pageCreatures },
     0
@@ -71,47 +78,114 @@ export const renderTextFrame = (
 
 export interface ShareableTextOptions extends Omit<TextFrameOptions, "innerWidth" | "canvasH"> {
   maxChars: number;
-  /** Starting canvas dims for the bisect. Larger = wider panorama before
-   *  the bisect shrinks to fit. */
+  /** Largest canvas dimensions to consider. */
   startWidth?: number;
   startHeight?: number;
 }
 
+export const MIN_SHAREABLE_TEXT_WIDTH = 24;
+const MIN_SHAREABLE_TEXT_HEIGHT = 8;
+
+export interface ShareableTextFrameFit {
+  ok: true;
+  text: string;
+  width: number;
+  height: number;
+}
+
+export interface ShareableTextFrameFailure {
+  ok: false;
+  maxChars: number;
+  shortestLength: number;
+  shortestWidth: number;
+  shortestHeight: number;
+}
+
+export type ShareableTextFrameResult =
+  | ShareableTextFrameFit
+  | ShareableTextFrameFailure;
+
+const supportedDimensions = (
+  options: ShareableTextOptions
+): { startWidth: number; heightAt: (width: number) => number } => {
+  const requestedWidth = options.startWidth ?? 180;
+  const startWidth = Number.isFinite(requestedWidth)
+    ? Math.max(MIN_SHAREABLE_TEXT_WIDTH, Math.floor(requestedWidth))
+    : 180;
+  const requestedHeight = options.startHeight ?? 12;
+  const startHeight = Number.isFinite(requestedHeight)
+    ? Math.max(MIN_SHAREABLE_TEXT_HEIGHT, Math.floor(requestedHeight))
+    : 12;
+  const ratio = startHeight / startWidth;
+  return {
+    startWidth,
+    heightAt: (width) =>
+      Math.max(MIN_SHAREABLE_TEXT_HEIGHT, Math.round(width * ratio))
+  };
+};
+
 /**
- * Bisect canvas dimensions until the rendered text fits `maxChars`. Always
- * returns *some* output — falls back to the smallest tested size when even
- * that overshoots (truncating mid-glyph would look worse than oversized).
+ * Select the widest supported panorama that fits `maxChars`.
+ *
+ * Rendered length is not monotonic with width: pagination can move a creature
+ * onto or off the selected page at a layout boundary. Searching from widest to
+ * narrowest is exhaustive, so the first fit is correct across those jumps.
  */
+export const fitShareableTextFrame = (
+  creatures: RepoCreature[],
+  options: ShareableTextOptions
+): ShareableTextFrameResult => {
+  const { startWidth, heightAt } = supportedDimensions(options);
+  let shortestLength = Number.POSITIVE_INFINITY;
+  let shortestWidth = startWidth;
+  let shortestHeight = heightAt(startWidth);
+
+  for (
+    let width = startWidth;
+    width >= MIN_SHAREABLE_TEXT_WIDTH;
+    width -= 1
+  ) {
+    const height = heightAt(width);
+    const candidate = renderTextFrame(creatures, {
+      ...options,
+      innerWidth: width,
+      canvasH: height
+    });
+    if (candidate.length < shortestLength) {
+      shortestLength = candidate.length;
+      shortestWidth = width;
+      shortestHeight = height;
+    }
+    if (candidate.length <= options.maxChars) {
+      return { ok: true, text: candidate, width, height };
+    }
+  }
+
+  return {
+    ok: false,
+    maxChars: options.maxChars,
+    shortestLength,
+    shortestWidth,
+    shortestHeight
+  };
+};
+
+export const formatTextBudgetFailure = (
+  failure: ShareableTextFrameFailure
+): string =>
+  `--max-chars ${failure.maxChars} is too small; the shortest supported ` +
+  `panorama is ${failure.shortestLength} chars at ${failure.shortestWidth}x` +
+  `${failure.shortestHeight}. Increase --max-chars to at least ` +
+  `${failure.shortestLength}.`;
+
+/** Render the widest fitting shareable frame, or fail instead of overflowing. */
 export const renderShareableTextFrame = (
   creatures: RepoCreature[],
   options: ShareableTextOptions
 ): string => {
-  const startW = options.startWidth ?? 180;
-  const startH = options.startHeight ?? 12;
-  const ratio = startH / startW;
-  let lo = 24;
-  let hi = startW;
-  let best = "";
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    const candidate = renderTextFrame(creatures, {
-      ...options,
-      innerWidth: mid,
-      canvasH: Math.max(8, Math.round(mid * ratio))
-    });
-    if (candidate.length <= options.maxChars) {
-      best = candidate;
-      lo = mid + 1;
-    } else {
-      hi = mid - 1;
-    }
+  const result = fitShareableTextFrame(creatures, options);
+  if (!result.ok) {
+    throw new RangeError(formatTextBudgetFailure(result));
   }
-  return (
-    best ||
-    renderTextFrame(creatures, {
-      ...options,
-      innerWidth: 24,
-      canvasH: Math.max(8, Math.round(24 * ratio))
-    })
-  );
+  return result.text;
 };
