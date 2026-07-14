@@ -296,8 +296,10 @@ export const refreshCreaturesLight = (
   if (anyHeavyChange) {
     // Heavy change went through inspectRepo for at least one repo → run
     // the full enrich path so reconcileWithSnapshot fires and journal
-    // events accumulate.
-    return enrichScans(nextScans);
+    // events accumulate. This is an incremental refresh of the current
+    // registry, not proof that every configured root was inventoried, so
+    // retain snapshot entries that are currently absent from the registry.
+    return enrichScans(nextScans, { preserveMissing: true });
   }
 
   if (!anyLightChange) return creatures;
@@ -334,7 +336,8 @@ export interface EnrichScansOptions {
  * with its updated scan in place. Used by the background observer so a
  * changed HEAD is reflected without paying for a full directory walk.
  * `enrichScans` reconciles against the snapshot so any new commits flow
- * into the journal naturally.
+ * into the journal naturally. Because this is an incremental refresh rather
+ * than a complete root inventory, absent snapshot entries are preserved.
  *
  * Returns the original list when the id is unknown.
  */
@@ -352,7 +355,30 @@ export const refreshOneCreature = (
     remote: prior.remote ?? inspected.remote
   };
   const nextScans = creatures.map((creature, i) => (i === index ? fresh : creature.scan));
-  return enrichScans(nextScans);
+  return enrichScans(nextScans, { preserveMissing: true });
+};
+
+/**
+ * Add a repository surfaced by the scan-root observer to the current
+ * creature registry. A discovery callback proves that `path` is new, but it
+ * does not prove that the in-memory registry contains every configured root,
+ * so snapshot entries absent from the registry must be retained.
+ *
+ * Returns the original list when the path is already tracked or cannot be
+ * inspected as a repository.
+ */
+export const addDiscoveredCreature = (
+  creatures: RepoCreature[],
+  path: string
+): RepoCreature[] => {
+  if (creatures.some((creature) => creature.scan.path === path)) return creatures;
+
+  const fresh = inspectRepo(path);
+  if (fresh.scanError) return creatures;
+
+  return enrichScans([...creatures.map((creature) => creature.scan), fresh], {
+    preserveMissing: true,
+  });
 };
 
 export const enrichScans = (

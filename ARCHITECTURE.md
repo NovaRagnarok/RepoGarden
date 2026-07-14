@@ -190,7 +190,10 @@ Important behavior:
   data remains authoritative, and remote-only GitHub repos stay in the catalog
   until explicitly cloned into a scan root.
 - `enrichScans()` is the "make this UI-ready" step. It sorts creatures and, by
-  default, reconciles them against the persisted scan snapshot.
+  default, reconciles them against the persisted scan snapshot. Only a
+  successful complete root inventory may prune absent snapshot entries;
+  partial full scans and incremental HEAD/new-repo refreshes preserve them so
+  a temporarily unavailable root cannot create false `repo-added` history.
 - Snapshot reconciliation emits `repo-added`, `commit`, `vibe-changed`, and
   `branch-switched` events into the journal store.
 - After boot, a 30s light refresh probes each repo with a cheap
@@ -201,8 +204,9 @@ Important behavior:
   `refreshOneCreature` within ~250 ms of any commit / amend / pull / reset;
   a non-recursive watch on each scan root surfaces new repos within
   ~500 ms by running `inspectRepo` + splicing into the registry. Both
-  paths flow through `enrichScans`'s snapshot reconcile so the journal
-  events still come from the same seam. The 30s light refresh stays
+  paths flow through `enrichScans`'s preservation-aware snapshot reconcile so
+  the journal events still come from the same seam without treating an
+  incremental registry as a complete inventory. The 30s light refresh stays
   underneath as a safety net for filesystems where `fs.watch` is
   unreliable (network mounts, `/mnt/c` on WSL2).
 

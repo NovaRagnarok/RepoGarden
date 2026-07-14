@@ -17,15 +17,21 @@ const TMP_ROOT = realpathSync.native(tmpdir());
 
 import { startObserver } from "../lib/observer";
 import { inspectRepo } from "../lib/scanner";
-import { enrichScans, refreshOneCreature } from "../lib/creature";
 import {
+  addDiscoveredCreature,
+  enrichScans,
+  refreshCreaturesLight,
+  refreshOneCreature,
+} from "../lib/creature";
+import {
+  loadScanSnapshot,
   readEvents,
   saveEventsMeta,
   type JournalEvent,
 } from "../lib/events";
 
 // Integration coverage of the *cli-main.tsx wiring path*: observer fires →
-// the same `refreshOneCreature` / `inspectRepo + enrichScans` callbacks
+// the same incremental refresh helpers
 // the cli uses → journal events appear on disk. Asserts the seam, not
 // the React layer.
 
@@ -144,11 +150,8 @@ test("observer + cli wiring: dropping a new repo into a scan root surfaces a 're
         roots: [workspaceRoot],
         onCommitDetected: () => {},
         onNewRepoDetected: (path) => {
-          // Mirror cli-main.tsx — dedupe, inspectRepo, splice, enrichScans.
-          if (creatures.some((c) => c.scan.path === path)) return;
-          const fresh = inspectRepo(path);
-          if (fresh.scanError) return;
-          creatures = enrichScans([...creatures.map((c) => c.scan), fresh]);
+          // Mirror cli-main.tsx — dedupe, inspect, splice, and reconcile.
+          creatures = addDiscoveredCreature(creatures, path);
         },
       });
 
@@ -180,6 +183,81 @@ test("observer + cli wiring: dropping a new repo into a scan root surfaces a 're
       } finally {
         stop();
       }
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+test("incremental refreshes preserve partial-scan snapshots until a complete inventory prunes", async () => {
+  await withFakeHome(async () => {
+    saveEventsMeta({ seeded: true, seededAt: new Date().toISOString() });
+
+    const workspaceRoot = mkdtempSync(join(TMP_ROOT,"repogarden-partial-refresh-"));
+    try {
+      const alphaPath = join(workspaceRoot, "alpha");
+      const betaPath = join(workspaceRoot, "beta");
+      const gammaPath = join(workspaceRoot, "gamma");
+      initRepo(alphaPath);
+      initRepo(betaPath);
+
+      const alpha = inspectRepo(alphaPath);
+      const beta = inspectRepo(betaPath);
+      let creatures = enrichScans([alpha, beta], { preserveMissing: false });
+      const betaAddedBaseline = readEvents({
+        repoId: beta.id,
+        kinds: ["repo-added"],
+      }).length;
+      assert.equal(betaAddedBaseline, 1);
+
+      // Beta's root temporarily fails: the final full-scan reconcile is
+      // partial, so its last-known snapshot entry remains recoverable.
+      creatures = enrichScans([alpha], { preserveMissing: true });
+      assert.ok(loadScanSnapshot()[beta.id]);
+
+      // The 30s HEAD-move fallback re-inspects only alpha. It must not treat
+      // the current registry as a complete inventory and prune beta.
+      commitEmpty(alphaPath, "alpha background refresh");
+      creatures = refreshCreaturesLight(creatures);
+      assert.ok(loadScanSnapshot()[beta.id]);
+
+      // The fs.watch HEAD callback is a separate single-repo path with the
+      // same preservation contract.
+      commitEmpty(alphaPath, "alpha observer refresh");
+      creatures = refreshOneCreature(creatures, alpha.id);
+      assert.ok(loadScanSnapshot()[beta.id]);
+
+      // A newly discovered gamma proves only that gamma exists; it does not
+      // prove that the still-absent beta was removed.
+      initRepo(gammaPath);
+      creatures = addDiscoveredCreature(creatures, gammaPath);
+      const gamma = creatures.find((creature) => creature.scan.path === gammaPath);
+      assert.ok(gamma);
+      const incrementalSnapshot = loadScanSnapshot();
+      assert.ok(incrementalSnapshot[beta.id]);
+      assert.ok(incrementalSnapshot[gamma.id]);
+
+      // Once beta's root recovers, a successful complete scan sees A+B+C.
+      // Beta was continuously retained, so it must not emit a second,
+      // phantom "joined the garden" event.
+      enrichScans(
+        [inspectRepo(alphaPath), inspectRepo(betaPath), inspectRepo(gammaPath)],
+        { preserveMissing: false }
+      );
+      assert.equal(
+        readEvents({ repoId: beta.id, kinds: ["repo-added"] }).length,
+        betaAddedBaseline
+      );
+
+      // A later successful complete inventory that genuinely omits beta is
+      // authoritative and may prune it.
+      enrichScans([inspectRepo(alphaPath), inspectRepo(gammaPath)], {
+        preserveMissing: false,
+      });
+      const completeSnapshot = loadScanSnapshot();
+      assert.equal(completeSnapshot[beta.id], undefined);
+      assert.ok(completeSnapshot[alpha.id]);
+      assert.ok(completeSnapshot[gamma.id]);
     } finally {
       rmSync(workspaceRoot, { recursive: true, force: true });
     }
