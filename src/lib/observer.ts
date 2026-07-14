@@ -1,5 +1,7 @@
-import { existsSync, statSync, watch } from "node:fs";
+import { existsSync, watch } from "node:fs";
 import { join } from "node:path";
+
+import { expandPath, findRepos } from "./scanner";
 
 // ---------------------------------------------------------------------------
 // Background observer
@@ -20,6 +22,8 @@ const COMMIT_DEBOUNCE_MS = 250;
 const NEW_REPO_DEBOUNCE_MS = 500;
 
 export const DEFAULT_MAX_WATCHES = 150;
+export const DEFAULT_ROOT_RECONCILE_INTERVAL_MS = 30_000;
+export const DEFAULT_ROOT_SCAN_DEPTH = 4;
 
 export interface ObserverRepo {
   id: string;
@@ -34,10 +38,9 @@ export interface StartObserverOptions {
   /** Fired with the repo id when `.git/logs/HEAD` is touched. */
   onCommitDetected: (id: string) => void;
   /**
-   * Fired when a directory inside a scan root looks like a new repo
-   * (`<root>/<name>/.git` exists). The caller is responsible for
-   * deduping against repos already in the registry — observer doesn't
-   * track membership itself.
+   * Fired once per previously untracked repository found within the scanner's
+   * supported root depth. The observer seeds membership from `repos` and
+   * deduplicates overlapping roots and repeated reconciliation passes.
    */
   onNewRepoDetected: (path: string) => void;
   /**
@@ -46,11 +49,42 @@ export interface StartObserverOptions {
    * Root watches are unaffected.
    */
   maxWatches?: number;
+  /**
+   * Safety-net cadence for a bounded root walk. Set to 0 only in tests that
+   * explicitly drive reconciliation another way.
+   */
+  rootReconcileIntervalMs?: number;
+  /** Scanner depth used by both watch-triggered and periodic root passes. */
+  rootScanDepth?: number;
+  /** Test seams for deterministic watch failures and filesystem discovery. */
+  dependencies?: Partial<ObserverDependencies>;
 }
 
 interface WatchEntry {
   close: () => void;
 }
+
+interface ObserverWatchHandle {
+  on: (event: "error", listener: (error: Error) => void) => ObserverWatchHandle;
+  close: () => void;
+}
+
+type ObserverWatch = (
+  path: string,
+  listener: (eventType: string, filename: string | Buffer | null) => void
+) => ObserverWatchHandle;
+
+interface ObserverDependencies {
+  watchPath: ObserverWatch;
+  findRepos: (root: string, maxDepth: number) => string[];
+}
+
+const defaultDependencies: ObserverDependencies = {
+  watchPath: (path, listener) => watch(path, listener),
+  findRepos,
+};
+
+const pathKey = (path: string): string => expandPath(path);
 
 /**
  * Start watching the given repos and roots. Returns an unsubscribe
@@ -61,28 +95,104 @@ interface WatchEntry {
 export const startObserver = (options: StartObserverOptions): (() => void) => {
   const { repos, roots, onCommitDetected, onNewRepoDetected } = options;
   const maxWatches = options.maxWatches ?? DEFAULT_MAX_WATCHES;
+  const rootScanDepth = options.rootScanDepth ?? DEFAULT_ROOT_SCAN_DEPTH;
+  const rootReconcileIntervalMs =
+    options.rootReconcileIntervalMs ?? DEFAULT_ROOT_RECONCILE_INTERVAL_MS;
+  const dependencies: ObserverDependencies = {
+    ...defaultDependencies,
+    ...options.dependencies,
+  };
 
   const entries: WatchEntry[] = [];
   let closed = false;
+  let initialReconcileTimer: ReturnType<typeof setTimeout> | null = null;
+  let reconcileInterval: ReturnType<typeof setInterval> | null = null;
+  let reconciling = false;
+  let rerunAllRoots = false;
+  const expandedRoots = Array.from(
+    new Set(roots.map(pathKey).filter((root) => root.length > 0))
+  );
+  // Seed with the current registry, then remember every path announced during
+  // this observer lifetime. React restarts the observer when the registry's
+  // path set changes, so the new instance gets the accepted paths as seeds.
+  const knownPaths = new Set(repos.map((repo) => pathKey(repo.path)));
+
+  const reconcileRoots = (rootsToCheck: readonly string[] = expandedRoots): void => {
+    if (closed) return;
+    if (reconciling) {
+      // A synchronous scanner cannot normally overlap itself, but callbacks
+      // and injected test seams can be re-entrant. Coalesce them into one
+      // complete follow-up pass instead of nesting walks.
+      rerunAllRoots = true;
+      return;
+    }
+
+    reconciling = true;
+    try {
+      for (const root of rootsToCheck) {
+        if (closed) break;
+        let discovered: string[];
+        try {
+          discovered = dependencies.findRepos(root, rootScanDepth);
+        } catch {
+          // A transient unreadable/missing root is retried by the next pass.
+          continue;
+        }
+        for (const path of discovered) {
+          if (closed) break;
+          const key = pathKey(path);
+          if (!key || knownPaths.has(key)) continue;
+          knownPaths.add(key);
+          onNewRepoDetected(path);
+        }
+      }
+    } finally {
+      reconciling = false;
+      if (rerunAllRoots && !closed) {
+        rerunAllRoots = false;
+        reconcileRoots();
+      }
+    }
+  };
 
   const watchedRepos = repos.slice(0, maxWatches);
   for (const repo of watchedRepos) {
     const entry = watchRepoCommits(repo, () => {
       if (!closed) onCommitDetected(repo.id);
-    });
+    }, dependencies.watchPath);
     if (entry) entries.push(entry);
   }
 
-  for (const root of roots) {
-    const entry = watchRootForNewRepos(root, (candidatePath) => {
-      if (!closed) onNewRepoDetected(candidatePath);
-    });
+  for (const root of expandedRoots) {
+    const entry = watchRootForNewRepos(root, () => reconcileRoots([root]), dependencies.watchPath);
     if (entry) entries.push(entry);
+  }
+
+  if (expandedRoots.length > 0) {
+    // Catch repositories that appeared before watchers attached (including
+    // nested repositories that a non-recursive root watch can never see).
+    initialReconcileTimer = setTimeout(() => {
+      initialReconcileTimer = null;
+      reconcileRoots();
+    }, 0);
+
+    if (rootReconcileIntervalMs > 0) {
+      reconcileInterval = setInterval(reconcileRoots, rootReconcileIntervalMs);
+      reconcileInterval.unref?.();
+    }
   }
 
   return () => {
     if (closed) return;
     closed = true;
+    if (initialReconcileTimer) {
+      clearTimeout(initialReconcileTimer);
+      initialReconcileTimer = null;
+    }
+    if (reconcileInterval) {
+      clearInterval(reconcileInterval);
+      reconcileInterval = null;
+    }
     for (const entry of entries) {
       try {
         entry.close();
@@ -100,7 +210,8 @@ export const startObserver = (options: StartObserverOptions): (() => void) => {
 
 const watchRepoCommits = (
   repo: ObserverRepo,
-  fire: () => void
+  fire: () => void,
+  watchPath: ObserverWatch
 ): WatchEntry | null => {
   const logPath = join(repo.path, ".git", "logs", "HEAD");
   // No logs/HEAD yet (fresh `git init` before first commit, or a bare
@@ -109,7 +220,7 @@ const watchRepoCommits = (
   if (!existsSync(logPath)) return null;
 
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  let watcher: ReturnType<typeof watch> | null = null;
+  let watcher: ObserverWatchHandle | null = null;
 
   const trigger = () => {
     if (debounceTimer) clearTimeout(debounceTimer);
@@ -120,7 +231,7 @@ const watchRepoCommits = (
   };
 
   try {
-    watcher = watch(logPath, () => {
+    watcher = watchPath(logPath, () => {
       trigger();
     });
     watcher.on("error", () => {
@@ -146,62 +257,39 @@ const watchRepoCommits = (
 };
 
 // ---------------------------------------------------------------------------
-// Per-root: watch scan-root directory non-recursively for new repos
+// Per-root: request a bounded reconciliation when anything under the watched
+// directory changes. The watcher itself is deliberately non-recursive for
+// portability; findRepos supplies the scanner-matching recursive depth.
 // ---------------------------------------------------------------------------
 
 const watchRootForNewRepos = (
   root: string,
-  fire: (path: string) => void
+  reconcile: () => void,
+  watchPath: ObserverWatch
 ): WatchEntry | null => {
   if (!existsSync(root)) return null;
 
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  let watcher: ReturnType<typeof watch> | null = null;
-  // `filename` arrives null on some platforms; coalesce all unknowns
-  // into a single full-scan pass when the timer fires.
-  const pendingCandidates = new Set<string>();
-  let sawUnknown = false;
+  let watcher: ObserverWatchHandle | null = null;
 
   const flush = () => {
     debounceTimer = null;
-    const names = Array.from(pendingCandidates);
-    pendingCandidates.clear();
-    const flushUnknown = sawUnknown;
-    sawUnknown = false;
-
-    if (flushUnknown) {
-      // Don't enumerate the whole root — we'd race the user's
-      // build outputs. The safety-net poll handles the "missed an
-      // event entirely" case. We still flush any named candidates
-      // we did collect.
-    }
-
-    for (const name of names) {
-      const candidate = join(root, name);
-      if (looksLikeRepo(candidate)) {
-        fire(candidate);
-      }
-    }
+    reconcile();
   };
 
-  const queue = (filename: string | null) => {
-    if (filename === null) {
-      sawUnknown = true;
-    } else {
-      // Trim deeper paths: fs.watch may emit "subdir/file" on macOS.
-      // We only care about the top-level directory name.
-      const top = filename.split(/[\\/]/, 1)[0];
-      if (top) pendingCandidates.add(top);
-    }
+  const queue = () => {
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(flush, NEW_REPO_DEBOUNCE_MS);
   };
 
   try {
-    watcher = watch(root, (_eventType, filename) => {
-      queue(filename);
+    watcher = watchPath(root, () => {
+      queue();
     });
     watcher.on("error", () => {
+      // Reconcile once after an explicit watcher failure, then leave the
+      // periodic pass active as the durable fallback.
+      queue();
       try { watcher?.close(); } catch { /* already closed */ }
       watcher = null;
     });
@@ -215,21 +303,10 @@ const watchRootForNewRepos = (
         clearTimeout(debounceTimer);
         debounceTimer = null;
       }
-      pendingCandidates.clear();
       if (watcher) {
         try { watcher.close(); } catch { /* already closed */ }
         watcher = null;
       }
     },
   };
-};
-
-const looksLikeRepo = (candidatePath: string): boolean => {
-  try {
-    const stat = statSync(candidatePath);
-    if (!stat.isDirectory()) return false;
-    return existsSync(join(candidatePath, ".git"));
-  } catch {
-    return false;
-  }
 };
