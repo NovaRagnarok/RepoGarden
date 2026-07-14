@@ -259,14 +259,20 @@ misses.
 
 ## Input and terminal plumbing
 
-Ink handles keyboard input, but RepoGarden layers its own terminal behavior on
-top in `src/cli-main.tsx` and `src/lib/mouse.ts`.
+Ink handles keyboard input, but RepoGarden layers process/terminal behavior on
+top in `src/cli-runtime.tsx`, `src/lib/terminal-session.ts`,
+`src/lib/wrapped-stdin.ts`, and the mouse/focus parsers.
 
 Important pieces:
 
-- alt-screen enter/leave so the app has a dedicated canvas
-- synchronized update mode to reduce whole-frame flicker
+- an idempotent terminal session that owns alt-screen, cursor, focus, mouse,
+  synchronized-update, stdout-wrapper, and process-listener setup/teardown
+- synchronous teardown through the stdout file descriptor, with a
+  completion-aware original-writer fallback, plus conventional nonzero exit
+  statuses for SIGINT, SIGTERM, SIGHUP, and SIGQUIT
 - custom mouse parser for xterm SGR mouse sequences
+- a wrapped stdin stream that filters split mouse/focus sequences while
+  preserving a genuine bare Escape after the ambiguity timeout
 - `useMouse()` subscriptions on top of that parser
 - `useInput()` as a thin wrapper over Ink's keyboard hook
 
@@ -277,8 +283,10 @@ Why this exists:
 - several surfaces need absolute row/column hit-testing, which Ink does not
   expose directly
 
-If mouse behavior breaks, inspect `src/lib/mouse.ts` first, then the local
-screen hit-testing code.
+If shutdown leaves terminal modes behind, inspect
+`src/lib/terminal-session.ts`. If input filtering breaks, inspect
+`src/lib/wrapped-stdin.ts`, then `src/lib/mouse.ts` / `src/lib/focus.ts` and
+the local screen hit-testing code.
 
 ## Layout model
 
@@ -303,7 +311,11 @@ height math before assuming the problem is in the component being rendered.
 Use this as the fastest starting point:
 
 - `src/cli.ts`: Node-version launcher
-- `src/cli-main.tsx`: app lifecycle, phase changes, terminal setup
+- `src/cli-runtime.tsx`: argument dispatch, terminal session, wrapped stdin,
+  and final Ink render
+- `src/cli-main.tsx`: import-safe App lifecycle and phase changes
+- `src/lib/terminal-session.ts`: idempotent terminal/process setup and teardown
+- `src/lib/wrapped-stdin.ts`: production mouse/focus input filtering seam
 - `src/screens/ReadyShell.tsx`: main habitat shell and top-level navigation
 - `src/screens/GardenView.tsx`: creature field rendering and placement/hover
 - `src/screens/JournalView.tsx`: event timeline
