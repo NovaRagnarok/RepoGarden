@@ -35,7 +35,7 @@ const shortcuts: Shortcut[] = [
   { key: "1-6 / ←→", description: "portrait: change section", category: "workbench" },
   { key: "PgUp / PgDn", description: "portrait: scroll list section", category: "workbench" },
   { key: "a / v", description: "portrait: actions / overview", category: "workbench" },
-  { key: "↵ / d", description: "portrait: follow action / details", category: "workbench" },
+  { key: "↵ / d", description: "portrait: inspect action / toggle details", category: "workbench" },
   { key: "n", description: "portrait: open notes", category: "workbench" },
   { key: "c / p / r", description: "portrait: copy summary / path / refresh", category: "workbench" },
   { key: "ctrl+n / ctrl+r / ctrl+d", description: "notes: new / rename / delete", category: "workbench" },

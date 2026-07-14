@@ -331,10 +331,10 @@ export interface EnrichScansOptions {
 
 /**
  * Re-inspect a single creature's repo and rebuild the full creature list
- * with its updated scan in place. Used after explicit single-repo actions
- * (e.g., a workbench pull) so the workbench reflects the new HEAD without
- * paying for a full directory walk. `enrichScans` reconciles against the
- * snapshot so any new commits flow into the journal naturally.
+ * with its updated scan in place. Used by the background observer so a
+ * changed HEAD is reflected without paying for a full directory walk.
+ * `enrichScans` reconciles against the snapshot so any new commits flow
+ * into the journal naturally.
  *
  * Returns the original list when the id is unknown.
  */

@@ -13,6 +13,7 @@ RepoGarden:
 - scans only the roots you configure
 - stores app state under `~/.repogarden`
 - never modifies your git repositories
+- leaves repository updates to your normal git workflow outside RepoGarden
 - may read branch names, commit subjects, dirty file names, and small diff previews for display in the habitat
 - can be reset with `rm -rf ~/.repogarden`
 

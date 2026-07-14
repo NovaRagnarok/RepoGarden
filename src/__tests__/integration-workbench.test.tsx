@@ -11,6 +11,15 @@ import { buildDemoCreatures } from "../lib/demo-roster";
 import { WorkbenchScreen } from "../screens/WorkbenchScreen";
 
 const CREATURE = buildDemoCreatures()[0];
+const BEHIND_CREATURE = {
+  ...CREATURE,
+  scan: {
+    ...CREATURE.scan,
+    isDirty: false,
+    ahead: 0,
+    behind: 2,
+  },
+};
 
 // 100×30 is exactly the "rich" tier floor — full (non-compact) workbench.
 const SIZE = { columns: 100, rows: 30 };
@@ -49,6 +58,72 @@ test("WorkbenchScreen mounts in PORTRAIT mode with portrait sections", async () 
     assert.match(frame, /1-6 section/);
     assert.equal(closed, 0);
   } finally {
+    harness.unmount();
+  }
+});
+
+test("Workbench keeps repository updates in the user's external git workflow", async () => {
+  const harness = renderScreen(
+    <WorkbenchScreen creature={BEHIND_CREATURE} onClose={() => {}} usageBarDisabled />,
+    SIZE
+  );
+  try {
+    await waitFor(() => harness.lastFrame().includes("1-6 section"), {
+      onTimeout: () => harness.lastFrame()
+    });
+
+    harness.press("2");
+    await waitFor(() => harness.lastFrame().includes("update from your terminal"), {
+      onTimeout: () => harness.lastFrame()
+    });
+    const frame = harness.lastFrame();
+    assert.match(frame, /normal git workflow outside RepoGarden/);
+    assert.doesNotMatch(frame, /u pull|press u to pull|fast-forward only/);
+
+    // `u` used to arm an in-workbench pull. It is intentionally inert now:
+    // RepoGarden may report behind state, but never updates the repository.
+    harness.press("u");
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.doesNotMatch(harness.lastFrame(), /press u again to pull|pulling…/);
+  } finally {
+    harness.unmount();
+  }
+});
+
+test("Workbench command palette exposes no repository-mutating pull action", async () => {
+  const harness = renderScreen(
+    <WorkbenchScreen creature={CREATURE} onClose={() => {}} usageBarDisabled />,
+    SIZE
+  );
+  try {
+    await waitFor(() => harness.lastFrame().includes("1-6 section"), {
+      onTimeout: () => harness.lastFrame()
+    });
+    harness.press("2", { ctrl: true });
+    await waitFor(() => harness.lastFrame().includes("ctrl+1 portrait"), {
+      onTimeout: () => harness.lastFrame()
+    });
+    harness.press("p", { ctrl: true });
+    await waitFor(() => harness.lastFrame().includes(`palette · ${CREATURE.scan.name}`), {
+      onTimeout: () => harness.lastFrame()
+    });
+    assert.doesNotMatch(harness.lastFrame(), /pull from remote/);
+
+    harness.press("escape");
+    await waitFor(() => !harness.lastFrame().includes(`palette · ${CREATURE.scan.name}`), {
+      onTimeout: () => harness.lastFrame()
+    });
+    harness.press("1", { ctrl: true });
+    await waitFor(() => harness.lastFrame().includes("1-6 section"), {
+      onTimeout: () => harness.lastFrame()
+    });
+  } finally {
+    // Keep the session-scoped default deterministic even if an assertion
+    // above fails while NOTES or its palette is active.
+    harness.press("escape");
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    harness.press("1", { ctrl: true });
+    await new Promise((resolve) => setTimeout(resolve, 30));
     harness.unmount();
   }
 });

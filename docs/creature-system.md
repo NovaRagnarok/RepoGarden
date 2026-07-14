@@ -25,7 +25,7 @@ Instead:
 ## Behavior channels
 Visual state should come from position, bubble overlays, slight scaling, and organized placement — not from regenerating the sprite.
 
-Actionable git bubbles stay compact and symbolic: `↓` means the repo likely needs a clean fast-forward pull, while `!` means the remote check failed or the local/remote state needs attention. The older recent-pull `<<` cue is no longer a habitat signal.
+Actionable git bubbles stay compact and symbolic: `↓` means the repo likely needs an update through the user's normal git workflow outside RepoGarden, while `!` means the remote check failed or the local/remote state needs attention. The older recent-pull `<<` cue is no longer a habitat signal.
 
 ## Behavior and motion budget
 

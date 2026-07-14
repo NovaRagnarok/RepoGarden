@@ -62,8 +62,8 @@ For each item: **Was** (legacy desktop behavior + path), **TUI** (PORTED / PARTI
 
 ### CreatureContextMenu (right-click)
 - **Was:** 14KB pixel-art right-click menu with status label, memory cues, inspiration prompts, latest commit, resume trail, and pull / transform / hide actions positioned with creature clearance. `legacy/src/components/CreatureContextMenu.tsx`.
-- **TUI:** PARTIAL. The same actions are reachable via dedicated keys in the garden view and the command palette / portrait actions in `src/screens/WorkbenchScreen.tsx` + `src/lib/portrait.ts`.
-- **Why:** Right-click menus don't belong in a terminal. The workbench is the right surface for "do something to this repo."
+- **TUI:** PARTIAL. Non-mutating context and navigation actions are reachable via dedicated keys in the garden view and the command palette / portrait actions in `src/screens/WorkbenchScreen.tsx` + `src/lib/portrait.ts`. Repository-changing pull is intentionally dropped (§7.3).
+- **Why:** Right-click menus don't belong in a terminal. The workbench is a read-only deep-dive surface for deciding what to do next; repository changes stay in the user's normal git workflow.
 
 ### Pixel SVG icon set
 - **Was:** 8 hand-drawn SVG icons (open-folder, visibility on/off, git-pull, copy-path, chevrons, close, transform). `legacy/src/components/PixelIcon.tsx`.
@@ -139,8 +139,8 @@ For each item: **Was** (legacy desktop behavior + path), **TUI** (PORTED / PARTI
 
 ### Pull updates from inside the app
 - **Was:** `pull_project_updates` command that ran `git pull` on a target repo via the Tauri shell.
-- **TUI:** PORTED (fast-forward only). The PORTRAIT view exposes `u` as a two-press confirm (first press arms, second press runs); the command palette has a "pull from remote" entry that runs immediately because the palette gesture is already deliberate. Pulls run `git pull --ff-only` via `src/lib/git-pull.ts` with a 60 s timeout, surface the result as a sticky banner on failure / non-zero, and append a `pull` event to the journal (`{ ok, exitCode, branch, beforeSha, afterSha, commitsPulled, summary, durationMs, timedOut }`). Preflight blocks the action when the working tree is dirty, HEAD is detached, the branch has no upstream, or scan errored — the user sees a warning banner instead of a half-state pull.
-- **Why:** Read-only stayed the default until the path back was an explicit, confirmed action with visible output. `--ff-only` is the conservative starting point — divergent histories fail with the real git message instead of dropping the user into a merge state they can't see from inside the TUI. Rebase / merge strategies are deferred; non-ff-only flows belong on a follow-up slice if they earn their keep.
+- **TUI:** DROPPED. PORTRAIT still reports when a branch is behind and directs the user to their normal git workflow, but there is no pull shortcut, command-palette action, or repository-mutating runner. Historical `pull` journal records remain parseable and keep their existing summaries.
+- **Why:** RepoGarden promises never to modify scanned repositories. Even an explicit fast-forward-only pull crossed that boundary, so repository updates belong outside the app.
 
 ### File-system + clipboard shell integrations
 - **Was:** `open_repo_path`, `open_app_data_dir`, clipboard read/write.

@@ -130,7 +130,9 @@ Owns per-repo deep-dive state:
 - note search/goto-line UI state
 
 This screen writes directly to notes/memory storage. On close, `App` only
-touches `lastVisitedAt`.
+touches `lastVisitedAt`. Those writes stay under `~/.repogarden`; the
+workbench only reads scanned repositories and never runs mutating git
+commands. Repository updates remain in the user's normal git workflow.
 
 ## Data model
 
