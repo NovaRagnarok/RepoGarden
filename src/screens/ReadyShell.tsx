@@ -403,9 +403,10 @@ export const ReadyShell = ({
       pushToast("nothing to copy yet", "info");
       return;
     }
-    // "Small" mode: bisect a wide-short panorama until it fits Discord's
-    // 1999-char budget. Names get truncated at 16 chars + `…` so the
-    // placer can pack a denser horizontal row instead of stacking 2-up.
+    // "Small" mode: search the bounded width range from widest to narrowest
+    // until a panorama fits Discord's 1999-char budget. Names get truncated
+    // at 16 chars + `…` so the placer can pack a denser horizontal row
+    // instead of stacking 2-up.
     const text = renderShareableTextFrame(snapshot.creatures, {
       theme: snapshot.theme,
       maxChars: 1999,
@@ -428,7 +429,7 @@ export const ReadyShell = ({
       return;
     }
     // "Big" mode: render the current habitat page at the live canvas
-    // dimensions verbatim. No bisect, no truncation. Useful for pasting
+    // dimensions verbatim. No budget fitting, no truncation. Useful for pasting
     // into a wide editor / README / Slack canvas where the 2000-char
     // limit doesn't apply.
     const model = createGardenModel(snapshot, 0);
