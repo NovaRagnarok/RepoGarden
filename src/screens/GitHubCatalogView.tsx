@@ -12,6 +12,7 @@ export interface GitHubCatalogViewProps {
   width: number;
   height: number;
   status?: GitHubCatalogResult;
+  cloningFullNames?: readonly string[];
 }
 
 const formatDate = (value: string | undefined): string => {
@@ -29,7 +30,8 @@ export const GitHubCatalogView = ({
   focusIndex,
   width,
   height,
-  status
+  status,
+  cloningFullNames = []
 }: GitHubCatalogViewProps) => {
   const theme = useTheme();
   const contentRows = Math.max(1, height - 5);
@@ -73,6 +75,7 @@ export const GitHubCatalogView = ({
           {visible.map((repo, offset) => {
             const index = start + offset;
             const focused = index === safeFocus;
+            const cloning = cloningFullNames.includes(repo.fullName);
             return (
               <Box key={repo.fullName} flexDirection="row">
                 <Text color={focused ? theme.colors.primary : theme.colors.mutedForeground}>
@@ -88,6 +91,9 @@ export const GitHubCatalogView = ({
                   </Text>
                 </Box>
                 <Box flexShrink={0} marginLeft={1} flexDirection="row" gap={1}>
+                  {cloning ? (
+                    <Badge color={theme.colors.info}>cloning…</Badge>
+                  ) : null}
                   {repo.private ? (
                     <Badge color={theme.colors.warning}>private</Badge>
                   ) : null}

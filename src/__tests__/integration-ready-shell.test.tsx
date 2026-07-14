@@ -16,11 +16,26 @@ import { buildDemoCreatures } from "../lib/demo-roster";
 import { appendEvent } from "../lib/events";
 import { ReadyShell, type ReadyView } from "../screens/ReadyShell";
 import type { RepoCreature } from "../lib/creature";
+import type { GitHubRepoSnapshot } from "../lib/scanner-types";
 
 // Synthetic roster (same fixtures the demo uses) — no real repos scanned.
 // The full roster spans all four vibes, which the rooms-view test relies on.
 const ROSTER = buildDemoCreatures();
 const FIRST_NAME = ROSTER[0].scan.name;
+const GITHUB_REPO: GitHubRepoSnapshot = {
+  id: 10_001,
+  fullName: "octo/catalog-only",
+  owner: "octo",
+  name: "catalog-only",
+  private: false,
+  fork: false,
+  archived: false,
+  disabled: false,
+  htmlUrl: "https://github.com/octo/catalog-only",
+  cloneUrl: "https://github.com/octo/catalog-only.git",
+  sshUrl: "git@github.com:octo/catalog-only.git",
+  language: "TypeScript"
+};
 
 // Layout cheat sheet (src/lib/responsive-layout.ts):
 // - sidebar needs tier "rich" AND columns >= 120 → 120×40 has it, 100×30 not.
@@ -37,12 +52,23 @@ interface ShellHostProps {
   initialView?: ReadyView;
   onViewChange?: (view: ReadyView) => void;
   onQuit?: () => void;
+  githubRepos?: GitHubRepoSnapshot[];
+  githubCloningFullNames?: readonly string[];
+  onCloneGitHubRepo?: (repo: GitHubRepoSnapshot) => void;
 }
 
 // ReadyShell's `view` is controlled by the parent (pressing `g` only calls
 // onSetView) — mirror the App component in cli-main.tsx with a tiny stateful
 // wrapper that owns the view state.
-const ShellHost = ({ creatures = ROSTER, initialView = "garden", onViewChange, onQuit }: ShellHostProps) => {
+const ShellHost = ({
+  creatures = ROSTER,
+  initialView = "garden",
+  onViewChange,
+  onQuit,
+  githubRepos,
+  githubCloningFullNames,
+  onCloneGitHubRepo
+}: ShellHostProps) => {
   const [view, setView] = useState<ReadyView>(initialView);
   return (
     <ReadyShell
@@ -54,6 +80,10 @@ const ShellHost = ({ creatures = ROSTER, initialView = "garden", onViewChange, o
         setView(next);
       }}
       onQuit={onQuit}
+      githubRepos={githubRepos}
+      githubEnabled={githubRepos !== undefined}
+      githubCloningFullNames={githubCloningFullNames}
+      onCloneGitHubRepo={onCloneGitHubRepo}
       usageBarDisabled
     />
   );
@@ -154,6 +184,63 @@ test("pressing g cycles view garden → rooms → journal → github → garden"
       { onTimeout: () => harness.lastFrame() }
     );
     assert.deepEqual(seen, ["rooms", "journal", "github", "garden"]);
+  } finally {
+    harness.unmount();
+  }
+});
+
+test("github catalog keeps clone explicit when the focused target is idle", async () => {
+  const cloned: string[] = [];
+  const harness = renderScreen(
+    <ShellHost
+      creatures={[]}
+      initialView="github"
+      githubRepos={[GITHUB_REPO]}
+      onCloneGitHubRepo={(repo) => cloned.push(repo.fullName)}
+    />,
+    WIDE
+  );
+  try {
+    await mountedFrame(harness);
+    await waitFor(() => harness.lastFrame().includes(GITHUB_REPO.fullName), {
+      onTimeout: () => harness.lastFrame()
+    });
+    assert.match(harness.lastFrame(), /↵ clone/);
+
+    harness.press("return");
+    await waitFor(() => cloned.length === 1, { onTimeout: () => harness.lastFrame() });
+    assert.deepEqual(cloned, [GITHUB_REPO.fullName]);
+  } finally {
+    harness.unmount();
+  }
+});
+
+test("github catalog labels an in-flight clone and suppresses repeat activation", async () => {
+  let cloneCalls = 0;
+  const harness = renderScreen(
+    <ShellHost
+      creatures={[]}
+      initialView="github"
+      githubRepos={[GITHUB_REPO]}
+      githubCloningFullNames={[GITHUB_REPO.fullName]}
+      onCloneGitHubRepo={() => {
+        cloneCalls += 1;
+      }}
+    />,
+    WIDE
+  );
+  try {
+    await mountedFrame(harness);
+    await waitFor(
+      () =>
+        harness.lastFrame().includes("cloning…") &&
+        harness.lastFrame().includes("clone in progress…"),
+      { onTimeout: () => harness.lastFrame() }
+    );
+
+    harness.press("return");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(cloneCalls, 0);
   } finally {
     harness.unmount();
   }
