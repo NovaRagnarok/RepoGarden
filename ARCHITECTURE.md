@@ -11,7 +11,7 @@ not a second app.
 
 ## Runtime stack
 
-- `src/cli.ts` is the tiny launcher for both `pnpm dev` and the built CLI; it checks the Node version before loading the Ink runtime in `src/cli-main.tsx`.
+- `src/cli.ts` is the tiny launcher for both `pnpm dev` and the built CLI; it checks the Node version before loading `src/cli-runtime.tsx`, which starts the Ink coordinator from `src/cli-main.tsx`.
 - React 19 + Ink render the UI.
 - `ThemeProvider`, `PrivacyProvider`, and `ToastProvider` wrap the whole app.
 - `@/*` imports resolve to `src/*`.
@@ -20,13 +20,16 @@ not a second app.
 
 ## Top-level flow
 
-`src/cli-main.tsx` does four things before the UI becomes interesting:
+`src/cli-runtime.tsx` and the `Root` in `src/cli-main.tsx` do four things before
+the UI becomes interesting:
 
 1. Load config from `~/.repogarden/tui.json`.
 2. Pick the initial theme and wrap the app in providers.
 3. Switch the terminal into alt-screen mode, enable synchronized updates, and
    enable mouse reporting.
-4. Wrap `stdin` so SGR mouse sequences are stripped before Ink sees them.
+4. Wrap `stdin` through `src/lib/wrapped-stdin.ts` so split SGR mouse/focus
+   sequences are stripped before Ink sees them while a bare Escape is flushed
+   through after the ambiguity timeout.
 
 After that, `App` in `src/cli-main.tsx` owns the phase machine:
 
@@ -65,9 +68,17 @@ Only one top-level screen is mounted at a time.
 
 The app is easiest to work on when state stays where it already belongs.
 
-### `src/cli.ts` and `src/cli-main.tsx`
+### `src/cli.ts`, `src/cli-runtime.tsx`, and `src/cli-main.tsx`
 
-`src/cli.ts` is intentionally small: it verifies the running Node version and then dynamically imports `src/cli-main.tsx`. Keep dependency-heavy imports out of the launcher so unsupported Node versions get a plain error instead of an Ink/runtime failure.
+`src/cli.ts` is intentionally small: it verifies the running Node version,
+dynamically imports `src/cli-runtime.tsx`, and calls its explicit `runCli`
+entry. The runtime owns argument dispatch, terminal/signal plumbing, and the
+final Ink render. Importing `cli-main.tsx` alone has no terminal or signal side
+effects, which lets temp-state fixtures render the production `Root`/`App`
+coordinator. `Root` accepts an optional initial config and narrow boot-runtime
+overrides for that purpose; normal CLI startup supplies neither. Keep
+dependency-heavy imports out of the launcher so unsupported Node versions get
+a plain error instead of an Ink/runtime failure.
 
 `src/cli-main.tsx` owns session-wide state and cross-screen transitions:
 

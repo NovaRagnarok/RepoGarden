@@ -11,4 +11,5 @@ if (!nodeVersion.ok) {
   process.exit(1);
 }
 
-await import("./cli-main.js");
+const { runCli } = await import("./cli-runtime.js");
+await runCli();

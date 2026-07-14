@@ -1,27 +1,11 @@
 #!/usr/bin/env node
-import { render, useApp } from "ink";
+import { useApp } from "ink";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PassThrough } from "stream";
 
 import {
   ThemeProvider,
   type Theme
 } from "@/components/ui/theme-provider";
-import {
-  DISABLE_MOUSE,
-  ENABLE_MOUSE,
-  flushPending as flushMousePending,
-  hasPending as hasMousePending,
-  parseStdinChunk,
-} from "@/lib/mouse";
-import {
-  DISABLE_FOCUS,
-  ENABLE_FOCUS,
-  flushPending as flushFocusPending,
-  hasPending as hasFocusPending,
-  parseFocusChunk,
-  subscribeFocus,
-} from "@/lib/focus";
 import { PrivacyProvider, usePrivacy } from "@/components/privacy-context";
 import { ToastProvider, useToasts } from "@/components/ui/toast-host";
 import { BootScreen } from "@/screens/BootScreen";
@@ -78,17 +62,20 @@ import {
 } from "@/lib/creature";
 import { buildDemoCreatures } from "@/lib/demo-roster";
 import { loadMemory, saveMemory, type ProjectMemory } from "@/lib/memory";
-import {
-  CLI_HELP_TEXT,
-  hasHelpFlag,
-  hasVersionFlag,
-  readCurrentVersion
-} from "@/lib/cli-help";
 import { scheduleStartupPrune } from "@/lib/startup-prune";
 
 const BOOT_SCAN_DELAY_MS = 400;
 const MIN_BOOT_PRESENTATION_MS = 900;
 const CONFIG_PERSISTENCE_NOTICE_KEY = "config-persistence";
+
+export interface AppRuntimeOptions {
+  /** Test/runtime override only; production keeps the visible boot pacing. */
+  bootScanDelayMs?: number;
+  /** Test/runtime override only; production keeps the visible boot pacing. */
+  minBootPresentationMs?: number;
+  /** Injectable scheduler so fixtures can skip startup journal maintenance. */
+  scheduleStartupPrune?: () => ReturnType<typeof setTimeout> | undefined;
+}
 const errorMessage = (error: unknown, fallback: string): string =>
   error instanceof Error && error.message.trim().length > 0 ? error.message : fallback;
 
@@ -106,6 +93,7 @@ interface AppProps {
   initialGitHubConfig: GitHubConfig;
   onThemeChange: (theme: Theme) => void;
   onReducedMotionChange: (reduced: boolean) => void;
+  runtime?: AppRuntimeOptions;
 }
 
 const App = ({
@@ -121,7 +109,8 @@ const App = ({
   initialBellOnVibeChange,
   initialGitHubConfig,
   onThemeChange,
-  onReducedMotionChange
+  onReducedMotionChange,
+  runtime = {}
 }: AppProps) => {
   const { exit } = useApp();
   const {
@@ -158,6 +147,9 @@ const App = ({
   githubCloneCoordinatorRef.current = githubCloneCoordinator;
   const [scanProgress, setScanProgress] = useState<{ done: number; total: number } | undefined>();
   const [scanProgressByRoot, setScanProgressByRoot] = useState<RootProgress[] | undefined>();
+  const bootScanDelayMs = runtime.bootScanDelayMs ?? BOOT_SCAN_DELAY_MS;
+  const minBootPresentationMs = runtime.minBootPresentationMs ?? MIN_BOOT_PRESENTATION_MS;
+  const schedulePrune = runtime.scheduleStartupPrune ?? scheduleStartupPrune;
 
   const persistConfig = useCallback(
     (patch: TuiConfigPatch, successMessage?: string): boolean => {
@@ -345,8 +337,10 @@ const App = ({
   // in try/catch inside the helper so a slow/unreadable journal can't
   // stall or crash boot. Runs exactly once per process.
   useEffect(() => {
-    const handle = scheduleStartupPrune();
-    return () => clearTimeout(handle);
+    const handle = schedulePrune();
+    return () => {
+      if (handle !== undefined) clearTimeout(handle);
+    };
   }, []);
 
   // Terminal bell on vibe transitions. Diffs current vs previous creatures
@@ -469,7 +463,7 @@ const App = ({
     let cancelled = false;
     const bootStartedAt = performance.now();
     const holdBootIntro = async () => {
-      const remaining = MIN_BOOT_PRESENTATION_MS - (performance.now() - bootStartedAt);
+      const remaining = minBootPresentationMs - (performance.now() - bootStartedAt);
       if (remaining > 0) {
         await new Promise((resolve) => setTimeout(resolve, remaining));
       }
@@ -501,7 +495,7 @@ const App = ({
           if (!cancelled) setPhase("onboarding");
         }
       })();
-    }, BOOT_SCAN_DELAY_MS);
+    }, bootScanDelayMs);
     return () => {
       cancelled = true;
       clearTimeout(timer);
@@ -909,8 +903,17 @@ const App = ({
   );
 };
 
-const Root = () => {
-  const config = loadConfig();
+export interface RepoGardenRuntimeProps {
+  /** Supplying a fixture config bypasses all config reads during root setup. */
+  initialConfig?: ReturnType<typeof loadConfig>;
+  appRuntime?: AppRuntimeOptions;
+}
+
+export const Root = ({
+  initialConfig,
+  appRuntime,
+}: RepoGardenRuntimeProps = {}) => {
+  const config = initialConfig ?? loadConfig();
   // No light-terminal auto-routing: see themes/index.ts — we ship dark themes
   // only, since Ink can't repaint the terminal's own background.
   const initialChoice =
@@ -948,182 +951,10 @@ const Root = () => {
             initialGitHubConfig={config.github}
             onThemeChange={setActiveTheme}
             onReducedMotionChange={setReducedMotion}
+            runtime={appRuntime}
           />
         </ToastProvider>
       </PrivacyProvider>
     </ThemeProvider>
   );
 };
-
-// Switch to the alternate screen buffer + hide cursor so the garden gets a
-// dedicated, scrollback-free canvas. Most terminals (incl. Windows Terminal /
-// WSL) repaint the alt-screen far more smoothly, which kills the flicker on
-// big repaints when focus moves around the garden.
-const ENTER_ALT = "\x1b[?1049h\x1b[?25l\x1b[H";
-const LEAVE_ALT = "\x1b[?25h\x1b[?1049l";
-
-// Synchronized Update Mode (DEC 2026): bracket every stdout write so the
-// terminal buffers the whole frame and presents it atomically instead of
-// processing the byte stream incrementally. Ink's log-update repaints by
-// writing `eraseLines(N) + output` in a single chunk — on slow terminals
-// (WSL/Windows Terminal especially) the eraseLines half lands visibly before
-// the new output does, which is what reads as flicker on Tab and other
-// whole-frame re-renders. Terminals that don't recognize 2026 just ignore
-// the CSI sequences, so wrapping is safe to apply unconditionally.
-const BSU = "\x1b[?2026h";
-const ESU = "\x1b[?2026l";
-
-const cliArgs = process.argv.slice(2);
-
-if (hasVersionFlag(cliArgs)) {
-  console.log(`repogarden ${readCurrentVersion()}`);
-  process.exit(0);
-}
-
-if (hasHelpFlag(cliArgs)) {
-  console.log(CLI_HELP_TEXT);
-  process.exit(0);
-}
-
-// Headless export subcommands. These never enter the TUI, so they bypass
-// the alt-screen / mouse / focus plumbing below entirely. process.exit fires
-// before any of the TTY plumbing runs, so a normal `repogarden` invocation
-// is unaffected.
-if (cliArgs[0] === "export-gif" || cliArgs[0] === "export-text") {
-  const sub = cliArgs[0];
-  const rest = cliArgs.slice(1);
-  try {
-    // Dynamic import keeps gifenc out of the main bundle's startup path when
-    // the user just runs `repogarden`.
-    const mod = await import("@/lib/gif/cli");
-    const exit = sub === "export-gif"
-      ? await mod.runExportGifCli(rest)
-      : await mod.runExportTextCli(rest);
-    process.exit(exit);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`${sub} failed: ${message}\n`);
-    process.exit(1);
-  }
-}
-
-if (process.stdout.isTTY) {
-  const originalWrite = process.stdout.write.bind(process.stdout);
-  // `write` has two overloads (with/without encoding); both forward callbacks
-  // as the last arg, so we can pass through ...args after prepending/appending
-  // our brackets to the chunk.
-  process.stdout.write = ((chunk: string | Uint8Array, ...args: unknown[]) => {
-    const body = typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (originalWrite as any)(BSU + body + ESU, ...args);
-  }) as typeof process.stdout.write;
-
-  process.stdout.write(ENTER_ALT + ENABLE_MOUSE + ENABLE_FOCUS);
-  const restore = () => {
-    process.stdout.write(DISABLE_FOCUS + DISABLE_MOUSE + LEAVE_ALT);
-  };
-
-  // macOS-specific recovery: when the terminal goes to another Space (or
-  // otherwise loses focus) the kernel can suspend our process mid-write.
-  // If suspension lands between a BSU and its ESU (the DEC 2026 brackets
-  // around every stdout write above), the terminal stays in
-  // "buffering, not painting" mode forever. On focus-in we re-emit ESU
-  // unconditionally to release any stuck SUM state. The originalWrite
-  // bypasses our own BSU/ESU wrapper so this can't itself get stuck.
-  // See: github.com/NovaRagnarok/RepoGarden/issues/8
-  subscribeFocus((kind) => {
-    if (kind === "focus-in") {
-      originalWrite(ESU);
-    }
-  });
-  process.on("exit", restore);
-  process.on("SIGINT", () => {
-    restore();
-    process.exit(0);
-  });
-  process.on("SIGTERM", () => {
-    restore();
-    process.exit(0);
-  });
-  process.on("uncaughtException", (error) => {
-    restore();
-    console.error(error);
-    process.exit(1);
-  });
-}
-
-// Wrap stdin so we can intercept SGR mouse sequences before Ink sees them.
-// Ink reads keystrokes off `stdin.on('data')`, and mouse sequences (which
-// start with `\x1b[<…M`) would otherwise register as escape + a stream of
-// printable chars — exiting filter mode and inserting `<0;42;7M` into queries.
-// Real raw-mode/TTY plumbing stays on the actual process.stdin; the wrapped
-// PassThrough only carries the cleaned byte stream.
-const buildWrappedStdin = (): NodeJS.ReadStream => {
-  const wrapped = new PassThrough() as unknown as NodeJS.ReadStream & {
-    setRawMode?: (mode: boolean) => NodeJS.ReadStream;
-    isTTY?: boolean;
-    ref?: () => NodeJS.ReadStream;
-    unref?: () => NodeJS.ReadStream;
-  };
-  wrapped.setRawMode = (mode: boolean) => {
-    if (typeof process.stdin.setRawMode === "function") {
-      process.stdin.setRawMode(mode);
-    }
-    return wrapped;
-  };
-  wrapped.isTTY = process.stdin.isTTY;
-  // Ink calls ref/unref to keep the event loop alive while listening for input.
-  // PassThrough doesn't provide those (they're net.Socket/TTY methods), so
-  // forward to the real stdin.
-  wrapped.ref = () => {
-    if (typeof process.stdin.ref === "function") process.stdin.ref();
-    return wrapped;
-  };
-  wrapped.unref = () => {
-    if (typeof process.stdin.unref === "function") process.stdin.unref();
-    return wrapped;
-  };
-  // When parseStdinChunk holds a partial mouse-prefix (most often a bare
-  // `\x1b`), nothing reaches Ink until the next chunk arrives. A user who
-  // presses Escape and waits would otherwise be stranded — flush after a
-  // short delay if no follow-up came.
-  let pendingFlush: ReturnType<typeof setTimeout> | null = null;
-  const PENDING_FLUSH_MS = 30;
-  const cancelPendingFlush = (): void => {
-    if (pendingFlush !== null) {
-      clearTimeout(pendingFlush);
-      pendingFlush = null;
-    }
-  };
-  const schedulePendingFlush = (): void => {
-    cancelPendingFlush();
-    if (!hasMousePending() && !hasFocusPending()) return;
-    pendingFlush = setTimeout(() => {
-      pendingFlush = null;
-      // Pull bytes out of both parsers and forward verbatim — at this point
-      // there's no pending sequence to complete, so anything held back must
-      // be treated as plain keystrokes (typically a lone Escape).
-      const mouseRemainder = flushMousePending();
-      const focusRemainder = flushFocusPending();
-      const out = mouseRemainder + focusRemainder;
-      if (out.length > 0) wrapped.write(out);
-    }, PENDING_FLUSH_MS);
-  };
-
-  process.stdin.on("data", (chunk: Buffer) => {
-    const text = typeof chunk === "string" ? chunk : chunk.toString("utf8");
-    // Strip mouse and focus sequences before Ink sees the stream — both
-    // would otherwise look like Esc + printable garbage to the keyboard
-    // parser. Order is independent: each only consumes its own pattern.
-    cancelPendingFlush();
-    const passthrough = parseFocusChunk(parseStdinChunk(text));
-    if (passthrough.length > 0) wrapped.write(passthrough);
-    schedulePendingFlush();
-  });
-  process.stdin.resume();
-  return wrapped;
-};
-
-const wrappedStdin = process.stdin.isTTY ? buildWrappedStdin() : process.stdin;
-
-render(<Root />, { stdin: wrappedStdin });
