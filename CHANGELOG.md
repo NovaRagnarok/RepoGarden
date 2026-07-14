@@ -4,6 +4,10 @@ All notable changes to RepoGarden land here. Format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Removed
+
+- Automatic npm update checks on startup. Ordinary launches no longer contact the registry or write `~/.repogarden/update-check.json`, and the obsolete `REPOGARDEN_NO_UPDATE_CHECK` override has been removed from CLI help.
+
 ## [0.9.4] — 2026-06-10
 
 ### Added

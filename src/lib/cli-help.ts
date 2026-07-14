@@ -1,3 +1,7 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 export const CLI_HELP_TEXT = `RepoGarden
 
 A local-first terminal habitat for your git repos.
@@ -25,7 +29,6 @@ Environment:
   REPOGARDEN_DISABLE_USAGE=1     hide the Claude/Codex usage bar this run
                                   (opt-in toggle: Settings → u)
   REPOGARDEN_DISABLE_OBSERVER=1  disable live git watches for this run
-  REPOGARDEN_NO_UPDATE_CHECK=1   skip the once-a-day npm version check
   REPOGARDEN_DEMO=1              launch with demo data (for screenshots)
   REPOGARDEN_REDUCED_MOTION=1    reduce motion for this run
   NO_MOTION=1                    reduce motion where supported
@@ -50,3 +53,19 @@ export const hasHelpFlag = (args: string[]): boolean =>
 
 export const hasVersionFlag = (args: string[]): boolean =>
   args.includes("--version") || args.includes("-v");
+
+/**
+ * Resolve the running package version from package.json. This module has the
+ * same depth in both source (`src/lib`) and build output (`dist/lib`), so the
+ * package file is always two directories above it.
+ */
+export const readCurrentVersion = (): string => {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const pkgPath = join(here, "..", "..", "package.json");
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { version?: unknown };
+    return typeof pkg.version === "string" ? pkg.version : "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+};
