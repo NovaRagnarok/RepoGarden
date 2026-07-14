@@ -376,7 +376,7 @@
       p { margin: 0.6rem 0; color: #d1d5db; }
       .lede { color: var(--fg); }
 
-      /* ---------- three lenses grid ---------- */
+      /* ---------- ready views grid ---------- */
       .lenses {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -635,7 +635,7 @@
         </div>
       </div>
       <p style="color: var(--muted); font-size: 0.85rem">
-        Needs Node 24+, <code style="color: var(--fg)">git</code> on PATH, and a
+        Needs Node 22+, <code style="color: var(--fg)">git</code> on PATH, and a
         terminal at least 80×24.
       </p>
 
@@ -644,12 +644,12 @@
       <figure class="demo" style="margin: 0">
         <img
           src="images/demo.gif"
-          alt="RepoGarden TUI — onboarding, then a starry habitat fills with pixel-art repo creatures, then cycles through shelf and journal views"
+          alt="RepoGarden TUI — onboarding, then a starry habitat fills with pixel-art repo creatures, then cycles through Rooms and Journal views"
         />
       </figure>
 
-      <!-- three lenses -->
-      <h2>three lenses on the same set of repos</h2>
+      <!-- ready views -->
+      <h2>local habitat views, plus an optional catalog</h2>
       <div class="lenses">
         <div class="lens">
           <h3>Garden <span class="key">g</span></h3>
@@ -660,10 +660,11 @@
           </p>
         </div>
         <div class="lens">
-          <h3>Shelf <span class="key">g g</span></h3>
+          <h3>Rooms <span class="key">g g</span></h3>
           <p>
-            The same repos as a tidy list — sortable, scannable, the answer to
-            "wait, what was I working on last week?"
+            The same creatures grouped into spatial rooms by vibe — awake,
+            happy, stuck, and sleepy — with a compact one-vibe-at-a-time view
+            for smaller terminals.
           </p>
         </div>
         <div class="lens">
@@ -671,6 +672,14 @@
           <p>
             An append-only log of what happened across your projects. Commits,
             branch hops, notes. A breadcrumb trail back into context.
+          </p>
+        </div>
+        <div class="lens">
+          <h3>GitHub <span class="key">g g g g</span></h3>
+          <p>
+            An optional catalog fetched through your existing <code>gh</code>
+            login. It matches local origins and lets you explicitly clone an
+            unmatched repository into a configured root.
           </p>
         </div>
       </div>
@@ -688,7 +697,7 @@
           <kbd>↓</kbd> to move between them.
         </li>
         <li>
-          Press <kbd>g</kbd> to cycle Garden → Shelf → Journal.
+          Press <kbd>g</kbd> to cycle Garden → Rooms → Journal → GitHub.
         </li>
         <li>
           Press <kbd>↵</kbd> on a creature to drop into its workbench: portrait,

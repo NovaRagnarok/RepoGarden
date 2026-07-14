@@ -1,4 +1,4 @@
-# Journal view & workbench mode toggle — manual smoke
+# Ready views & workbench mode toggle — manual smoke
 
 Use this check after touching the JOURNAL view, the cross-repo events store
 (`src/lib/events.ts`, `src/lib/event-summary.ts`, `src/hooks/use-events.ts`),
@@ -19,13 +19,16 @@ a few commits between them.
 
 ## Top-strip taxonomy
 
-1. Verify the top-right segmented chrome reads **GARDEN · SHELF · JOURNAL**.
-   There must not be a LIST segment anywhere.
+1. Verify the top-right segmented chrome reads
+   **GARDEN · ROOMS · JOURNAL · GITHUB**. There must not be a SHELF or LIST
+   segment anywhere.
 2. Press `g`. The active segment should advance once per press, cycling
-   garden → shelf → journal → garden.
+   garden → rooms → journal → GitHub → garden.
 3. Click each segment with the mouse. The clicked segment becomes active.
-4. Toggle JOURNAL ↔ GARDEN — the star-wipe dither plays during the swap.
-5. Toggle GARDEN ↔ SHELF — no dither; placements re-tween instead.
+4. Toggle JOURNAL or GITHUB ↔ GARDEN — the star-wipe dither plays during the
+   swap unless reduced motion is enabled.
+5. Toggle GARDEN ↔ ROOMS — no dither; placements re-tween instead (or snap
+   with reduced motion).
 
 ## JOURNAL view
 
@@ -50,7 +53,7 @@ a few commits between them.
 
 ## Workbench PORTRAIT / NOTES toggle
 
-1. From GARDEN or SHELF, focus a creature and press `↵`. The workbench opens.
+1. From GARDEN or ROOMS, focus a creature and press `↵`. The workbench opens.
 2. **First launch in a fresh process:** the active mode is PORTRAIT.
 3. PORTRAIT shows (top → bottom, omitting empty sections):
    - vibe glyph + reason line (colored to vibe)
@@ -97,9 +100,9 @@ a few commits between them.
 ## Regressions to watch
 
 - GARDEN motion + creature placement unchanged.
-- SHELF dividers still render where they did before.
-- `c` overlay card in GARDEN/SHELF still toggles and contains the lighter
+- ROOMS dividers still render where they did before.
+- `c` overlay card in GARDEN/ROOMS still toggles and contains the lighter
   peek (no recent-commits or diff — those are PORTRAIT-only now).
-- Usage bar still renders in the footer of both top-level views and the
-  workbench.
-- No `view: "list"` references in code, docs, or help.
+- Usage bar still renders in every ready view and the workbench.
+- No active `view: "list"` or `view: "shelf"` references in code, docs, or
+  help.

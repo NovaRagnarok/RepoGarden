@@ -10,7 +10,7 @@ For each item: **Was** (legacy desktop behavior + path), **TUI** (PORTED / PARTI
 
 ### Pixi habitat world
 - **Was:** the home scene rendered as a 2D Pixi canvas with creatures placed on shelves and a derived biome backdrop. `legacy/src/components/HabitatWorld.tsx`, `legacy/src/components/habitatWorld/{renderer,surfaces,backdrop}.ts`.
-- **TUI:** PARTIAL. The garden is still a 2D scene — creatures occupy terminal cells with organic or shelf placement (`src/screens/GardenView.tsx` + `src/lib/garden-layout.ts`) — but rendered via Ink text cells instead of a Pixi canvas.
+- **TUI:** PARTIAL. The garden is still a 2D scene — creatures occupy terminal cells with organic Garden or vibe-partitioned Rooms placement (`src/screens/GardenView.tsx` + `src/lib/garden-layout.ts`) — but rendered via Ink text cells instead of a Pixi canvas.
 - **Why:** The 2D habitat concept survived the move to the terminal; what was dropped was the Pixi/WebGL renderer, not the spatial idea. The product vision (home scene fades into a developer's flow) made a heavy graphical canvas the wrong substrate anyway.
 
 ### Biome theming
@@ -20,8 +20,8 @@ For each item: **Was** (legacy desktop behavior + path), **TUI** (PORTED / PARTI
 
 ### Spatial habitat layout
 - **Was:** ~1k-line layout engine handling shelf grouping (awake / stirring / dozing / sleeping), creature radius, collision avoidance, caption footprint, natural scaling by mass tier. `legacy/src/components/habitatLayout.ts`.
-- **TUI:** PARTIAL. `src/lib/garden-layout.ts` keeps shelf grouping (now by the 4 vibes: awake / happy / stuck / sleepy, with the stuck shelf always shown), sprite footprint/overlap math (`spriteBodyFootprintsOverlap`), dead-zone hopping for the focus card, and cohort-relative sizing via `src/lib/sprite.ts` `buildCreatureSizeCohort`. The legacy mass-tier scaling, caption-footprint reservations, and `awake/stirring/dozing/sleeping` shelves were dropped along with the richer status model.
-- **Why:** Shelf grouping by liveliness is the part that answers "what's alive right now?" at a glance; the legacy four-state status model was the part driving Pixi-specific motion/animation.
+- **TUI:** PARTIAL. `src/lib/garden-layout.ts` keeps vibe grouping as spatial Rooms (awake / happy / stuck / sleepy), sprite footprint/overlap math (`spriteBodyFootprintsOverlap`), dead-zone hopping for the focus card, and cohort-relative sizing via `src/lib/sprite.ts` `buildCreatureSizeCohort`. The legacy mass-tier scaling, caption-footprint reservations, and `awake/stirring/dozing/sleeping` shelves were dropped along with the richer status model.
+- **Why:** Spatial grouping by liveliness is the part that answers "what's alive right now?" at a glance; the legacy four-state status model was the part driving Pixi-specific motion/animation.
 
 ### Emotion playback + motion model
 - **Was:** tween-driven emotion cycles (blink, excited, anxious, confused, proud, lonely) plus per-creature energy / presence / motion-amplitude / cadenceMs derived from heuristics. `legacy/src/components/habitatWorld/emotionPlayback.ts`, `legacy/src/features/inference/projectHeuristics.ts`.
@@ -103,7 +103,7 @@ For each item: **Was** (legacy desktop behavior + path), **TUI** (PORTED / PARTI
 
 ### Project heuristics (status + mood + emotion + motion)
 - **Was:** ~22KB module deriving ProjectStatus (awake / stirring / dozing / sleeping), ProjectMood (curious / excited / sleepy / anxious / confused / proud / lonely) with confidence, ProjectEmotionCue, ProjectEmotionBurst, plus energy / presenceScale / motionAmplitude / cadenceMs. `legacy/src/features/inference/projectHeuristics.ts`.
-- **TUI:** PARTIAL *for now* — flagged for recovery. `src/lib/vibe.ts` now derives four shelf states (awake / happy / stuck / sleepy) from `lastCommitAt`, dirty state, ahead count, and the user's blocker field. It also carries advisory mood (`curious` / `excited` / `proud` / `anxious` / `confused` / `lonely` / `content`) with confidence and a mood reason — now surfaced in-garden via captions and cues (§1.4 / §1.5) — but the richer burst / motion derivation axes remain dropped.
+- **TUI:** PARTIAL *for now* — flagged for recovery. `src/lib/vibe.ts` now derives four vibe states (awake / happy / stuck / sleepy) from `lastCommitAt`, dirty state, ahead count, and the user's blocker field. It also carries advisory mood (`curious` / `excited` / `proud` / `anxious` / `confused` / `lonely` / `content`) with confidence and a mood reason — now surfaced in-garden via captions and cues (§1.4 / §1.5) — but the richer burst / motion derivation axes remain dropped.
 - **Why:** The 4-state vibe is the floor — enough to answer "is this repo alive right now?" — while mood/confidence restores some softer context without bringing back the desktop animation model. Emotion playback still needs a terminal-native shape before it returns.
 
 ## 6. Persistence
@@ -124,7 +124,7 @@ For each item: **Was** (legacy desktop behavior + path), **TUI** (PORTED / PARTI
 
 ### `prefers-reduced-motion`
 - **Was:** honored the OS-level CSS media query to disable animations. `legacy/src/app/usePrefersReducedMotion.ts`.
-- **TUI:** PORTED. A `reducedMotion` flag lives in `~/.repogarden/tui.json` and is toggled with `m` on the settings screen; when on: star bloom + brightness flicker freeze and the slow starfield origin drift stops (`src/garden/stars.ts`, `src/garden/render.ts`); creature sprite wiggle holds frame A; per-creature wander offsets and the garden↔shelf placement tween are suppressed (`src/garden/model.ts`); the ReadyShell garden/shelf/journal view-transition dither and the garden↔shelf hold are skipped (`src/screens/ReadyShell.tsx`). `REPOGARDEN_REDUCED_MOTION=1`, `NO_MOTION=1`, and `CI=true` still seed the initial value via `isReducedMotion()` in `src/components/ui/theme-provider.tsx`. Future emotion cues will read the same `useMotion()` context.
+- **TUI:** PORTED. A `reducedMotion` flag lives in `~/.repogarden/tui.json` and is toggled with `m` on the settings screen; when on: star bloom + brightness flicker freeze and the slow starfield origin drift stops (`src/garden/stars.ts`, `src/garden/render.ts`); creature sprite wiggle holds frame A; per-creature wander offsets and the Garden↔Rooms placement tween are suppressed (`src/garden/model.ts`); ReadyShell's habitat↔text-view dither and Garden↔Rooms hold are skipped (`src/screens/ReadyShell.tsx`). `REPOGARDEN_REDUCED_MOTION=1`, `NO_MOTION=1`, and `CI=true` still seed the initial value via `isReducedMotion()` in `src/components/ui/theme-provider.tsx`. Focus captions remain visible, while transient emotion cues are suppressed through the same `useMotion()` context.
 
 ## 7. Tauri IPC / desktop chrome / native integrations
 
@@ -150,8 +150,8 @@ For each item: **Was** (legacy desktop behavior + path), **TUI** (PORTED / PARTI
 
 ### Vitest + React Testing Library integration tests
 - **Was:** 5 test files exercising the App component end-to-end — `App.continuity.test.ts`, `App.hidden-repos.test.ts`, `App.repo-mass.test.ts`, `App.revive-queue.test.ts`, `App.startup-recovery.test.ts`.
-- **TUI:** PARTIAL. The TUI has 21 unit / module test files under `src/__tests__/` (sprite, garden-layout, garden-runtime, mouse, journal, portrait, notes, editor, scanner, clipboard, vibe, …) but no Ink-level App-shell integration suite that drives the rendered TUI end-to-end.
-- **Note:** App-shell / Ink integration coverage is the explicit gap; a future slice could add Ink-level integration tests on top of the existing unit suite.
+- **TUI:** PARTIAL. The module suite is complemented by a fake-TTY Ink harness in `src/__tests__/helpers/ink-harness.tsx` and three screen-level integration suites. They drive `ReadyShell`, `WorkbenchScreen`, and in-garden caption painting, covering ready-view cycling (including GitHub), Rooms labels, Journal focus and Esc behavior, compact 80x24 layout, Workbench mode switching and Esc handling, and caption thresholds.
+- **Note:** The screen-level suite recovers the highest-risk interaction coverage, but the full `App` lifecycle and the boot, onboarding, settings, help, and usage screens remain future integration-test opportunities.
 
 ### Smoke harnesses (`DenseSceneSmokeHarness`, `MenuCompositeSmokeHarness`)
 - **Was:** isolated harnesses for stress-testing the Pixi habitat and context menu positioning.
@@ -182,7 +182,7 @@ Items the TUI is missing today. Split between **flagged for recovery** (we want 
 ### Flagged for recovery
 
 1. **Richer project heuristics** (§5.1) — emotion-cue / burst / motion axes beyond the 4-state vibe and current mood layer. (The display side of cues recovered in §1.4 / §1.5 — focus captions + transient mood-glyph cues; what's still missing is the richer *derivation*.)
-2. **App-shell / Ink integration tests** (§8.1) — end-to-end coverage on top of the existing unit suite.
+2. **Broader App-lifecycle integration coverage** (§8.1) — the Ink suite now covers ReadyShell, Workbench, and captions; top-level lifecycle and remaining screens are still future coverage.
 
 ### Trade-offs (not coming back)
 

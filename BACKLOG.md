@@ -4,7 +4,7 @@
 
 ### Immediate target
 
-Bring back the habitat's expressive layer, safely. The daily-use loop (scan → notice → resume) and the three views (garden / rooms / journal) are solid; the next slices are the two top "flagged for recovery" items from [`docs/legacy-not-ported.md`](docs/legacy-not-ported.md) — in-garden captions/bubbles and a terminal-native emotion-cue subset — plus an Ink-level integration test suite so screen regressions get caught before manual QA.
+The expressive-layer recovery milestone has shipped: in-garden captions and terminal-native emotion cues landed in PR #54, and the Ink integration harness landed in PR #53. Pull the next slice from the current confirmed, issue-backed hardening and coverage queue while preserving the habitat-first, local-only product boundaries below.
 
 ### Active risk
 
@@ -23,13 +23,21 @@ Open `pnpm dev` from the repo root and the terminal should read like a little lo
 ## Current top slices
 
 1. Keep [`ARCHITECTURE.md`](ARCHITECTURE.md) in sync when the top-level flow or storage model changes.
-2. Pick the highest-value polish slice in Priority A.
+2. Pick the highest-value confirmed hardening or coverage slice from the open issue queue.
 
 ## Priority A
 
-- in-garden captions / bubbles: sprite-adjacent info in the habitat itself (not workbench-only) — see `docs/legacy-not-ported.md` §1.5. Keep it sparse: the scene must still read as a habitat, not a labeled diagram.
-- terminal-native emotion cues: a narrow subset (blink, momentary excited/anxious cues) layered on the existing vibe + advisory mood — see `docs/legacy-not-ported.md` §1.4 / §5.1. Must respect reduced motion.
-- Ink-level App-shell integration tests: drive the rendered TUI end-to-end on top of the unit suite — see `docs/legacy-not-ported.md` §8.1. Target the bug classes fixed by hand in 0.9.1 (stale cells after transitions, Esc handling, flexShrink squeezes).
+- Pull the highest-value unblocked item from the open GitHub issues labeled
+  `agent-discovered`; that tracker is the live queue for confirmed work.
+- Keep the current emphasis on strict read-only/local-first boundaries,
+  truthful persistence failure handling, safe explicit clone behavior, and
+  broader coverage of the real App lifecycle.
+
+### Shipped recovery milestone
+
+<!-- in-garden captions / bubbles — done in PR #54: sparse sprite-adjacent captions paint into the habitat without turning it into a labeled diagram. -->
+<!-- terminal-native emotion cues — done in PR #54: blink and transient excited/anxious cues layer onto vibe + advisory mood and respect reduced motion. -->
+<!-- Ink-level integration tests — done in PR #53: the fake-TTY harness covers ReadyShell and Workbench behavior including view transitions, Esc handling, and compact 80x24 layout. -->
 
 <!-- rooms view — done in 0.9.3: vibe-grouped quadrants replace the shelf view (PR #51); per-vibe pagination, compact fallback, awake/sleepy palette retune. -->
 <!-- richer SHELF view grouping labels — done: dividers now explain each shelf's role (active changes / flowing / blockers to clear / quiet lately) with narrow fallbacks. -->
@@ -41,7 +49,7 @@ Open `pnpm dev` from the repo root and the terminal should read like a little lo
 
 
 ## Priority B
-<!-- reduced-motion mode — done: `reducedMotion` config + Settings toggle, `NO_MOTION=1` / `CI=true` env detection in `theme-provider.tsx`, consumed by garden tween/wander, dither cross-fade, garden↔shelf hold, boot scene, spinner, skeleton, privacy scramble, settings star animation, and blink. -->
+<!-- reduced-motion mode — done: `reducedMotion` config + Settings toggle, `NO_MOTION=1` / `CI=true` env detection in `theme-provider.tsx`, consumed by garden tween/wander, dither cross-fade, Garden↔Rooms hold, boot scene, spinner, skeleton, privacy scramble, settings star animation, and blink. -->
 <!-- shareable session snapshot — done: `export-text` headless subcommand renders the garden to text, with `--max-chars` / `--discord` greedy bisect + fenced code block + project-URL footer for chat-share. See `runExportTextCli` in `src/lib/gif/cli.ts` and the dispatch in `src/cli-main.tsx`. -->
 <!-- /usage overlay — done: `U` from the home scene opens `src/screens/UsageOverlay.tsx` (mounted as the `usage` AppPhase in cli-main). Roomier per-provider view with status line, error message when status !== ok, "resets in Nd Nh" countdowns, and a "last fetched: HH:MM (Nm ago)" footer. Bypasses the persistent `usageBarDisabled` opt-in (opening the overlay is explicit consent) but still honours the `REPOGARDEN_DISABLE_USAGE=1` env kill switch. Backed by a new `includeAll` flag on `useUsage` so error/auth providers reach the overlay even though the chrome row keeps filtering them. `fetchedAt: Date` added to `ProviderUsage`, stamped in `getProvider`. -->
 <!-- JOURNAL pruning — done: `pruneEvents({ olderThan })` wired at startup with a 90-day default via `scheduleStartupPrune` in `src/cli-main.tsx`. See `src/lib/startup-prune.ts` and `DEFAULT_RETENTION_DAYS` in `src/lib/events.ts`. A future config knob for the retention window is left for a later sprint. -->
