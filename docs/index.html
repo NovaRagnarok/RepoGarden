@@ -376,7 +376,7 @@
       p { margin: 0.6rem 0; color: #d1d5db; }
       .lede { color: var(--fg); }
 
-      /* ---------- three lenses grid ---------- */
+      /* ---------- ready views grid ---------- */
       .lenses {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -648,8 +648,8 @@
         />
       </figure>
 
-      <!-- three lenses -->
-      <h2>three lenses on the same set of repos</h2>
+      <!-- ready views -->
+      <h2>local habitat views, plus an optional catalog</h2>
       <div class="lenses">
         <div class="lens">
           <h3>Garden <span class="key">g</span></h3>
@@ -672,6 +672,14 @@
           <p>
             An append-only log of what happened across your projects. Commits,
             branch hops, notes. A breadcrumb trail back into context.
+          </p>
+        </div>
+        <div class="lens">
+          <h3>GitHub <span class="key">g g g g</span></h3>
+          <p>
+            An optional catalog fetched through your existing <code>gh</code>
+            login. It matches local origins and lets you explicitly clone an
+            unmatched repository into a configured root.
           </p>
         </div>
       </div>

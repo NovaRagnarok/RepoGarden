@@ -27,7 +27,7 @@ repogarden
 
 ## Preview
 
-![RepoGarden TUI — onboarding, then a starry habitat fills with pixel-art repo creatures, then cycles through shelf and journal views](docs/images/demo.gif)
+![RepoGarden TUI — onboarding, then a starry habitat fills with pixel-art repo creatures, then cycles through Rooms and Journal views](docs/images/demo.gif)
 
 Each repo becomes a tiny pixel creature whose look reflects branch state, recency, and dirty files. Pick one and press `↵` to drop into a per-repo workbench. (Regenerate the recording with `vhs tape/demo.tape` — see [`tape/README.md`](tape/README.md).)
 
@@ -45,7 +45,9 @@ After `npm install -g @outsideheaven/repogarden`:
 1. Run `repogarden`.
 2. When asked, give it a folder that contains git repos — e.g. `~/repos` or `~/code`. Multiple paths work too (comma- or newline-separated).
 3. The garden fills with one creature per repo. Use `↑` / `↓` to move between them.
-4. Press `g` to cycle Garden → Rooms → Journal — three lenses on the same set of repos.
+4. Press `g` to cycle Garden → Rooms → Journal → GitHub. The first three are
+   local-repo views; the optional GitHub catalog is available when enabled in
+   Settings.
 5. Press `↵` on a creature to drop into its workbench (portrait, notes, recent commits).
 6. Press `?` for the full keymap, `s` for settings, `q` to quit.
 
@@ -69,7 +71,7 @@ pnpm install
 pnpm dev
 ```
 
-That runs the Ink-based terminal UI: scan, garden/rooms/journal views, per-repo workbench, mouse + keyboard. `pnpm install` runs the `prepare` script automatically (which builds `dist/`), so `node dist/cli.js` and the `repogarden` bin work right after install.
+That runs the Ink-based terminal UI: scan, garden/rooms/journal views, the optional GitHub catalog, per-repo workbench, mouse + keyboard. `pnpm install` runs the `prepare` script automatically (which builds `dist/`), so `node dist/cli.js` and the `repogarden` bin work right after install.
 
 ## Product guardrails
 
@@ -119,7 +121,7 @@ The next launch will re-run onboarding and rebuild the journal/snapshot from a c
 
 The Claude/Codex usage bar is off by default. Turn it on from Settings (`s`) with `u`.
 
-When the bar is enabled and the ready UI renders (garden, rooms, or journal) or the workbench screen renders, RepoGarden attempts to read local Claude Code and Codex CLI OAuth credentials, refreshes tokens if needed, and calls the providers' usage endpoints directly. Refreshed tokens may be written back to the same local file or macOS Keychain entry used by those CLIs.
+When the bar is enabled and any ready view or the workbench renders, RepoGarden attempts to read local Claude Code and Codex CLI OAuth credentials, refreshes tokens if needed, and calls the providers' usage endpoints directly. Refreshed tokens may be written back to the same local file or macOS Keychain entry used by those CLIs.
 
 RepoGarden does not send these credentials to any RepoGarden-operated server. The credentials are used only to call the originating provider.
 

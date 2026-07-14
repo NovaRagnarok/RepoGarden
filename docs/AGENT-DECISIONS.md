@@ -101,3 +101,29 @@ bounded refresh batches as earlier issues leave the queue.
 - Discovery refresh: the ready issue queue still contains more than twice the
   three-slot floor, so no refill was required at this checkpoint. Active/next
   candidates are #58, #63, #60, #61, and #62.
+
+## 2026-07-14 — Checkpoint: issue #58 / PR #66
+
+- Task: remove repository-mutating pull actions from the workbench (`#58`).
+- Branch/head: `codex/58-read-only-workbench` at
+  `9d36c1a14bec9f71012d01fa9302813cb4371577`.
+- PR: `#66`, open and ready for review; `Fixes #58` on merge.
+- Changed behavior: the workbench no longer offers a `u` shortcut, command
+  palette pull action, confirmation flow, or `git pull --ff-only` runner.
+  Behind-state guidance points to the user's normal external git workflow,
+  while historical `pull` journal records remain readable.
+- Verification: Node 24.15.0 full gate passed with 527/527 tests, typecheck,
+  and build; 86 focused workbench/portrait/events tests and the final diff
+  check also passed. The full gate used an ignored workspace `TMPDIR` because
+  the shared host `/tmp` filesystem was inode-exhausted.
+- Review: two focused reviews of the exact head reported no blockers. Static
+  reference and child-process scans found no remaining executable pull path.
+- Merge queue: an exact-SHA candidate record was posted to PR #66 for the
+  central runner. The repository lead did not merge it.
+- Decisions/blockers: this is classified high risk because it restores the
+  central repository-integrity boundary, even though it removes rather than
+  adds mutation. No deployment or owner judgment is involved.
+- Discovery refresh: the ready issue queue still contains more than twice the
+  three-slot floor. Active/next candidates are #63, #60, #61, and #62; the
+  next refresh will also reconcile the newly observed stale manual-smoke
+  terminology with the existing documentation issue before filing anything.
