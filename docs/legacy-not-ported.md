@@ -150,8 +150,8 @@ For each item: **Was** (legacy desktop behavior + path), **TUI** (PORTED / PARTI
 
 ### Vitest + React Testing Library integration tests
 - **Was:** 5 test files exercising the App component end-to-end — `App.continuity.test.ts`, `App.hidden-repos.test.ts`, `App.repo-mass.test.ts`, `App.revive-queue.test.ts`, `App.startup-recovery.test.ts`.
-- **TUI:** PARTIAL. The TUI has 21 unit / module test files under `src/__tests__/` (sprite, garden-layout, garden-runtime, mouse, journal, portrait, notes, editor, scanner, clipboard, vibe, …) but no Ink-level App-shell integration suite that drives the rendered TUI end-to-end.
-- **Note:** App-shell / Ink integration coverage is the explicit gap; a future slice could add Ink-level integration tests on top of the existing unit suite.
+- **TUI:** PARTIAL. The module suite is complemented by a fake-TTY Ink harness in `src/__tests__/helpers/ink-harness.tsx` and three screen-level integration suites. They drive `ReadyShell`, `WorkbenchScreen`, and in-garden caption painting, covering ready-view cycling (including GitHub), Rooms labels, Journal focus and Esc behavior, compact 80x24 layout, Workbench mode switching and Esc handling, and caption thresholds.
+- **Note:** The screen-level suite recovers the highest-risk interaction coverage, but the full `App` lifecycle and the boot, onboarding, settings, help, and usage screens remain future integration-test opportunities.
 
 ### Smoke harnesses (`DenseSceneSmokeHarness`, `MenuCompositeSmokeHarness`)
 - **Was:** isolated harnesses for stress-testing the Pixi habitat and context menu positioning.
@@ -182,7 +182,7 @@ Items the TUI is missing today. Split between **flagged for recovery** (we want 
 ### Flagged for recovery
 
 1. **Richer project heuristics** (§5.1) — emotion-cue / burst / motion axes beyond the 4-state vibe and current mood layer. (The display side of cues recovered in §1.4 / §1.5 — focus captions + transient mood-glyph cues; what's still missing is the richer *derivation*.)
-2. **App-shell / Ink integration tests** (§8.1) — end-to-end coverage on top of the existing unit suite.
+2. **Broader App-lifecycle integration coverage** (§8.1) — the Ink suite now covers ReadyShell, Workbench, and captions; top-level lifecycle and remaining screens are still future coverage.
 
 ### Trade-offs (not coming back)
 

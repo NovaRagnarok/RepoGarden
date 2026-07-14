@@ -13,7 +13,7 @@ not a second app.
 
 - `src/cli.ts` is the tiny launcher for both `pnpm dev` and the built CLI; it checks the Node version before loading the Ink runtime in `src/cli-main.tsx`.
 - React 19 + Ink render the UI.
-- `ThemeProvider` and `ToastProvider` wrap the whole app.
+- `ThemeProvider`, `PrivacyProvider`, and `ToastProvider` wrap the whole app.
 - `@/*` imports resolve to `src/*`.
 - There is no server and no background daemon. Everything runs in one Node
   process and reads/writes local disk directly.
@@ -36,6 +36,7 @@ After that, `App` in `src/cli-main.tsx` owns the phase machine:
 - `settings`
 - `workbench`
 - `help`
+- `usage`
 - `edit-roots`
 
 The boot sequence is simple:
@@ -51,10 +52,11 @@ At a high level the tree is:
 ```text
 Root
   ThemeProvider
-    ToastProvider
-      App
-        BootScreen | OnboardingScreen | ReadyShell | SettingsScreen
-        | WorkbenchScreen | HelpOverlay
+    PrivacyProvider
+      ToastProvider
+        App
+          BootScreen | OnboardingScreen | ReadyShell | SettingsScreen
+          | WorkbenchScreen | HelpOverlay | UsageOverlay
 ```
 
 Only one top-level screen is mounted at a time.
@@ -72,7 +74,7 @@ The app is easiest to work on when state stays where it already belongs.
 - current phase
 - configured scan roots
 - current theme id
-- current top-level ready view (`garden | rooms | journal`)
+- current top-level ready view (`garden | rooms | journal | github`)
 - scanned `RepoCreature[]`
 - rescan progress/errors
 - currently open workbench target
@@ -87,16 +89,17 @@ Owns the main habitat shell once scanning is done:
 - focus index and the virtual `home` row
 - local filter mode and filter text
 - overlay-card visibility
-- garden/rooms/journal transition state
+- garden/rooms/journal/GitHub transition state
 - wide-layout sidebar click hit zones
 
-`ReadyShell` is the coordinator for the three ready-state surfaces:
+`ReadyShell` is the coordinator for the four ready-state surfaces:
 
 - `GardenView` for the habitat and rooms layouts (rooms partitions the canvas
   into per-vibe quadrants via `placeInRooms` in `src/lib/garden-layout.ts`,
   with per-vibe pagination and a compact one-vibe-at-a-time fallback on small
   terminals)
 - `JournalView` for the event timeline
+- `GitHubCatalogView` for the optional GitHub-backed repository catalog
 - sidebar, chrome, footer, toasts, usage bar, and view switching
 
 If a bug is "top-level keyboard/mouse navigation feels wrong", it is usually
@@ -205,6 +208,7 @@ Everything lives under `~/.repogarden`.
 - `events.meta.json`: seeded/backfill marker
 - `scan-snapshot.json`: last known vibe/branch/head per repo
 - `scan-cache.json`: cached scan details for fast startup
+- `github-repos.json`: cached normalized GitHub catalog metadata
 
 This layout is treated as supported local storage while RepoGarden moves toward
 a stable release. Schema-less older `tui.json` files are normalized on read and
@@ -283,7 +287,10 @@ Use this as the fastest starting point:
 - `src/screens/ReadyShell.tsx`: main habitat shell and top-level navigation
 - `src/screens/GardenView.tsx`: creature field rendering and placement/hover
 - `src/screens/JournalView.tsx`: event timeline
+- `src/screens/GitHubCatalogView.tsx`: GitHub-backed repository catalog
 - `src/screens/WorkbenchScreen.tsx`: portrait + notes editor
+- `src/screens/UsageOverlay.tsx`: explicit per-provider usage detail
+- `src/lib/github.ts`: optional GitHub discovery and catalog cache
 - `src/lib/scanner.ts`: repo discovery and git inspection
 - `src/lib/creature.ts`: creature assembly and snapshot reconciliation
 - `src/lib/events.ts`: append/read journal store
@@ -343,5 +350,9 @@ And if the change touches journal/workbench/top-level navigation, run:
 
 - `docs/manual-tests/journal-and-workbench-modes.md`
 
-This repo is still light on integration tests. Pure lib modules carry most of
-the automated safety net; screen behavior still needs manual smoke coverage.
+Pure lib modules still carry most of the automated safety net, but the TUI now
+also has a fake-TTY Ink harness in `src/__tests__/helpers/ink-harness.tsx` and
+three screen-level integration suites. They cover ReadyShell view cycling,
+Rooms and Journal behavior, compact 80x24 layout, Workbench Esc and mode
+switching, and in-garden caption rendering. Boot, onboarding, settings, help,
+usage, and the complete `App` lifecycle still need manual smoke coverage.

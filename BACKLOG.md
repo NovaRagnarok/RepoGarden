@@ -4,7 +4,7 @@
 
 ### Immediate target
 
-Bring back the habitat's expressive layer, safely. The daily-use loop (scan → notice → resume) and the three views (garden / rooms / journal) are solid; the next slices are the two top "flagged for recovery" items from [`docs/legacy-not-ported.md`](docs/legacy-not-ported.md) — in-garden captions/bubbles and a terminal-native emotion-cue subset — plus an Ink-level integration test suite so screen regressions get caught before manual QA.
+The expressive-layer recovery milestone has shipped: in-garden captions and terminal-native emotion cues landed in PR #54, and the Ink integration harness landed in PR #53. Pull the next slice from the current confirmed, issue-backed hardening and coverage queue while preserving the habitat-first, local-only product boundaries below.
 
 ### Active risk
 
@@ -23,13 +23,13 @@ Open `pnpm dev` from the repo root and the terminal should read like a little lo
 ## Current top slices
 
 1. Keep [`ARCHITECTURE.md`](ARCHITECTURE.md) in sync when the top-level flow or storage model changes.
-2. Pick the highest-value polish slice in Priority A.
+2. Pick the highest-value confirmed hardening or coverage slice from the open issue queue.
 
-## Priority A
+## Shipped recovery milestone
 
-- in-garden captions / bubbles: sprite-adjacent info in the habitat itself (not workbench-only) — see `docs/legacy-not-ported.md` §1.5. Keep it sparse: the scene must still read as a habitat, not a labeled diagram.
-- terminal-native emotion cues: a narrow subset (blink, momentary excited/anxious cues) layered on the existing vibe + advisory mood — see `docs/legacy-not-ported.md` §1.4 / §5.1. Must respect reduced motion.
-- Ink-level App-shell integration tests: drive the rendered TUI end-to-end on top of the unit suite — see `docs/legacy-not-ported.md` §8.1. Target the bug classes fixed by hand in 0.9.1 (stale cells after transitions, Esc handling, flexShrink squeezes).
+<!-- in-garden captions / bubbles — done in PR #54: sparse sprite-adjacent captions paint into the habitat without turning it into a labeled diagram. -->
+<!-- terminal-native emotion cues — done in PR #54: blink and transient excited/anxious cues layer onto vibe + advisory mood and respect reduced motion. -->
+<!-- Ink-level integration tests — done in PR #53: the fake-TTY harness covers ReadyShell and Workbench behavior including view transitions, Esc handling, and compact 80x24 layout. -->
 
 <!-- rooms view — done in 0.9.3: vibe-grouped quadrants replace the shelf view (PR #51); per-vibe pagination, compact fallback, awake/sleepy palette retune. -->
 <!-- richer SHELF view grouping labels — done: dividers now explain each shelf's role (active changes / flowing / blockers to clear / quiet lately) with narrow fallbacks. -->
