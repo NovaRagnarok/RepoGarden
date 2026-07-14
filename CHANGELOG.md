@@ -8,6 +8,10 @@ All notable changes to RepoGarden land here. Format follows [Keep a Changelog](h
 
 - Automatic npm update checks on startup. Ordinary launches no longer contact the registry or write `~/.repogarden/update-check.json`, and the obsolete `REPOGARDEN_NO_UPDATE_CHECK` override has been removed from CLI help.
 
+### Changed
+
+- The per-repo workbench is read-only with respect to scanned repositories. Pull guidance now sends users to their normal git workflow; the `u` shortcut, command-palette pull action, and in-app `git pull --ff-only` runner have been removed. Historical `pull` journal entries remain readable.
+
 ## [0.9.4] — 2026-06-10
 
 ### Added

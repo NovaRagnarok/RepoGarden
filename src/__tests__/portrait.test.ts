@@ -174,7 +174,10 @@ test("buildPortraitModel turns repo state into score, actions, events, commits, 
   assert.equal(model.score.severity, "error");
   assert.ok(model.score.score < 70);
   assert.ok(model.actions.some((action) => action.id === "blocker"));
-  assert.ok(model.actions.some((action) => action.id === "behind"));
+  const behind = model.actions.find((action) => action.id === "behind");
+  assert.equal(behind?.title, "update from your terminal");
+  assert.match(behind?.detail ?? "", /normal git workflow outside RepoGarden/);
+  assert.equal(behind?.shortcut, undefined);
   assert.equal(model.events.length, 2);
   assert.equal(model.commits[0].shortSha, "abcdef1");
   assert.equal(model.changes[0].filename, "src/app.ts");

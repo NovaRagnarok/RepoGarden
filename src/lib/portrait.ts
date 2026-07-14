@@ -510,10 +510,9 @@ export const buildPortraitActions = (
     const behind = creature.scan.behind ?? 0;
     actions.push({
       id: "behind",
-      title: "sync with upstream",
-      detail: `${plural(behind, "commit")} behind remote; press u to pull (fast-forward only).`,
+      title: "update from your terminal",
+      detail: `${plural(behind, "commit")} behind remote; use your normal git workflow outside RepoGarden.`,
       severity: "warning",
-      shortcut: "u",
       section: "commits",
     });
   }

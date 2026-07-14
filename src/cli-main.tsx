@@ -764,16 +764,6 @@ const App = ({
     }
   };
 
-  const handlePulled = (creature: RepoCreature) => {
-    setCreatures((current) => {
-      const next = refreshOneCreature(current, creature.id);
-      if (next === current) return current;
-      const fresh = next.find((entry) => entry.id === creature.id);
-      if (fresh) setActiveWorkbench(fresh);
-      return next;
-    });
-  };
-
   const handleToggleHidden = (creature: RepoCreature) => {
     const willHide = !creature.memory.hidden;
     const nextMemory: ProjectMemory = { ...creature.memory, hidden: willHide };
@@ -889,7 +879,6 @@ const App = ({
         creature={activeWorkbench}
         usageBarDisabled={usageBarDisabled}
         sizeCohort={sizeCohort}
-        onPulled={handlePulled}
         onClose={() => {
           // The workbench owns note persistence now; we only stamp
           // lastVisitedAt so the creature's vibe and sort order reflect

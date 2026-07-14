@@ -59,7 +59,7 @@ test("isEditorActive ANDs visibility with edit/status uiMode kinds", () => {
   );
 
   // Visible but in a non-editing uiMode (naming/search/goto-line) → inactive.
-  for (const uiModeKind of ["naming", "search", "goto-line", "confirm-pull"]) {
+  for (const uiModeKind of ["naming", "search", "goto-line"]) {
     assert.equal(
       isEditorActive({
         workbenchMode: "notes",
