@@ -25,7 +25,15 @@ Open `pnpm dev` from the repo root and the terminal should read like a little lo
 1. Keep [`ARCHITECTURE.md`](ARCHITECTURE.md) in sync when the top-level flow or storage model changes.
 2. Pick the highest-value confirmed hardening or coverage slice from the open issue queue.
 
-## Shipped recovery milestone
+## Priority A
+
+- Pull the highest-value unblocked item from the open GitHub issues labeled
+  `agent-discovered`; that tracker is the live queue for confirmed work.
+- Keep the current emphasis on strict read-only/local-first boundaries,
+  truthful persistence failure handling, safe explicit clone behavior, and
+  broader coverage of the real App lifecycle.
+
+### Shipped recovery milestone
 
 <!-- in-garden captions / bubbles — done in PR #54: sparse sprite-adjacent captions paint into the habitat without turning it into a labeled diagram. -->
 <!-- terminal-native emotion cues — done in PR #54: blink and transient excited/anxious cues layer onto vibe + advisory mood and respect reduced motion. -->
