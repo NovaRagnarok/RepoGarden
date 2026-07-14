@@ -13,6 +13,27 @@ import {
   renderTextFrame
 } from "../lib/gif/text-export";
 import { highContrastTheme } from "../themes/high-contrast";
+import {
+  loadScanSnapshot,
+  readEvents,
+  saveEventsMeta,
+  saveScanSnapshot,
+} from "../lib/events";
+
+const withFakeHome = async (run: () => Promise<void>): Promise<void> => {
+  const fake = mkdtempSync(join(tmpdir(), "repogarden-text-export-home-"));
+  const oldHome = process.env.HOME;
+  const oldUserProfile = process.env.USERPROFILE;
+  process.env.HOME = fake;
+  process.env.USERPROFILE = fake;
+  try {
+    await run();
+  } finally {
+    process.env.HOME = oldHome;
+    process.env.USERPROFILE = oldUserProfile;
+    rmSync(fake, { recursive: true, force: true });
+  }
+};
 
 const exportTheme: GardenThemeColors = {
   foreground: highContrastTheme.colors.foreground,
@@ -99,9 +120,10 @@ test("budgeted text CLI scans and enriches once across multiple width probes", a
           errors: []
         };
       },
-      enrichScans: (scans) => {
+      enrichScans: (scans, options) => {
         enrichCalls += 1;
         assert.equal(scans.length, creatures.length);
+        assert.deepEqual(options, { reconcile: false });
         return creatures;
       },
       writeStdout: (text) => {
@@ -119,6 +141,50 @@ test("budgeted text CLI scans and enriches once across multiple width probes", a
   assert.equal(stderr, "");
   assert.ok(stdout.endsWith("\n"));
   assert.equal(stdout.slice(0, -1).length, 1201);
+});
+
+test("scoped text export leaves the global scan snapshot and journal untouched", async () => {
+  await withFakeHome(async () => {
+    const [alpha, beta] = buildDemoCreatures();
+    saveEventsMeta({ seeded: true, seededAt: new Date().toISOString() });
+    const baselineSnapshot = {
+      [alpha.id]: {
+        vibe: alpha.vibe.vibe,
+        branch: "saved-alpha",
+        latestCommitSha: "a".repeat(40),
+      },
+      [beta.id]: {
+        vibe: beta.vibe.vibe,
+        branch: "saved-beta",
+        latestCommitSha: "b".repeat(40),
+      },
+    };
+    saveScanSnapshot(baselineSnapshot);
+    const persistedBaseline = loadScanSnapshot();
+
+    let stdout = "";
+    const exitCode = await runExportTextCli(
+      ["--root", "/scoped/alpha", "--width", "40", "--height", "12"],
+      {
+        scanRoots: (roots, maxDepth) => {
+          assert.deepEqual(roots, ["/scoped/alpha"]);
+          assert.equal(maxDepth, 4);
+          return { repos: [alpha.scan], rootsUsed: roots, errors: [] };
+        },
+        writeStdout: (text) => {
+          stdout += text;
+        },
+        writeStderr: (text) => {
+          assert.fail(`unexpected export failure: ${text}`);
+        },
+      }
+    );
+
+    assert.equal(exitCode, 0);
+    assert.ok(stdout.length > 0);
+    assert.deepEqual(loadScanSnapshot(), persistedBaseline);
+    assert.deepEqual(readEvents(), []);
+  });
 });
 
 test("budgeted text CLI preserves the requested export page", async () => {

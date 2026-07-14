@@ -254,8 +254,19 @@ const reconcileWithSnapshot = (
  * Returns the next creature list. Identity-stable when nothing changed:
  * callers can compare reference equality to skip a setState.
  */
+export interface CreatureRefreshDependencies {
+  inspectRepo: typeof inspectRepo;
+  inspectRepoLight: typeof inspectRepoLight;
+}
+
+const defaultCreatureRefreshDependencies: CreatureRefreshDependencies = {
+  inspectRepo,
+  inspectRepoLight,
+};
+
 export const refreshCreaturesLight = (
-  creatures: RepoCreature[]
+  creatures: RepoCreature[],
+  dependencies: CreatureRefreshDependencies = defaultCreatureRefreshDependencies
 ): RepoCreature[] => {
   let anyHeavyChange = false;
   let anyLightChange = false;
@@ -263,13 +274,17 @@ export const refreshCreaturesLight = (
 
   for (let i = 0; i < creatures.length; i++) {
     const creature = creatures[i];
-    const probe = inspectRepoLight(creature.scan.path);
+    const probe = dependencies.inspectRepoLight(creature.scan.path);
     if (!probe) continue; // repo vanished — leave the stale scan, full rescan will clean up
 
     if (probe.headSha && probe.headSha !== creature.scan.lastCommitSha) {
       // HEAD moved — pay the cost of a full inspect for this one repo so
       // recentCommits / lastCommitSubject / sparkline pick up the new commit.
-      const fresh = inspectRepo(creature.scan.path);
+      const fresh = dependencies.inspectRepo(creature.scan.path);
+      // A transient incremental failure is not new repository evidence. Keep
+      // the prior creature and snapshot baseline so recovery cannot manufacture
+      // vibe/branch/repo-added history from an error-shaped scan.
+      if (fresh.scanError) continue;
       nextScans[i] = fresh;
       anyHeavyChange = true;
       continue;
@@ -317,16 +332,16 @@ export const refreshCreaturesLight = (
 export interface EnrichScansOptions {
   /**
    * Reconcile against the on-disk scan snapshot and emit journal events.
-   * Pass false on partial / streaming scans: reconciling a partial list
-   * trims the snapshot to just the visible creatures, so the next partial
-   * batch sees its other repos as "new" and emits phantom repo-added
-   * events. Only the final scan result should reconcile.
+   * Pass false for intermediate streaming batches and scoped render/export
+   * scans that are not authoritative garden inventories. A completed but
+   * partial full scan should still reconcile with `preserveMissing: true`.
    */
   reconcile?: boolean;
   /**
-   * Treat `scans` as a partial picture (e.g., one configured root errored).
-   * Preserves snapshot entries for repos absent from `scans` and suppresses
-   * the first-run backfill until we see a full scan.
+   * Treat `scans` as a partial picture (e.g., one configured root errored or
+   * an incremental refresh updated only the current registry). Preserves
+   * snapshot entries for repos absent from `scans` and suppresses the
+   * first-run backfill until we see a complete scan.
    */
   preserveMissing?: boolean;
 }
@@ -339,16 +354,20 @@ export interface EnrichScansOptions {
  * into the journal naturally. Because this is an incremental refresh rather
  * than a complete root inventory, absent snapshot entries are preserved.
  *
- * Returns the original list when the id is unknown.
+ * Returns the original list when the id is unknown or the incremental
+ * inspection fails; only a successful inspection may replace the baseline.
  */
 export const refreshOneCreature = (
   creatures: RepoCreature[],
-  id: string
+  id: string,
+  dependencies: Pick<CreatureRefreshDependencies, "inspectRepo"> =
+    defaultCreatureRefreshDependencies
 ): RepoCreature[] => {
   const index = creatures.findIndex((creature) => creature.id === id);
   if (index === -1) return creatures;
   const prior = creatures[index].scan;
-  const inspected = inspectRepo(prior.path);
+  const inspected = dependencies.inspectRepo(prior.path);
+  if (inspected.scanError) return creatures;
   const fresh = {
     ...inspected,
     github: prior.github,

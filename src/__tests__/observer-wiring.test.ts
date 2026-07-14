@@ -263,3 +263,81 @@ test("incremental refreshes preserve partial-scan snapshots until a complete inv
     }
   });
 });
+
+test("failed incremental inspections retain the prior snapshot until genuine recovery", async () => {
+  await withFakeHome(async () => {
+    saveEventsMeta({ seeded: true, seededAt: new Date().toISOString() });
+
+    const workspaceRoot = mkdtempSync(join(TMP_ROOT,"repogarden-refresh-recovery-"));
+    try {
+      const alphaPath = join(workspaceRoot, "alpha");
+      initRepo(alphaPath);
+
+      const alpha = inspectRepo(alphaPath);
+      let creatures = enrichScans([alpha], { preserveMissing: false });
+      const baselineSnapshot = loadScanSnapshot();
+      const baselineEvents = readEvents();
+      assert.equal(baselineEvents.length, 1);
+      assert.equal(
+        baselineEvents.filter((event) => event.kind === "repo-added").length,
+        1
+      );
+
+      const failedInspection = {
+        id: alpha.id,
+        path: alpha.path,
+        name: alpha.name,
+        isDirty: false,
+        scanError: "temporarily unavailable",
+      };
+
+      // Model the race where the cheap HEAD probe succeeds, then the full
+      // inspection loses access. The error-shaped scan must not replace the
+      // prior creature or participate in snapshot reconciliation.
+      const afterFailedHeadRefresh = refreshCreaturesLight(creatures, {
+        inspectRepoLight: () => ({
+          isDirty: false,
+          headSha: "f".repeat(40),
+        }),
+        inspectRepo: () => failedInspection,
+      });
+      assert.equal(afterFailedHeadRefresh, creatures);
+      assert.deepEqual(loadScanSnapshot(), baselineSnapshot);
+      assert.deepEqual(readEvents(), baselineEvents);
+
+      // The observer's direct single-repo inspection has the same contract.
+      const afterFailedObserverRefresh = refreshOneCreature(creatures, alpha.id, {
+        inspectRepo: () => failedInspection,
+      });
+      assert.equal(afterFailedObserverRefresh, creatures);
+      assert.deepEqual(loadScanSnapshot(), baselineSnapshot);
+      assert.deepEqual(readEvents(), baselineEvents);
+
+      // Once inspection succeeds again, only the real commit made during the
+      // outage is journaled and the snapshot advances from its retained SHA.
+      commitEmpty(alphaPath, "commit after recovery");
+      creatures = refreshOneCreature(creatures, alpha.id);
+      const recovered = creatures.find((creature) => creature.id === alpha.id);
+      assert.ok(recovered);
+      assert.notEqual(recovered.scan.lastCommitSha, alpha.lastCommitSha);
+      assert.equal(
+        loadScanSnapshot()[alpha.id].latestCommitSha,
+        recovered.scan.lastCommitSha
+      );
+      const recoveredEvents = readEvents({ repoId: alpha.id });
+      assert.deepEqual(
+        recoveredEvents.map((event) => event.kind).sort(),
+        ["commit", "repo-added"]
+      );
+      assert.equal(
+        recoveredEvents.filter((event) => event.kind === "repo-added").length,
+        1
+      );
+      const recoveredCommits = recoveredEvents.filter((event) => event.kind === "commit");
+      assert.equal(recoveredCommits.length, 1);
+      assert.equal(recoveredCommits[0].payload.subject, "commit after recovery");
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+});

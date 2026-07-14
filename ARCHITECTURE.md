@@ -194,6 +194,9 @@ Important behavior:
   successful complete root inventory may prune absent snapshot entries;
   partial full scans and incremental HEAD/new-repo refreshes preserve them so
   a temporarily unavailable root cannot create false `repo-added` history.
+  Failed incremental inspections retain the prior creature and snapshot
+  baseline until a successful retry. Scoped render/export commands pass
+  `reconcile: false` because they are read-only views, not garden inventories.
 - Snapshot reconciliation emits `repo-added`, `commit`, `vibe-changed`, and
   `branch-switched` events into the journal store.
 - After boot, a 30s light refresh probes each repo with a cheap
