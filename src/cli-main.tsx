@@ -1,9 +1,6 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
 import { render, useApp } from "ink";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { join } from "node:path";
 import { PassThrough } from "stream";
 
 import {
@@ -58,16 +55,18 @@ import {
 } from "@/lib/app-shell-state";
 import {
   inspectRepo,
-  expandPath,
   scanRootsProgressive,
   type RootProgress,
   type ScannedRepo,
 } from "@/lib/scanner";
 import {
-  cloneUrlForRepo,
   fetchGitHubCatalog,
   type GitHubCatalogResult
 } from "@/lib/github";
+import {
+  createGitHubCloneCoordinator,
+  sanitizeGitHubCloneText
+} from "@/lib/github-clone";
 import type { GitHubRepoSnapshot } from "@/lib/scanner-types";
 import { startObserver } from "@/lib/observer";
 import {
@@ -89,65 +88,9 @@ import { scheduleStartupPrune } from "@/lib/startup-prune";
 
 const BOOT_SCAN_DELAY_MS = 400;
 const MIN_BOOT_PRESENTATION_MS = 900;
-const GITHUB_CLONE_TIMEOUT_MS = 120_000;
 const CONFIG_PERSISTENCE_NOTICE_KEY = "config-persistence";
-
 const errorMessage = (error: unknown, fallback: string): string =>
   error instanceof Error && error.message.trim().length > 0 ? error.message : fallback;
-
-const cloneGitHubRepoInto = async ({
-  repo,
-  root,
-  protocol
-}: {
-  repo: GitHubRepoSnapshot;
-  root: string;
-  protocol: "ssh" | "https";
-}): Promise<{ ok: boolean; target: string; message: string }> => {
-  const expandedRoot = expandPath(root);
-  const target = join(expandedRoot, repo.name);
-  if (!existsSync(expandedRoot)) {
-    return { ok: false, target, message: "clone root does not exist" };
-  }
-  if (existsSync(target)) {
-    return { ok: false, target, message: `${repo.name} already exists in clone root` };
-  }
-  const url = cloneUrlForRepo(repo, protocol);
-  return new Promise((resolve) => {
-    const child = spawn("git", ["clone", url, target], {
-      env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
-      stdio: "ignore"
-    });
-    let settled = false;
-    const timer = setTimeout(() => {
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        // Already exited.
-      }
-      if (!settled) {
-        settled = true;
-        resolve({ ok: false, target, message: "git clone timed out" });
-      }
-    }, GITHUB_CLONE_TIMEOUT_MS);
-    child.once("error", (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve({ ok: false, target, message: error.message });
-    });
-    child.once("close", (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve({
-        ok: code === 0,
-        target,
-        message: code === 0 ? "cloned" : `git clone failed with exit ${code ?? "unknown"}`
-      });
-    });
-  });
-};
 
 interface AppProps {
   initialConfig: TuiConfig;
@@ -206,6 +149,13 @@ const App = ({
   const [githubConfig, setGitHubConfig] = useState<GitHubConfig>(initialGitHubConfig);
   const [githubRepos, setGitHubRepos] = useState<GitHubRepoSnapshot[]>([]);
   const [githubStatus, setGitHubStatus] = useState<GitHubCatalogResult | undefined>();
+  const [githubCloningFullNames, setGitHubCloningFullNames] = useState<string[]>([]);
+  const githubCloneCoordinatorRef = useRef<ReturnType<
+    typeof createGitHubCloneCoordinator
+  > | null>(null);
+  const githubCloneCoordinator =
+    githubCloneCoordinatorRef.current ?? createGitHubCloneCoordinator();
+  githubCloneCoordinatorRef.current = githubCloneCoordinator;
   const [scanProgress, setScanProgress] = useState<{ done: number; total: number } | undefined>();
   const [scanProgressByRoot, setScanProgressByRoot] = useState<RootProgress[] | undefined>();
 
@@ -723,18 +673,37 @@ const App = ({
         setPhase("edit-roots");
         return;
       }
-      pushToast(`cloning ${repo.fullName}…`, "info");
-      const result = await cloneGitHubRepoInto({
+      const start = githubCloneCoordinator.start({
         repo,
         root: roots[0],
         protocol: githubConfig.cloneProtocol
       });
-      if (!result.ok) {
-        pushToast(`clone failed · ${result.message}`, "error", 6000);
+      if (!start.started) {
+        pushToast(`clone already in progress · ${repo.fullName}`, "info");
         return;
       }
-      pushToast(`cloned ${repo.fullName}`, "success");
-      await runScan(roots, githubRepos);
+      setGitHubCloningFullNames((current) =>
+        current.includes(repo.fullName) ? current : [...current, repo.fullName]
+      );
+      pushToast(`cloning ${repo.fullName}…`, "info");
+      try {
+        const result = await start.promise;
+        if (!result.ok) {
+          pushToast(`${repo.fullName} · ${result.message}`, "error", 8000);
+          return;
+        }
+        pushToast(`cloned ${repo.fullName}`, "success");
+        await runScan(roots, githubRepos);
+      } catch (error) {
+        const detail =
+          sanitizeGitHubCloneText(errorMessage(error, "unknown clone error")) ||
+          "unknown clone error";
+        pushToast(`${repo.fullName} · clone failed: ${detail}`, "error", 8000);
+      } finally {
+        setGitHubCloningFullNames((current) =>
+          current.filter((fullName) => fullName !== repo.fullName)
+        );
+      }
     })();
   };
 
@@ -932,6 +901,7 @@ const App = ({
       githubRepos={githubRepos}
       githubStatus={githubStatus}
       githubEnabled={effectiveGitHubEnabled}
+      githubCloningFullNames={githubCloningFullNames}
       onRefreshGitHub={handleRefreshGitHub}
       onCloneGitHubRepo={handleCloneGitHubRepo}
       onOpenGitHubRepo={handleOpenGitHubRepo}

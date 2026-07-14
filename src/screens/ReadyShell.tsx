@@ -94,6 +94,7 @@ export interface ReadyShellProps {
   githubRepos?: GitHubRepoSnapshot[];
   githubStatus?: GitHubCatalogResult;
   githubEnabled?: boolean;
+  githubCloningFullNames?: readonly string[];
   onRefreshGitHub?: () => void;
   onCloneGitHubRepo?: (repo: GitHubRepoSnapshot) => void;
   onOpenGitHubRepo?: (repo: GitHubRepoSnapshot) => void;
@@ -138,6 +139,7 @@ export const ReadyShell = ({
   githubRepos = [],
   githubStatus,
   githubEnabled = false,
+  githubCloningFullNames = [],
   onRefreshGitHub,
   onCloneGitHubRepo,
   onOpenGitHubRepo
@@ -352,6 +354,10 @@ export const ReadyShell = ({
       (repo.language ?? "").toLowerCase().includes(needle)
     );
   }, [githubRepos, matchedGitHubFullNames, filter, githubActive]);
+  const focusedGitHubRepo = visibleGitHubRepos[githubFocusIndex];
+  const focusedGitHubCloneInFlight = focusedGitHubRepo
+    ? githubCloningFullNames.includes(focusedGitHubRepo.fullName)
+    : false;
   useEffect(() => {
     setGithubFocusIndex(0);
   }, [filter]);
@@ -478,7 +484,9 @@ export const ReadyShell = ({
       }
       if (key.return && onCloneGitHubRepo) {
         const repo = visibleGitHubRepos[githubFocusIndex];
-        if (repo) onCloneGitHubRepo(repo);
+        if (repo && !githubCloningFullNames.includes(repo.fullName)) {
+          onCloneGitHubRepo(repo);
+        }
         return;
       }
       if (input === "o" && onOpenGitHubRepo) {
@@ -2152,6 +2160,7 @@ export const ReadyShell = ({
               width={responsive.showSidebar ? columns - 2 : stackedWidth}
               height={gardenHeight}
               status={githubStatus}
+              cloningFullNames={githubCloningFullNames}
             />
           ) : (
             <Panel title="github" width={responsive.showSidebar ? columns - 2 : stackedWidth} height={gardenHeight}>
@@ -2357,7 +2366,9 @@ export const ReadyShell = ({
             {journalActive
               ? "↑↓/jk scroll · ↵ enter journal · esc back to sidebar · / search · g view · s settings · ? help"
               : githubActive
-                ? "↑↓/jk move · ↵ clone · o open GitHub · r refresh · / filter · g view · s settings · ? help"
+                ? focusedGitHubCloneInFlight
+                  ? "↑↓/jk move · clone in progress… · o open GitHub · r refresh · / filter · g view · s settings · ? help"
+                  : "↑↓/jk move · ↵ clone · o open GitHub · r refresh · / filter · g view · s settings · ? help"
               : isGardenView && gardenPageCount > 1
                 ? "↑↓ move · ↵ open · / filter · g view · [] page · s settings · ? help · q quit"
                 : "↑↓ move · ↵ open · / filter · g view · s settings · ? help · q quit"}
