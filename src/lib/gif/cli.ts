@@ -7,7 +7,8 @@ import { paginateCreatures, safeGardenCapacity } from "@/lib/garden-layout";
 import { buildTiles } from "@/garden/model";
 import type { GardenSceneProps, GardenThemeColors } from "@/garden/types";
 
-import { exportGardenGif } from "@/lib/gif/export";
+import { exportGardenGif, planGifTiming } from "@/lib/gif/export";
+import { CELL_H, CELL_W } from "@/lib/gif/raster";
 import {
   fitShareableTextFrame,
   formatTextBudgetFailure,
@@ -30,7 +31,22 @@ const DEFAULT_TEXT_INNER_WIDTH = 180;
 const DEFAULT_TEXT_CANVAS_HEIGHT = 12;
 const DEFAULT_TEXT_NAME_MAX = 16;
 
-interface ParsedArgs {
+export const EXPORT_CLI_LIMITS = {
+  width: { min: 40, max: 320 },
+  height: { min: 12, max: 90 },
+  scale: { min: 1, max: 5 },
+  seconds: { min: 0.25, max: 10 },
+  page: { min: 1, max: 1_000 },
+  maxChars: { min: 1, max: 100_000 },
+  // The per-frame cap bounds the largest upscaled Uint8 canvas. The loop cap
+  // bounds total raster/upscale work across every encoded frame.
+  gifPixelsPerFrame: 20_000_000,
+  gifPixelsPerLoop: 250_000_000
+} as const;
+
+export type ExportCommand = "gif" | "text";
+
+export interface ParsedExportArgs {
   root?: string;
   out?: string;
   scale?: number;
@@ -44,58 +60,206 @@ interface ParsedArgs {
   page?: number;
 }
 
-const parseArgs = (rest: string[]): ParsedArgs => {
-  const out: ParsedArgs = {};
+export class ExportCliArgumentError extends Error {
+  override name = "ExportCliArgumentError";
+}
+
+const argumentError = (message: string): never => {
+  throw new ExportCliArgumentError(message);
+};
+
+const parseNumber = (
+  option: string,
+  raw: string,
+  limits: { min: number; max: number },
+  integer: boolean
+): number => {
+  if (raw.trim().length === 0) {
+    return argumentError(`${option} requires a value.`);
+  }
+  const value = Number(raw);
+  if (!Number.isFinite(value)) {
+    return argumentError(
+      `${option} must be a finite number; received ${JSON.stringify(raw)}.`
+    );
+  }
+  if (integer && !Number.isSafeInteger(value)) {
+    return argumentError(
+      `${option} must be a safe integer; received ${JSON.stringify(raw)}.`
+    );
+  }
+  if (value < limits.min || value > limits.max) {
+    return argumentError(
+      `${option} must be between ${limits.min} and ${limits.max}; ` +
+      `received ${JSON.stringify(raw)}.`
+    );
+  }
+  return value;
+};
+
+const validateGifAllocation = (parsed: ParsedExportArgs): void => {
+  const width = parsed.width ?? DEFAULT_GIF_INNER_WIDTH;
+  const height = parsed.height ?? DEFAULT_GIF_CANVAS_HEIGHT;
+  const scale = parsed.scale ?? DEFAULT_GIF_SCALE;
+  const timing = planGifTiming(parsed.seconds ?? 3);
+  const scaledWidth = width * CELL_W * scale;
+  // Export adds one CELL_H-tall brand row beneath the requested canvas.
+  const scaledHeight = (height + 1) * CELL_H * scale;
+  const pixelsPerFrame = scaledWidth * scaledHeight;
+  if (pixelsPerFrame > EXPORT_CLI_LIMITS.gifPixelsPerFrame) {
+    argumentError(
+      `GIF dimensions and scale produce ${pixelsPerFrame.toLocaleString("en-US")} ` +
+      `pixels per frame; the limit is ` +
+      `${EXPORT_CLI_LIMITS.gifPixelsPerFrame.toLocaleString("en-US")}. ` +
+      `Reduce --width, --height, or --scale.`
+    );
+  }
+  const pixelsPerLoop = pixelsPerFrame * timing.frameCount;
+  if (pixelsPerLoop > EXPORT_CLI_LIMITS.gifPixelsPerLoop) {
+    argumentError(
+      `GIF settings render ${pixelsPerLoop.toLocaleString("en-US")} scaled ` +
+      `pixels across ${timing.frameCount} frames; the loop limit is ` +
+      `${EXPORT_CLI_LIMITS.gifPixelsPerLoop.toLocaleString("en-US")}. ` +
+      `Reduce dimensions, --scale, or --seconds.`
+    );
+  }
+};
+
+export const parseExportArgs = (
+  command: ExportCommand,
+  rest: string[]
+): ParsedExportArgs => {
+  const out: ParsedExportArgs = {};
+  const seen = new Set<keyof ParsedExportArgs>();
+
+  const claim = <Key extends keyof ParsedExportArgs>(
+    key: Key,
+    option: string,
+    value: ParsedExportArgs[Key]
+  ): void => {
+    if (seen.has(key)) {
+      argumentError(`${option} may only be specified once.`);
+    }
+    seen.add(key);
+    out[key] = value;
+  };
+
+  const valueAfter = (index: number, option: string, numeric: boolean): string => {
+    const value = rest[index + 1];
+    const looksLikeOption =
+      value === undefined ||
+      value.startsWith("--") ||
+      value === "-o" ||
+      (!numeric && value.startsWith("-"));
+    if (looksLikeOption) {
+      argumentError(`${option} requires a value.`);
+    }
+    return value;
+  };
+
+  const stringAfter = (index: number, option: string): string => {
+    const value = valueAfter(index, option, false);
+    if (value.trim().length === 0) {
+      argumentError(`${option} requires a non-empty value.`);
+    }
+    return value;
+  };
+
   for (let i = 0; i < rest.length; i += 1) {
     const arg = rest[i];
-    const next = rest[i + 1];
     switch (arg) {
-      case "--root":
-        out.root = next;
+      case "--root": {
+        claim("root", arg, stringAfter(i, arg));
         i += 1;
         break;
+      }
       case "--out":
-      case "-o":
-        out.out = next;
+      case "-o": {
+        claim("out", arg, stringAfter(i, arg));
         i += 1;
         break;
-      case "--scale":
-        out.scale = Number(next);
+      }
+      case "--scale": {
+        if (command !== "gif") {
+          argumentError("--scale is only valid with export-gif.");
+        }
+        const raw = valueAfter(i, arg, true);
+        claim("scale", arg, parseNumber(arg, raw, EXPORT_CLI_LIMITS.scale, true));
         i += 1;
         break;
-      case "--seconds":
-        out.seconds = Number(next);
+      }
+      case "--seconds": {
+        if (command !== "gif") {
+          argumentError("--seconds is only valid with export-gif.");
+        }
+        const raw = valueAfter(i, arg, true);
+        claim("seconds", arg, parseNumber(arg, raw, EXPORT_CLI_LIMITS.seconds, false));
         i += 1;
         break;
-      case "--theme":
-        out.themeId = next;
+      }
+      case "--theme": {
+        const themeId = stringAfter(i, arg);
+        if (!themeById(themeId)) {
+          argumentError(`--theme has unknown id ${JSON.stringify(themeId)}.`);
+        }
+        claim("themeId", arg, themeId);
         i += 1;
         break;
-      case "--width":
-        out.width = Number(next);
+      }
+      case "--width": {
+        const raw = valueAfter(i, arg, true);
+        claim("width", arg, parseNumber(arg, raw, EXPORT_CLI_LIMITS.width, true));
         i += 1;
         break;
-      case "--height":
-        out.height = Number(next);
+      }
+      case "--height": {
+        const raw = valueAfter(i, arg, true);
+        claim("height", arg, parseNumber(arg, raw, EXPORT_CLI_LIMITS.height, true));
         i += 1;
         break;
-      case "--page":
-        out.page = Number(next);
+      }
+      case "--page": {
+        const raw = valueAfter(i, arg, true);
+        claim("page", arg, parseNumber(arg, raw, EXPORT_CLI_LIMITS.page, true));
         i += 1;
         break;
+      }
       case "--discord":
+        if (command !== "text") {
+          argumentError("--discord is only valid with export-text.");
+        }
         // Convenience alias: 1999-char budget, sized for Discord messages.
-        out.maxChars = 1999;
+        claim("maxChars", arg, 1999);
         break;
-      case "--max-chars":
-        out.maxChars = Number(next);
+      case "--max-chars": {
+        if (command !== "text") {
+          argumentError("--max-chars is only valid with export-text.");
+        }
+        const raw = valueAfter(i, arg, true);
+        claim(
+          "maxChars",
+          arg,
+          parseNumber(arg, raw, EXPORT_CLI_LIMITS.maxChars, true)
+        );
         i += 1;
         break;
-      default:
-        if (!arg.startsWith("-") && !out.root) out.root = arg;
+      }
+      default: {
+        if (arg.startsWith("-")) {
+          argumentError(`unknown export option: ${arg}.`);
+        }
+        if (seen.has("root")) {
+          argumentError(`unexpected positional argument: ${arg}.`);
+        }
+        if (arg.trim().length === 0) {
+          argumentError("repository root must be non-empty.");
+        }
+        claim("root", "repository root", arg);
         break;
+      }
     }
   }
+  if (command === "gif") validateGifAllocation(out);
   return out;
 };
 
@@ -116,7 +280,7 @@ interface CreatureLoaderDependencies {
 }
 
 const loadCreatures = (
-  parsed: ParsedArgs,
+  parsed: ParsedExportArgs,
   dependencies: CreatureLoaderDependencies = { scanRoots, enrichScans }
 ): RepoCreature[] => {
   const root = parsed.root ?? process.cwd();
@@ -149,8 +313,12 @@ const resolveThemeColors = (themeId: string | undefined): GardenThemeColors => {
   };
 };
 
-const buildScene = (parsed: ParsedArgs, options: BuildOptions): BuiltScene => {
-  const scanned = loadCreatures(parsed);
+const buildScene = (
+  parsed: ParsedExportArgs,
+  options: BuildOptions,
+  dependencies: CreatureLoaderDependencies = { scanRoots, enrichScans }
+): BuiltScene => {
+  const scanned = loadCreatures(parsed, dependencies);
   // Strip saved drag positions so the export uses canonical placement.
   // A user's prior manual drag in the TUI would otherwise pull creatures
   // toward the canvas edge in the snapshot, where long labels can clip.
@@ -159,8 +327,8 @@ const buildScene = (parsed: ParsedArgs, options: BuildOptions): BuiltScene => {
     memory: { ...creature.memory, gardenPlacement: undefined }
   }));
   const colors = resolveThemeColors(parsed.themeId);
-  const innerWidth = Math.max(40, parsed.width ?? options.defaultWidth);
-  const canvasH = Math.max(12, parsed.height ?? options.defaultHeight);
+  const innerWidth = parsed.width ?? options.defaultWidth;
+  const canvasH = parsed.height ?? options.defaultHeight;
 
   // Use the labels-aware capacity instead of the TUI's general-purpose one so
   // long repo names can't cause edge-crop or label overlap. Building tiles up
@@ -199,23 +367,43 @@ const buildScene = (parsed: ParsedArgs, options: BuildOptions): BuiltScene => {
   };
 };
 
-export const runExportGifCli = async (rest: string[]): Promise<number> => {
-  const parsed = parseArgs(rest);
-  const built = buildScene(parsed, {
-    defaultWidth: DEFAULT_GIF_INNER_WIDTH,
-    defaultHeight: DEFAULT_GIF_CANVAS_HEIGHT
-  });
-  const frames = parsed.seconds ? Math.max(2, Math.round(parsed.seconds * 10)) : undefined;
-  const result = await exportGardenGif(built.scene, {
+export interface ExportGifCliDependencies extends CreatureLoaderDependencies {
+  exportGardenGif: typeof exportGardenGif;
+  writeStdout: (text: string) => void;
+}
+
+export const runExportGifCli = async (
+  rest: string[],
+  overrides: Partial<ExportGifCliDependencies> = {}
+): Promise<number> => {
+  const parsed = parseExportArgs("gif", rest);
+  const dependencies: ExportGifCliDependencies = {
+    scanRoots: overrides.scanRoots ?? scanRoots,
+    enrichScans: overrides.enrichScans ?? enrichScans,
+    exportGardenGif: overrides.exportGardenGif ?? exportGardenGif,
+    writeStdout: overrides.writeStdout ?? ((text) => {
+      process.stdout.write(text);
+    })
+  };
+  const built = buildScene(
+    parsed,
+    {
+      defaultWidth: DEFAULT_GIF_INNER_WIDTH,
+      defaultHeight: DEFAULT_GIF_CANVAS_HEIGHT
+    },
+    dependencies
+  );
+  const timing = planGifTiming(parsed.seconds ?? 3);
+  const result = await dependencies.exportGardenGif(built.scene, {
     out: parsed.out,
     scale: parsed.scale ?? DEFAULT_GIF_SCALE,
-    frames
+    frameDelaysMs: timing.frameDelaysMs
   });
   const pageNote =
     built.pageCount > 1
       ? ` (page ${built.pageIndex + 1}/${built.pageCount} — use --page to pick another)`
       : "";
-  process.stdout.write(`${result.path}${pageNote}\n`);
+  dependencies.writeStdout(`${result.path}${pageNote}\n`);
   return 0;
 };
 
@@ -228,7 +416,7 @@ export const runExportTextCli = async (
   rest: string[],
   overrides: Partial<ExportTextCliDependencies> = {}
 ): Promise<number> => {
-  const parsed = parseArgs(rest);
+  const parsed = parseExportArgs("text", rest);
   const dependencies: ExportTextCliDependencies = {
     scanRoots: overrides.scanRoots ?? scanRoots,
     enrichScans: overrides.enrichScans ?? enrichScans,
@@ -248,12 +436,6 @@ export const runExportTextCli = async (
 
   let text: string;
   if (parsed.maxChars !== undefined) {
-    if (!Number.isSafeInteger(parsed.maxChars) || parsed.maxChars <= 0) {
-      dependencies.writeStderr(
-        "export-text: --max-chars must be a positive integer.\n"
-      );
-      return 1;
-    }
     const fit = fitShareableTextFrame(creatures, {
       theme,
       maxChars: parsed.maxChars,
@@ -272,8 +454,8 @@ export const runExportTextCli = async (
     text = fit.text;
   } else {
     text = renderTextFrame(creatures, {
-      innerWidth: Math.max(40, parsed.width ?? DEFAULT_TEXT_INNER_WIDTH),
-      canvasH: Math.max(12, parsed.height ?? DEFAULT_TEXT_CANVAS_HEIGHT),
+      innerWidth: parsed.width ?? DEFAULT_TEXT_INNER_WIDTH,
+      canvasH: parsed.height ?? DEFAULT_TEXT_CANVAS_HEIGHT,
       theme,
       nameMaxChars: DEFAULT_TEXT_NAME_MAX,
       page: parsed.page,

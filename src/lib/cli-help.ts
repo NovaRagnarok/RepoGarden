@@ -15,15 +15,19 @@ Usage:
 
 Export options:
   --root <path>     scan <path> instead of cwd
-  --out  <file>     output path (default: ~/Downloads/repogarden-<ts>.gif)
-  --scale <n>       nearest-neighbour upscale (default: 1 for gif)
-  --seconds <n>     gif loop length in seconds (default: 3)
+  --out  <file>     output file (GIF default: ~/Downloads/repogarden-<ts>.gif)
+  --scale <n>       gif upscale: integer 1-5 (default: 1)
+  --seconds <n>     gif loop length: 0.25-10 seconds (default: 3)
   --theme <id>      theme id (e.g. high-contrast, dracula, nord)
-  --width <cols>    inner garden width in cells (gif default 240, text 180)
-  --height <rows>   inner garden height in cells (gif default 67, text 12)
-  --page <n>        pick which page (1-indexed) when repos exceed one page
-  --max-chars <n>   export-text only: widest panorama within the budget
+  --width <cols>    integer 40-320 (gif default 240, text 180)
+  --height <rows>   integer 12-90 (gif default 67, text 12)
+  --page <n>        page 1-1000 (1-indexed; clamps to the last available)
+  --max-chars <n>   text budget: integer 1-100000
   --discord         export-text only: alias for --max-chars 1999
+
+GIF allocation limits:
+  At most 20,000,000 scaled pixels per frame and 250,000,000 per loop.
+  Extreme width/height/scale/seconds combinations are rejected before scan.
 
 Text export budgets:
   If no supported panorama fits, export-text writes no output, explains the

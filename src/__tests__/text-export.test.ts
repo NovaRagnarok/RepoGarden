@@ -176,7 +176,7 @@ test("impossible text budget writes no output and returns an actionable failure"
         "--max-chars",
         "1",
         "--width",
-        "30",
+        "40",
         "--out",
         outputPath
       ],

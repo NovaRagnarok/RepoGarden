@@ -36,6 +36,13 @@ test("CLI_HELP_TEXT documents release-relevant env overrides", () => {
   assert.doesNotMatch(CLI_HELP_TEXT, /UPDATE_CHECK/);
 });
 
+test("CLI_HELP_TEXT documents export safety ranges and allocation caps", () => {
+  assert.match(CLI_HELP_TEXT, /integer 40-320/);
+  assert.match(CLI_HELP_TEXT, /0\.25-10 seconds/);
+  assert.match(CLI_HELP_TEXT, /20,000,000 scaled pixels per frame/);
+  assert.match(CLI_HELP_TEXT, /250,000,000 per loop/);
+});
+
 test("readCurrentVersion reads the local package version", () => {
   const packagePath = fileURLToPath(new URL("../../package.json", import.meta.url));
   const pkg = JSON.parse(readFileSync(packagePath, "utf8")) as {
