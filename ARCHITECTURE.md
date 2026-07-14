@@ -216,6 +216,13 @@ written back with the current `schemaVersion` the next time settings are saved.
 Future breaking storage changes should add explicit migrations instead of
 changing these shapes in place.
 
+Config saves write a temporary sibling and rename it into place so an interrupted
+or failed write leaves the previous `tui.json` intact. The config API returns a
+discriminated persistence result: the normalized config remains the active
+in-session state even when the disk write fails, while the app keeps a keyed,
+visible warning until a later save successfully persists that complete session
+state.
+
 Two details matter when editing persistence code:
 
 - Notes are the primary editable long-form store now. `ProjectMemory` is a

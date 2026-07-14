@@ -1,4 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -6,6 +13,36 @@ export const TUI_CONFIG_SCHEMA_VERSION = 2 as const;
 
 const configDir = (): string => join(homedir(), ".repogarden");
 const configFile = (): string => join(configDir(), "tui.json");
+
+export interface ConfigStorageAdapter {
+  configFile: () => string;
+  exists: (path: string) => boolean;
+  makeDir: (path: string) => void;
+  read: (path: string) => string;
+  write: (path: string, contents: string) => void;
+  rename: (from: string, to: string) => void;
+  remove: (path: string) => void;
+  temporaryFile: (path: string) => string;
+}
+
+export type ConfigStorageOverrides = Partial<ConfigStorageAdapter>;
+
+const DEFAULT_STORAGE: ConfigStorageAdapter = {
+  configFile,
+  exists: existsSync,
+  makeDir: (path) => mkdirSync(path, { recursive: true }),
+  read: (path) => readFileSync(path, "utf8"),
+  write: (path, contents) => writeFileSync(path, contents, "utf8"),
+  rename: renameSync,
+  remove: unlinkSync,
+  temporaryFile: (path) =>
+    `${path}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`,
+};
+
+const resolveStorage = (overrides: ConfigStorageOverrides): ConfigStorageAdapter => ({
+  ...DEFAULT_STORAGE,
+  ...overrides,
+});
 
 export type ReadyView = "garden" | "rooms" | "journal" | "github";
 
@@ -172,13 +209,14 @@ const parseGitHubConfig = (raw: unknown): GitHubConfig => {
   };
 };
 
-export const loadConfig = (): TuiConfig => {
+export const loadConfig = (overrides: ConfigStorageOverrides = {}): TuiConfig => {
   try {
-    const path = configFile();
-    if (!existsSync(path)) {
+    const storage = resolveStorage(overrides);
+    const path = storage.configFile();
+    if (!storage.exists(path)) {
       return normalizeConfig(null);
     }
-    const raw = readFileSync(path, "utf8");
+    const raw = storage.read(path);
     return normalizeConfig(JSON.parse(raw));
   } catch {
     return normalizeConfig(null);
@@ -233,21 +271,54 @@ export const reducedMotionEnabled = (
   return config.reducedMotion || env.NO_MOTION === "1" || env.CI === "true";
 };
 
-export const saveConfig = (config: TuiConfig): void => {
+export type ConfigPersistenceResult =
+  | { persisted: true; config: TuiConfig }
+  | { persisted: false; config: TuiConfig; error: string };
+
+const persistenceErrorMessage = (error: unknown): string =>
+  error instanceof Error && error.message.trim().length > 0
+    ? error.message
+    : "unknown config write failure";
+
+/**
+ * Atomically persists config when possible. Both result variants carry the
+ * normalized config so callers can keep the intended session state instead
+ * of rolling the UI back when only the disk write failed.
+ */
+export const saveConfig = (
+  config: TuiConfig,
+  overrides: ConfigStorageOverrides = {}
+): ConfigPersistenceResult => {
+  const normalized = normalizeConfig(config);
+  let temporaryPath: string | undefined;
+  let storage: ConfigStorageAdapter | undefined;
   try {
-    const path = configFile();
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, JSON.stringify(normalizeConfig(config), null, 2), "utf8");
-  } catch {
-    // best-effort: settings stay session-only if disk write fails.
+    storage = resolveStorage(overrides);
+    const path = storage.configFile();
+    storage.makeDir(dirname(path));
+    temporaryPath = storage.temporaryFile(path);
+    storage.write(temporaryPath, JSON.stringify(normalized, null, 2));
+    storage.rename(temporaryPath, path);
+    return { persisted: true, config: normalized };
+  } catch (error) {
+    if (storage && temporaryPath) {
+      try {
+        storage.remove(temporaryPath);
+      } catch {
+        // The temp file may not exist, or cleanup can fail for the same reason as the write.
+      }
+    }
+    return { persisted: false, config: normalized, error: persistenceErrorMessage(error) };
   }
 };
 
-type TuiConfigPatch = Partial<Omit<TuiConfig, "schemaVersion">>;
+export type TuiConfigPatch = Partial<Omit<TuiConfig, "schemaVersion">>;
 
-export const updateConfig = (patch: TuiConfigPatch): TuiConfig => {
-  const current = loadConfig();
+export const updateConfig = (
+  patch: TuiConfigPatch,
+  overrides: ConfigStorageOverrides = {}
+): ConfigPersistenceResult => {
+  const current = loadConfig(overrides);
   const next: TuiConfig = normalizeConfig({ ...current, ...patch });
-  saveConfig(next);
-  return next;
+  return saveConfig(next, overrides);
 };

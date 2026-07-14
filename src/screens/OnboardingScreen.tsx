@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { BigText } from "@/components/ui/big-text";
 import { Credit } from "@/components/Credit";
 import { Panel } from "@/components/ui/panel";
+import { StickyStatusLine } from "@/components/ui/toast-host";
 import { useTheme } from "@/components/ui/theme-provider";
 import { useInput } from "@/hooks/use-input";
 import { layoutMode, useTerminalSize } from "@/hooks/use-terminal-size";
@@ -165,6 +166,8 @@ export const OnboardingScreen = ({
               : "open app → see repo creatures → remember the smallest next move."}
         </Text>
       </Box>
+
+      <StickyStatusLine />
 
       <Panel
         title={

@@ -9,8 +9,9 @@ import { renderScreen, waitFor, type InkHarness } from "./helpers/ink-harness";
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
+import { useToasts } from "../components/ui/toast-host";
 import { buildDemoCreatures } from "../lib/demo-roster";
 import { appendEvent } from "../lib/events";
 import { ReadyShell, type ReadyView } from "../screens/ReadyShell";
@@ -62,6 +63,32 @@ const mountedFrame = (harness: InkHarness): Promise<void> =>
   waitFor(() => harness.lastFrame().includes("REPOGARDEN"), {
     onTimeout: () => harness.lastFrame()
   });
+
+const StickyStatusHost = () => {
+  const { push, setSticky } = useToasts();
+  useEffect(() => {
+    setSticky("config-persistence", "session-only config warning", "warning", 25);
+    push("later transient success", "success", 25);
+  }, [push, setSticky]);
+  return <ShellHost />;
+};
+
+test("keyed sticky status returns after newer transient toasts dismiss", async () => {
+  const harness = renderScreen(<StickyStatusHost />, WIDE);
+  try {
+    await mountedFrame(harness);
+    await waitFor(
+      () => {
+        const frame = harness.lastFrame();
+        return frame.includes("session-only config warning") &&
+          !frame.includes("later transient success");
+      },
+      { timeoutMs: 1000, onTimeout: () => harness.lastFrame() }
+    );
+  } finally {
+    harness.unmount();
+  }
+});
 
 test("ReadyShell mounts in garden view with chrome, view badges, and sidebar repo names", async () => {
   const harness = renderScreen(<ShellHost />, WIDE);

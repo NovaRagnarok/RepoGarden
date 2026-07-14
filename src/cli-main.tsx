@@ -41,8 +41,10 @@ import {
   githubEnabled,
   loadConfig,
   reducedMotionEnabled,
-  updateConfig,
-  type GitHubConfig
+  saveConfig,
+  type GitHubConfig,
+  type TuiConfig,
+  type TuiConfigPatch
 } from "@/lib/config";
 import type { GardenDensity } from "@/lib/garden-layout";
 import {
@@ -88,6 +90,7 @@ import { scheduleStartupPrune } from "@/lib/startup-prune";
 const BOOT_SCAN_DELAY_MS = 400;
 const MIN_BOOT_PRESENTATION_MS = 900;
 const GITHUB_CLONE_TIMEOUT_MS = 120_000;
+const CONFIG_PERSISTENCE_NOTICE_KEY = "config-persistence";
 
 const errorMessage = (error: unknown, fallback: string): string =>
   error instanceof Error && error.message.trim().length > 0 ? error.message : fallback;
@@ -147,6 +150,7 @@ const cloneGitHubRepoInto = async ({
 };
 
 interface AppProps {
+  initialConfig: TuiConfig;
   initialThemeId: string;
   initialRoots: string[];
   initialView: ReadyView;
@@ -162,6 +166,7 @@ interface AppProps {
 }
 
 const App = ({
+  initialConfig,
   initialThemeId,
   initialRoots,
   initialView,
@@ -176,8 +181,13 @@ const App = ({
   onReducedMotionChange
 }: AppProps) => {
   const { exit } = useApp();
-  const { push: pushToast } = useToasts();
+  const {
+    push: pushToast,
+    setSticky: setStickyToast,
+    clearSticky: clearStickyToast,
+  } = useToasts();
   const privacy = usePrivacy();
+  const sessionConfigRef = useRef<TuiConfig>(initialConfig);
   const [phase, setPhase] = useState<AppPhase>("booting");
   const [scanStatus, setScanStatus] = useState<ScanStatus | undefined>();
   const [themeId, setThemeId] = useState<string>(initialThemeId);
@@ -198,6 +208,25 @@ const App = ({
   const [githubStatus, setGitHubStatus] = useState<GitHubCatalogResult | undefined>();
   const [scanProgress, setScanProgress] = useState<{ done: number; total: number } | undefined>();
   const [scanProgressByRoot, setScanProgressByRoot] = useState<RootProgress[] | undefined>();
+
+  const persistConfig = useCallback(
+    (patch: TuiConfigPatch, successMessage?: string): boolean => {
+      const result = saveConfig({ ...sessionConfigRef.current, ...patch });
+      sessionConfigRef.current = result.config;
+      if (!result.persisted) {
+        setStickyToast(
+          CONFIG_PERSISTENCE_NOTICE_KEY,
+          "change kept for this session · couldn't save ~/.repogarden/tui.json",
+          "warning"
+        );
+        return false;
+      }
+      clearStickyToast(CONFIG_PERSISTENCE_NOTICE_KEY);
+      if (successMessage) pushToast(successMessage, "info");
+      return true;
+    },
+    [clearStickyToast, pushToast, setStickyToast]
+  );
 
   // Shared sizing cohort: built from the visible (non-hidden) creature set so
   // a single creature renders at the same size in the garden, focus popup,
@@ -538,7 +567,7 @@ const App = ({
       }
       setScanStatus({ kind: "scanning", message: `scanning ${nextRoots.join(", ")}` });
       setRoots(nextRoots);
-      updateConfig({ scanRoots: nextRoots });
+      persistConfig({ scanRoots: nextRoots });
       const reposForScan = effectiveGitHubEnabled
         ? await refreshGitHubCatalogSafely(githubConfig)
         : githubRepos;
@@ -557,7 +586,7 @@ const App = ({
     if (!choice) return;
     setThemeId(id);
     onThemeChange(choice.theme);
-    updateConfig({ themeId: id });
+    persistConfig({ themeId: id });
     setPhase("ready");
   };
 
@@ -565,44 +594,46 @@ const App = ({
     const next = !reducedMotion;
     setReducedMotion(next);
     onReducedMotionChange(next);
-    updateConfig({ reducedMotion: next });
-    pushToast(`reduced motion · ${next ? "on" : "off"}`, "info");
+    persistConfig(
+      { reducedMotion: next },
+      `reduced motion · ${next ? "on" : "off"}`
+    );
   };
 
   const handleToggleUsageBar = () => {
     const next = !usageBarDisabled;
     setUsageBarDisabled(next);
-    updateConfig({ usageBarDisabled: next });
-    pushToast(`usage bar · ${next ? "off" : "on"}`, "info");
+    persistConfig({ usageBarDisabled: next }, `usage bar · ${next ? "off" : "on"}`);
   };
 
   const handleToggleObserver = () => {
     const next = !observerOn;
     setObserverOn(next);
-    const current = loadConfig();
-    updateConfig({ observer: { ...current.observer, enabled: next } });
-    pushToast(`observer · ${next ? "on" : "off"}`, "info");
+    persistConfig(
+      { observer: { ...sessionConfigRef.current.observer, enabled: next } },
+      `observer · ${next ? "on" : "off"}`
+    );
   };
 
   const handleToggleGardenPaginate = () => {
     const next = !gardenPaginate;
     setGardenPaginate(next);
-    updateConfig({ gardenPaginate: next });
-    pushToast(`pagination · ${next ? "on" : "off"}`, "info");
+    persistConfig({ gardenPaginate: next }, `pagination · ${next ? "on" : "off"}`);
   };
 
   const handleToggleBellOnVibeChange = () => {
     const next = !bellOnVibeChange;
     setBellOnVibeChange(next);
-    updateConfig({ bellOnVibeChange: next });
-    pushToast(`bell on vibe flip · ${next ? "on" : "off"}`, "info");
+    persistConfig(
+      { bellOnVibeChange: next },
+      `bell on vibe flip · ${next ? "on" : "off"}`
+    );
   };
 
   const handleToggleGitHub = () => {
     const next = { ...githubConfig, enabled: !githubConfig.enabled };
     setGitHubConfig(next);
-    updateConfig({ github: next });
-    pushToast(`github · ${next.enabled ? "on" : "off"}`, "info");
+    persistConfig({ github: next }, `github · ${next.enabled ? "on" : "off"}`);
     if (next.enabled) {
       void refreshGitHubCatalog(next).catch(recordGitHubRefreshFailure);
     } else {
@@ -614,8 +645,10 @@ const App = ({
   const handleToggleGitHubPrivate = () => {
     const next = { ...githubConfig, includePrivate: !githubConfig.includePrivate };
     setGitHubConfig(next);
-    updateConfig({ github: next });
-    pushToast(`github private repos · ${next.includePrivate ? "included" : "public only"}`, "info");
+    persistConfig(
+      { github: next },
+      `github private repos · ${next.includePrivate ? "included" : "public only"}`
+    );
     if (next.enabled) void refreshGitHubCatalog(next).catch(recordGitHubRefreshFailure);
   };
 
@@ -624,8 +657,7 @@ const App = ({
       githubConfig.cloneProtocol === "ssh" ? "https" : "ssh";
     const next = { ...githubConfig, cloneProtocol: nextProtocol };
     setGitHubConfig(next);
-    updateConfig({ github: next });
-    pushToast(`github clone protocol · ${nextProtocol}`, "info");
+    persistConfig({ github: next }, `github clone protocol · ${nextProtocol}`);
   };
 
   const handleRefreshGitHub = () => {
@@ -650,8 +682,7 @@ const App = ({
   const handleCycleGardenDensity = () => {
     const next = nextGardenDensity(gardenDensity);
     setGardenDensity(next);
-    updateConfig({ gardenDensity: next });
-    pushToast(`density · ${next}`, "info");
+    persistConfig({ gardenDensity: next }, `density · ${next}`);
   };
 
   // Demo mode from onboarding: when the user has no scan roots (or scanned
@@ -878,7 +909,7 @@ const App = ({
       view={readyView}
       onSetView={(next) => {
         setReadyView(next);
-        updateConfig({ view: next });
+        persistConfig({ view: next });
       }}
       onOpenSettings={() => setPhase("settings")}
       onOpenWorkbench={(creature) => {
@@ -945,6 +976,7 @@ const Root = () => {
       <PrivacyProvider initialMode={demoBoot}>
         <ToastProvider>
           <App
+            initialConfig={config}
             initialThemeId={initialChoice.id}
             initialRoots={config.scanRoots}
             initialView={config.view}

@@ -144,7 +144,13 @@ export const ReadyShell = ({
 }: ReadyShellProps) => {
   const theme = useTheme();
   const { reduced: reducedMotion } = useMotion();
-  const { latest: latestStatus, push: pushToast, active: activeToasts } = useToasts();
+  const {
+    latest: latestStatus,
+    sticky: stickyStatus,
+    push: pushToast,
+    active: activeToasts,
+  } = useToasts();
+  const persistentStatus = stickyStatus ?? latestStatus;
   // Toast / status variant → color + icon mapping. Hoisted from the
   // sidebar render path so the top-right notification slot (below) can
   // reuse the same swatch/glyph for sticky-status text without
@@ -2236,10 +2242,10 @@ export const ReadyShell = ({
 
         Single slot for both kinds of status:
           - active toasts render via <Toaster /> (bordered, auto-dismissing)
-          - when no toast is active, the latest sticky status renders as
-            plain colored text in the same slot so the most recent
-            announcement stays visible (e.g. "demo mode") without
-            duplicating itself elsewhere on screen.
+          - when no toast is active, a keyed sticky warning takes priority;
+            otherwise the latest status renders as plain colored text in
+            the same slot so the most recent announcement stays visible
+            (e.g. "demo mode") without duplicating itself elsewhere.
 
         marginTop = gardenContentRow - 3 lands the slot's top row exactly
         on the panel's top border row (gardenContentRow - 1), so the toast
@@ -2287,10 +2293,10 @@ export const ReadyShell = ({
       >
         {activeToasts.length > 0 ? (
           <Toaster />
-        ) : latestStatus ? (
+        ) : persistentStatus ? (
           <Box>
-            <Text color={statusVariantColor(latestStatus.variant)} wrap="truncate-end">
-              {statusIcon(latestStatus.variant)} {latestStatus.message}
+            <Text color={statusVariantColor(persistentStatus.variant)} wrap="truncate-end">
+              {statusIcon(persistentStatus.variant)} {persistentStatus.message}
             </Text>
           </Box>
         ) : null}

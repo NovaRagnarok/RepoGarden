@@ -1,6 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -172,7 +179,10 @@ test("saveConfig writes tui.json with current schemaVersion", () => {
       view: "rooms",
       observer: { enabled: false },
     };
-    saveConfig(config);
+    const result = saveConfig(config);
+
+    assert.equal(result.persisted, true);
+    assert.deepEqual(result.config, config);
 
     const raw = JSON.parse(readFileSync(configPath(home), "utf8")) as Partial<TuiConfig>;
     assert.equal(raw.schemaVersion, TUI_CONFIG_SCHEMA_VERSION);
@@ -191,7 +201,9 @@ test("updateConfig applies patches and preserves the current schema", () => {
       reducedMotion: true,
     });
 
-    const next = updateConfig({ scanRoots: ["/new"], gardenDensity: "cozy" });
+    const result = updateConfig({ scanRoots: ["/new"], gardenDensity: "cozy" });
+    assert.equal(result.persisted, true);
+    const next = result.config;
     assert.equal(next.schemaVersion, TUI_CONFIG_SCHEMA_VERSION);
     assert.equal(next.themeId, "monokai");
     assert.deepEqual(next.scanRoots, ["/new"]);
@@ -202,6 +214,55 @@ test("updateConfig applies patches and preserves the current schema", () => {
     assert.equal(raw.schemaVersion, TUI_CONFIG_SCHEMA_VERSION);
     assert.equal(raw.themeId, "monokai");
     assert.deepEqual(raw.scanRoots, ["/new"]);
+  });
+});
+
+test("updateConfig returns session state and preserves the old file when persistence fails", () => {
+  withFakeHome((home) => {
+    writeRawConfig(home, {
+      themeId: "monokai",
+      scanRoots: ["/old"],
+      reducedMotion: true,
+    });
+    const path = configPath(home);
+    const temporaryPath = `${path}.test.tmp`;
+    const original = readFileSync(path, "utf8");
+
+    const result = updateConfig(
+      { scanRoots: ["/session-only"], gardenDensity: "dense" },
+      {
+        configFile: () => path,
+        temporaryFile: () => temporaryPath,
+        write: (target, contents) => {
+          writeFileSync(target, contents, "utf8");
+          throw new Error("simulated disk failure");
+        },
+      }
+    );
+
+    assert.equal(result.persisted, false);
+    assert.deepEqual(result.config.scanRoots, ["/session-only"]);
+    assert.equal(result.config.themeId, "monokai");
+    assert.equal(result.config.reducedMotion, true);
+    assert.equal(result.config.gardenDensity, "dense");
+    if (!result.persisted) {
+      assert.equal(result.error, "simulated disk failure");
+    }
+    assert.equal(readFileSync(path, "utf8"), original, "failed save must not replace config");
+    assert.equal(existsSync(temporaryPath), false, "failed save must clean up its temp file");
+
+    const retry = saveConfig(
+      { ...result.config, usageBarDisabled: false },
+      {
+        configFile: () => path,
+        temporaryFile: () => `${path}.retry.tmp`,
+      }
+    );
+    assert.equal(retry.persisted, true);
+    const persisted = JSON.parse(readFileSync(path, "utf8")) as TuiConfig;
+    assert.deepEqual(persisted.scanRoots, ["/session-only"]);
+    assert.equal(persisted.gardenDensity, "dense");
+    assert.equal(persisted.usageBarDisabled, false);
   });
 });
 

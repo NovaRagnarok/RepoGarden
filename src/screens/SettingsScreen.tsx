@@ -11,6 +11,7 @@ import React, {
 import { Badge } from "@/components/ui/badge";
 import { Credit } from "@/components/Credit";
 import { Panel } from "@/components/ui/panel";
+import { StickyStatusLine } from "@/components/ui/toast-host";
 import { ThemeProvider, useTheme, type Theme } from "@/components/ui/theme-provider";
 import { useInput } from "@/hooks/use-input";
 import { useMouse } from "@/hooks/use-mouse";
@@ -970,6 +971,7 @@ export const SettingsScreen = ({
               {themeCatalogue.length} themes ported from termcn. click to preview, double-click or enter to apply.
             </Text>
           </Box>
+          <StickyStatusLine />
         </Box>
 
         {compactMode ? (
