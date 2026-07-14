@@ -773,8 +773,16 @@ export const inspectRepo = (
     return { ...base, scanError: "not a git repo" };
   }
 
-  const branch = runGit(repoPath, ["rev-parse", "--abbrev-ref", "HEAD"]);
   const status = runGit(repoPath, ["status", "--porcelain=v2", "--branch"]);
+  // `git status` is the minimum validity check for a synchronous inspection.
+  // Without it, a missing/unavailable git executable looks like a clean empty
+  // repo and can erase an existing branch/HEAD snapshot during reconciliation.
+  // Unborn repositories remain valid because status succeeds for them.
+  if (!status.ok) {
+    return { ...base, scanError: "git status failed" };
+  }
+
+  const branch = runGit(repoPath, ["rev-parse", "--abbrev-ref", "HEAD"]);
   const log = runGit(repoPath, ["log", "-1", "--pretty=%H%x09%s%x09%cI"]);
   const recent = runGit(repoPath, ["log", "-5", "--pretty=%H%x09%s%x09%cI%x09%an"]);
   const total = runGit(repoPath, ["rev-list", "--count", "HEAD"]);

@@ -283,23 +283,22 @@ test("failed incremental inspections retain the prior snapshot until genuine rec
         1
       );
 
-      const failedInspection = {
+      const incompleteInspection = {
         id: alpha.id,
         path: alpha.path,
         name: alpha.name,
         isDirty: false,
-        scanError: "temporarily unavailable",
       };
 
-      // Model the race where the cheap HEAD probe succeeds, then the full
-      // inspection loses access. The error-shaped scan must not replace the
-      // prior creature or participate in snapshot reconciliation.
+      // Even a legacy/injected incomplete result without scanError cannot
+      // erase a previously known HEAD. Model the race where the cheap HEAD
+      // probe succeeds, then the full inspection loses access.
       const afterFailedHeadRefresh = refreshCreaturesLight(creatures, {
         inspectRepoLight: () => ({
           isDirty: false,
           headSha: "f".repeat(40),
         }),
-        inspectRepo: () => failedInspection,
+        inspectRepo: () => incompleteInspection,
       });
       assert.equal(afterFailedHeadRefresh, creatures);
       assert.deepEqual(loadScanSnapshot(), baselineSnapshot);
@@ -307,14 +306,40 @@ test("failed incremental inspections retain the prior snapshot until genuine rec
 
       // The observer's direct single-repo inspection has the same contract.
       const afterFailedObserverRefresh = refreshOneCreature(creatures, alpha.id, {
-        inspectRepo: () => failedInspection,
+        inspectRepo: () => incompleteInspection,
       });
       assert.equal(afterFailedObserverRefresh, creatures);
       assert.deepEqual(loadScanSnapshot(), baselineSnapshot);
       assert.deepEqual(readEvents(), baselineEvents);
 
-      // Once inspection succeeds again, only the real commit made during the
-      // outage is journaled and the snapshot advances from its retained SHA.
+      // Exercise the production scanner failure that originally lost the
+      // baseline: .git exists, but git itself is unavailable on PATH.
+      const emptyBin = join(workspaceRoot, "empty-bin");
+      mkdirSync(emptyBin);
+      const oldPath = process.env.PATH;
+      let directFailure!: ReturnType<typeof inspectRepo>;
+      let afterUnavailableGit!: typeof creatures;
+      process.env.PATH = emptyBin;
+      try {
+        directFailure = inspectRepo(alphaPath);
+        afterUnavailableGit = refreshOneCreature(creatures, alpha.id);
+      } finally {
+        if (oldPath === undefined) delete process.env.PATH;
+        else process.env.PATH = oldPath;
+      }
+      assert.equal(directFailure.scanError, "git status failed");
+      assert.equal(afterUnavailableGit, creatures);
+      assert.deepEqual(loadScanSnapshot(), baselineSnapshot);
+      assert.deepEqual(readEvents(), baselineEvents);
+
+      // Recovery with no repository change must not replay the retained
+      // baseline commit as fresh history.
+      creatures = refreshOneCreature(creatures, alpha.id);
+      assert.deepEqual(loadScanSnapshot(), baselineSnapshot);
+      assert.deepEqual(readEvents(), baselineEvents);
+
+      // A later real commit is still journaled once and advances the retained
+      // baseline normally.
       commitEmpty(alphaPath, "commit after recovery");
       creatures = refreshOneCreature(creatures, alpha.id);
       const recovered = creatures.find((creature) => creature.id === alpha.id);

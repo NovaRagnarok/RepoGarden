@@ -264,6 +264,18 @@ const defaultCreatureRefreshDependencies: CreatureRefreshDependencies = {
   inspectRepoLight,
 };
 
+/**
+ * Incremental refreshes may retain a prior committed baseline when inspection
+ * returns an incomplete shape without an explicit error. A repository that
+ * was already empty is still valid without a SHA; only losing a previously
+ * known HEAD is treated as non-authoritative until a complete scan or a later
+ * successful incremental inspection provides a commit again.
+ */
+const canReplaceIncrementalBaseline = (
+  prior: ScannedRepo,
+  fresh: ScannedRepo
+): boolean => !fresh.scanError && !(prior.lastCommitSha && !fresh.lastCommitSha);
+
 export const refreshCreaturesLight = (
   creatures: RepoCreature[],
   dependencies: CreatureRefreshDependencies = defaultCreatureRefreshDependencies
@@ -284,7 +296,7 @@ export const refreshCreaturesLight = (
       // A transient incremental failure is not new repository evidence. Keep
       // the prior creature and snapshot baseline so recovery cannot manufacture
       // vibe/branch/repo-added history from an error-shaped scan.
-      if (fresh.scanError) continue;
+      if (!canReplaceIncrementalBaseline(creature.scan, fresh)) continue;
       nextScans[i] = fresh;
       anyHeavyChange = true;
       continue;
@@ -367,7 +379,7 @@ export const refreshOneCreature = (
   if (index === -1) return creatures;
   const prior = creatures[index].scan;
   const inspected = dependencies.inspectRepo(prior.path);
-  if (inspected.scanError) return creatures;
+  if (!canReplaceIncrementalBaseline(prior, inspected)) return creatures;
   const fresh = {
     ...inspected,
     github: prior.github,
