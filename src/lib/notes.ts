@@ -1,13 +1,15 @@
 import {
-  existsSync,
+  lstatSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 import { appendEvent } from "./events";
 import { loadMemory } from "./memory";
@@ -35,7 +37,20 @@ export interface NotesState {
   bodies: Record<string, string>;
 }
 
-const projectDir = (id: string): string => join(homedir(), ".repogarden", "projects", id);
+const storageDir = (): string => join(homedir(), ".repogarden");
+const projectsDir = (): string => join(storageDir(), "projects");
+
+const projectDir = (id: string): string => {
+  if (!id || id === "." || id === ".." || basename(id) !== id) {
+    throw new Error(`unsafe creature id: ${id}`);
+  }
+  const root = resolve(projectsDir());
+  const project = resolve(root, id);
+  if (dirname(project) !== root) {
+    throw new Error(`unsafe creature id: ${id}`);
+  }
+  return project;
+};
 const notesDir = (id: string): string => join(projectDir(id), "notes");
 const indexPath = (id: string): string => join(projectDir(id), "notes.json");
 const isSafeNoteId = (id: string): boolean => SAFE_NOTE_ID.test(id);
@@ -52,11 +67,94 @@ export const getNotePath = (creatureId: string, noteId: string): string =>
 
 export const getNotesDir = (creatureId: string): string => notesDir(creatureId);
 
-const ensureDir = (path: string): void => {
+type BoundaryResult =
+  | { kind: "missing" }
+  | { kind: "blocked" }
+  | { kind: "ready"; lexical: string; real: string };
+
+const isMissingFsError = (error: unknown): boolean =>
+  Boolean(
+    error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: unknown }).code === "ENOENT"
+  );
+
+/**
+ * The projects root is the trusted relocation boundary. Users may symlink the
+ * whole ~/.repogarden or projects root, so resolve that root once; child
+ * project and notes directories must still be real direct descendants.
+ */
+const resolveProjectsBoundary = (create: boolean): BoundaryResult => {
+  const lexical = projectsDir();
+  if (create) {
+    try {
+      mkdirSync(lexical, { recursive: true });
+    } catch {
+      return { kind: "blocked" };
+    }
+  }
+
   try {
-    mkdirSync(path, { recursive: true });
+    const real = realpathSync(lexical);
+    if (!lstatSync(real).isDirectory()) return { kind: "blocked" };
+    return { kind: "ready", lexical, real };
+  } catch (error) {
+    return isMissingFsError(error) ? { kind: "missing" } : { kind: "blocked" };
+  }
+};
+
+const resolveProjectBoundary = (creatureId: string, create: boolean): BoundaryResult => {
+  let lexical: string;
+  try {
+    lexical = projectDir(creatureId);
   } catch {
-    // best-effort; downstream writes will surface failures.
+    return { kind: "blocked" };
+  }
+
+  const root = resolveProjectsBoundary(create);
+  if (root.kind !== "ready") return root;
+
+  if (create) {
+    try {
+      mkdirSync(lexical);
+    } catch {
+      // Existing paths are validated below; every other failure becomes blocked.
+    }
+  }
+
+  try {
+    const stat = lstatSync(lexical);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) return { kind: "blocked" };
+    const real = realpathSync(lexical);
+    if (dirname(real) !== root.real) return { kind: "blocked" };
+    return { kind: "ready", lexical, real };
+  } catch (error) {
+    return isMissingFsError(error) ? { kind: "missing" } : { kind: "blocked" };
+  }
+};
+
+const resolveNotesBoundary = (creatureId: string, create: boolean): BoundaryResult => {
+  const project = resolveProjectBoundary(creatureId, create);
+  if (project.kind !== "ready") return project;
+  const lexical = join(project.lexical, "notes");
+
+  if (create) {
+    try {
+      mkdirSync(lexical);
+    } catch {
+      // Existing paths are validated below; every other failure becomes blocked.
+    }
+  }
+
+  try {
+    const stat = lstatSync(lexical);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) return { kind: "blocked" };
+    const real = realpathSync(lexical);
+    if (dirname(real) !== project.real) return { kind: "blocked" };
+    return { kind: "ready", lexical, real };
+  } catch (error) {
+    return isMissingFsError(error) ? { kind: "missing" } : { kind: "blocked" };
   }
 };
 
@@ -121,7 +219,6 @@ const uniqueNoteName = (
 };
 
 const atomicWriteFile = (path: string, contents: string): boolean => {
-  ensureDir(dirname(path));
   const tmp = `${path}.${process.pid}.${Date.now()}.${Math.random()
     .toString(36)
     .slice(2)}.tmp`;
@@ -151,14 +248,31 @@ const normalizeMeta = (id: string, raw: unknown): NoteMeta | null => {
   };
 };
 
-const readIndexFromDisk = (creatureId: string): NoteIndex | null => {
+type IndexReadResult =
+  | { kind: "missing" }
+  | { kind: "blocked" }
+  | { kind: "unusable" }
+  | { kind: "unsupported" }
+  | { kind: "ready"; index: NoteIndex };
+
+const readIndexFromDisk = (creatureId: string): IndexReadResult => {
+  const project = resolveProjectBoundary(creatureId, false);
+  if (project.kind !== "ready") return project;
   const path = indexPath(creatureId);
-  if (!existsSync(path)) return null;
+
   try {
+    const stat = lstatSync(path);
+    if (stat.isSymbolicLink()) return { kind: "blocked" };
+    if (!stat.isFile()) {
+      return stat.isDirectory() ? { kind: "unusable" } : { kind: "blocked" };
+    }
     const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<NoteIndex>;
-    if (parsed.version !== INDEX_VERSION) return null;
-    if (!parsed.notes || typeof parsed.notes !== "object") return null;
-    if (!Array.isArray(parsed.order)) return null;
+    if (typeof parsed.version === "number" && parsed.version !== INDEX_VERSION) {
+      return { kind: "unsupported" };
+    }
+    if (parsed.version !== INDEX_VERSION) return { kind: "unusable" };
+    if (!parsed.notes || typeof parsed.notes !== "object") return { kind: "unusable" };
+    if (!Array.isArray(parsed.order)) return { kind: "unusable" };
 
     const notes: Record<string, NoteMeta> = {};
     const order: string[] = [];
@@ -172,37 +286,115 @@ const readIndexFromDisk = (creatureId: string): NoteIndex | null => {
       notes[rawId] = meta;
     }
 
-    if (order.length === 0) return null;
+    if (order.length === 0) return { kind: "unusable" };
     const active =
       typeof parsed.active === "string" && notes[parsed.active]
         ? parsed.active
         : order[0];
 
-    return { version: INDEX_VERSION, active, order, notes };
-  } catch {
-    return null;
+    return {
+      kind: "ready",
+      index: { version: INDEX_VERSION, active, order, notes },
+    };
+  } catch (error) {
+    return isMissingFsError(error) ? { kind: "missing" } : { kind: "unusable" };
   }
 };
 
-const writeIndexToDisk = (creatureId: string, index: NoteIndex): boolean =>
-  atomicWriteFile(indexPath(creatureId), JSON.stringify(index, null, 2));
+const isSafeFileDestination = (path: string, parentReal: string): boolean => {
+  try {
+    const stat = lstatSync(path);
+    if (stat.isSymbolicLink() || !stat.isFile()) return false;
+    return dirname(realpathSync(path)) === parentReal;
+  } catch (error) {
+    return isMissingFsError(error);
+  }
+};
+
+const writeIndexToDisk = (creatureId: string, index: NoteIndex): boolean => {
+  const current = readIndexFromDisk(creatureId);
+  if (current.kind === "unsupported" || current.kind === "blocked") return false;
+  const project = resolveProjectBoundary(creatureId, true);
+  if (project.kind !== "ready") return false;
+  const path = indexPath(creatureId);
+  if (!isSafeFileDestination(path, project.real)) return false;
+  return atomicWriteFile(path, JSON.stringify(index, null, 2));
+};
+
+interface BodyFile {
+  path: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+type BodyFileResult =
+  | { kind: "missing" }
+  | { kind: "blocked" }
+  | { kind: "ready"; file: BodyFile };
+
+const stableFileTimestamp = (...dates: Date[]): string => {
+  for (const date of dates) {
+    if (Number.isFinite(date.getTime())) return date.toISOString();
+  }
+  return new Date(0).toISOString();
+};
+
+const resolveBodyFile = (creatureId: string, noteId: string): BodyFileResult => {
+  const boundary = resolveNotesBoundary(creatureId, false);
+  if (boundary.kind !== "ready") return boundary;
+
+  let path: string;
+  try {
+    path = notePath(creatureId, noteId);
+  } catch {
+    return { kind: "blocked" };
+  }
+
+  try {
+    const stat = lstatSync(path);
+    if (stat.isSymbolicLink() || !stat.isFile()) return { kind: "blocked" };
+    if (dirname(realpathSync(path)) !== boundary.real) return { kind: "blocked" };
+    return {
+      kind: "ready",
+      file: {
+        path,
+        createdAt: stableFileTimestamp(stat.birthtime, stat.ctime, stat.mtime),
+        updatedAt: stableFileTimestamp(stat.mtime, stat.ctime, stat.birthtime),
+      },
+    };
+  } catch (error) {
+    return isMissingFsError(error) ? { kind: "missing" } : { kind: "blocked" };
+  }
+};
 
 const readBody = (creatureId: string, noteId: string): string => {
-  const path = notePath(creatureId, noteId);
-  if (!existsSync(path)) return "";
+  const resolved = resolveBodyFile(creatureId, noteId);
+  if (resolved.kind !== "ready") return "";
   try {
-    return normalizeBodyText(readFileSync(path, "utf8"));
+    return normalizeBodyText(readFileSync(resolved.file.path, "utf8"));
   } catch {
     return "";
   }
 };
 
-const writeBody = (creatureId: string, noteId: string, body: string): boolean =>
-  atomicWriteFile(notePath(creatureId, noteId), normalizeBodyText(body));
+const writeBody = (creatureId: string, noteId: string, body: string): boolean => {
+  const boundary = resolveNotesBoundary(creatureId, true);
+  if (boundary.kind !== "ready") return false;
+  let path: string;
+  try {
+    path = notePath(creatureId, noteId);
+  } catch {
+    return false;
+  }
+  if (!isSafeFileDestination(path, boundary.real)) return false;
+  return atomicWriteFile(path, normalizeBodyText(body));
+};
 
 const deleteBody = (creatureId: string, noteId: string): void => {
+  const resolved = resolveBodyFile(creatureId, noteId);
+  if (resolved.kind !== "ready") return;
   try {
-    unlinkSync(notePath(creatureId, noteId));
+    unlinkSync(resolved.file.path);
   } catch {
     // file may not exist; treat as already gone.
   }
@@ -233,14 +425,100 @@ const buildFreshScratch = (creatureId: string): MaterializedNote => {
   return { meta, body: "" };
 };
 
+const buildUnavailableScratch = (): NotesState => {
+  const id = "scratch";
+  const stamp = new Date(0).toISOString();
+  const meta: NoteMeta = { id, name: "scratch", createdAt: stamp, updatedAt: stamp };
+  return {
+    index: { version: INDEX_VERSION, active: id, order: [id], notes: { [id]: meta } },
+    bodies: { [id]: "" },
+  };
+};
+
+/**
+ * Recover note bodies whose index metadata is missing or cannot be trusted.
+ * Only regular files with ids accepted by notePath participate: directory
+ * entries, symlinks, and names that could escape the notes directory are
+ * ignored. ASCII lexical ordering makes the rebuilt active note and tabs
+ * stable across reloads and platforms.
+ */
+const recoverNotesFromBodies = (
+  creatureId: string,
+  persistIndex: boolean
+): NotesState | null => {
+  const boundary = resolveNotesBoundary(creatureId, false);
+  if (boundary.kind !== "ready") return null;
+
+  let ids: string[];
+  try {
+    ids = readdirSync(boundary.lexical, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+      .map((entry) => entry.name.slice(0, -3))
+      .filter(isSafeNoteId)
+      .sort();
+  } catch {
+    return null;
+  }
+
+  if (ids.length === 0) return null;
+
+  const recovered = ids.flatMap((id) => {
+    const resolved = resolveBodyFile(creatureId, id);
+    return resolved.kind === "ready" ? [{ id, file: resolved.file }] : [];
+  });
+  if (recovered.length === 0) return null;
+
+  const notes = Object.fromEntries(
+    recovered.map(({ id, file }) => [
+      id,
+      {
+        id,
+        name: sanitizeNoteName(id, id),
+        createdAt: file.createdAt,
+        updatedAt: file.updatedAt,
+      } satisfies NoteMeta,
+    ])
+  );
+  const order = recovered.map(({ id }) => id);
+  const bodies = Object.fromEntries(order.map((id) => [id, readBody(creatureId, id)]));
+  const index: NoteIndex = {
+    version: INDEX_VERSION,
+    active: order[0],
+    order,
+    notes,
+  };
+
+  if (persistIndex) writeIndexToDisk(creatureId, index);
+  return { index, bodies };
+};
+
 /**
  * Build a notes state for a creature, migrating from legacy ProjectMemory
  * (currentBlocker / noteToFutureSelf) on first access.
  */
 export const loadNotes = (creatureId: string): NotesState => {
-  const existing = readIndexFromDisk(creatureId);
+  const indexRead = readIndexFromDisk(creatureId);
+  const notesBoundary = resolveNotesBoundary(creatureId, false);
 
-  if (!existing) {
+  // Crafted child symlinks are never a notes store. Return a stable in-memory
+  // scratch state without reading legacy data or attempting any disk writes.
+  if (indexRead.kind === "blocked" || notesBoundary.kind === "blocked") {
+    return buildUnavailableScratch();
+  }
+
+  if (indexRead.kind === "unsupported") {
+    // A newer app owns this metadata schema. Surface safe bodies without
+    // replacing its index; mutators below also refuse while it remains present.
+    return recoverNotesFromBodies(creatureId, false) ?? buildUnavailableScratch();
+  }
+
+  if (indexRead.kind !== "ready") {
+    // A missing index is only a true first run when no safe note bodies exist.
+    // Unusable indexes take the same recovery path, so malformed metadata can
+    // never replace otherwise readable user content with scratch/legacy seeds.
+    const recovered = recoverNotesFromBodies(creatureId, true);
+    if (recovered) return recovered;
+
     const legacy = loadMemory(creatureId);
     const seeded: MaterializedNote[] = [];
     const stamp = now();
@@ -282,17 +560,28 @@ export const loadNotes = (creatureId: string): NotesState => {
     return { index, bodies };
   }
 
+  const existing = indexRead.index;
+
   // Reconcile against disk: a note in the index whose body file is missing
   // has been deleted out-of-band; drop it. If everything is gone, recreate
   // a scratch note so the editor never opens to an empty state.
   const survivingOrder: string[] = [];
   const survivingNotes: Record<string, NoteMeta> = {};
   const bodies: Record<string, string> = {};
+  let hasBlockedBody = false;
   for (const id of existing.order) {
-    if (existsSync(notePath(creatureId, id))) {
+    const resolved = resolveBodyFile(creatureId, id);
+    if (resolved.kind === "ready") {
       survivingOrder.push(id);
       survivingNotes[id] = existing.notes[id];
       bodies[id] = readBody(creatureId, id);
+    } else if (resolved.kind === "blocked") {
+      // Preserve valid metadata for an unsafe body entry, but never read it or
+      // rewrite the index based on the partial view.
+      hasBlockedBody = true;
+      survivingOrder.push(id);
+      survivingNotes[id] = existing.notes[id];
+      bodies[id] = "";
     }
   }
 
@@ -314,14 +603,21 @@ export const loadNotes = (creatureId: string): NotesState => {
   };
 
   if (
-    reconciled.order.length !== existing.order.length ||
-    reconciled.active !== existing.active ||
-    reconciled.order.some((id) => reconciled.notes[id]?.name !== existing.notes[id]?.name)
+    !hasBlockedBody &&
+    (reconciled.order.length !== existing.order.length ||
+      reconciled.active !== existing.active ||
+      reconciled.order.some((id) => reconciled.notes[id]?.name !== existing.notes[id]?.name))
   ) {
     writeIndexToDisk(creatureId, reconciled);
   }
 
   return { index: reconciled, bodies };
+};
+
+const canMutateNotes = (creatureId: string): boolean => {
+  const indexRead = readIndexFromDisk(creatureId);
+  if (indexRead.kind === "unsupported" || indexRead.kind === "blocked") return false;
+  return resolveNotesBoundary(creatureId, false).kind !== "blocked";
 };
 
 export const saveNoteBody = (
@@ -332,6 +628,7 @@ export const saveNoteBody = (
   repoName = ""
 ): NotesState => {
   if (!state.index.notes[noteId] || !isSafeNoteId(noteId)) return state;
+  if (!canMutateNotes(creatureId)) return state;
   const oldBody = normalizeBodyText(state.bodies[noteId] ?? "");
   const nextBody = normalizeBodyText(body);
   if (!writeBody(creatureId, noteId, nextBody)) {
@@ -379,6 +676,9 @@ export const createNote = (
   name: string,
   repoName = ""
 ): { state: NotesState; id: string } => {
+  if (!canMutateNotes(creatureId)) {
+    return { state, id: state.index.active };
+  }
   const id = newId();
   const stamp = now();
   const fallback = `note ${state.index.order.length + 1}`;
@@ -422,6 +722,7 @@ export const deleteNote = (
   repoName = ""
 ): NotesState => {
   if (!state.index.notes[noteId] || !isSafeNoteId(noteId)) return state;
+  if (!canMutateNotes(creatureId)) return state;
 
   const deletedName = state.index.notes[noteId].name;
   const nextOrder = state.index.order.filter((id) => id !== noteId);
@@ -435,7 +736,7 @@ export const deleteNote = (
   // editor never has a zero-note state (see notepad-editor-spec.md).
   if (nextOrder.length === 0) {
     const fresh = buildFreshScratch(creatureId);
-    if (!existsSync(notePath(creatureId, fresh.meta.id))) {
+    if (resolveBodyFile(creatureId, fresh.meta.id).kind !== "ready") {
       return state;
     }
     replacementId = fresh.meta.id;
@@ -487,6 +788,7 @@ export const setActive = (
   noteId: string
 ): NotesState => {
   if (!state.index.notes[noteId] || !isSafeNoteId(noteId) || state.index.active === noteId) return state;
+  if (!canMutateNotes(creatureId)) return state;
   const nextIndex: NoteIndex = { ...state.index, active: noteId };
   if (!writeIndexToDisk(creatureId, nextIndex)) return state;
   return { ...state, index: nextIndex };
@@ -522,6 +824,7 @@ export const renameNote = (
   repoName = ""
 ): NotesState => {
   if (!state.index.notes[noteId] || !isSafeNoteId(noteId)) return state;
+  if (!canMutateNotes(creatureId)) return state;
   const trimmed = sanitizeNoteName(name, "");
   if (!trimmed) return state;
   const uniqueName = uniqueNoteName(state, trimmed, noteId);

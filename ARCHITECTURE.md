@@ -243,6 +243,19 @@ Two details matter when editing persistence code:
   blocker mirror.
 - The note named `blocker` is mirrored back into `ProjectMemory.currentBlocker`
   so the habitat's vibe inference can stay simple.
+- Note bodies remain the recovery authority when `notes.json` is missing even
+  though bodies already exist, is malformed, or contains no safe indexed
+  entries. `src/lib/notes.ts` rebuilds the index from safe regular `notes/*.md`
+  files in lexical order, using each file id as its recovered display name and
+  stable file timestamps as fallback metadata. An index from a newer schema is
+  left untouched: its safe bodies are surfaced in a read-only recovered view
+  until a compatible app can interpret the metadata.
+- The resolved `~/.repogarden/projects` directory is the notes storage trust
+  root, so relocating the whole state/projects directory with a symlink remains
+  supported. Per-project, `notes/`, index-file, and body-file symlinks are not
+  followed; unsafe names and paths outside that resolved root are never read or
+  written. Legacy migration or a fresh scratch note happens only when storage
+  is safe and there are no recoverable bodies.
 
 ## Events and usage polling
 

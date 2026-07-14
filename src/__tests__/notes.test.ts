@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -43,7 +44,7 @@ const withFakeHome = (run: () => void) => {
   }
 };
 
-test("loadNotes seeds a single scratch note when no legacy memory exists", () => {
+test("loadNotes seeds a single scratch note on a true empty first run", () => {
   withFakeHome(() => {
     const state = loadNotes("alpha");
     assert.equal(state.index.order.length, 1);
@@ -51,6 +52,246 @@ test("loadNotes seeds a single scratch note when no legacy memory exists", () =>
     assert.equal(only.name, "scratch");
     assert.equal(state.index.active, only.id);
     assert.equal(state.bodies[only.id], "");
+
+    const reloaded = loadNotes("alpha");
+    assert.deepEqual(reloaded.index, state.index);
+    assert.deepEqual(reloaded.bodies, state.bodies);
+  });
+});
+
+test("loadNotes recovers safe note bodies when the index is missing", () => {
+  withFakeHome(() => {
+    const project = join(process.env.HOME!, ".repogarden", "projects", "missing-index");
+    const notes = join(project, "notes");
+    mkdirSync(notes, { recursive: true });
+    writeFileSync(join(notes, "zeta.md"), "last", "utf8");
+    writeFileSync(join(notes, "alpha.md"), "first\r\nsecond", "utf8");
+    writeFileSync(join(notes, "unsafe.name.md"), "ignore me", "utf8");
+    mkdirSync(join(notes, "directory.md"));
+
+    const recovered = loadNotes("missing-index");
+    assert.deepEqual(recovered.index.order, ["alpha", "zeta"]);
+    assert.equal(recovered.index.active, "alpha");
+    assert.equal(recovered.index.notes.alpha.name, "alpha");
+    assert.equal(recovered.bodies.alpha, "first\nsecond");
+    assert.equal(recovered.bodies.zeta, "last");
+    assert.equal(recovered.bodies["unsafe.name"], undefined);
+    assert.equal(recovered.bodies.directory, undefined);
+
+    const reloaded = loadNotes("missing-index");
+    assert.deepEqual(reloaded, recovered);
+  });
+});
+
+test("loadNotes recovers bodies from malformed index JSON instead of re-seeding", () => {
+  withFakeHome(() => {
+    const project = join(process.env.HOME!, ".repogarden", "projects", "malformed-index");
+    const notes = join(project, "notes");
+    mkdirSync(notes, { recursive: true });
+    writeFileSync(join(notes, "kept.md"), "keep this body", "utf8");
+    writeFileSync(join(project, "notes.json"), "{ definitely not json", "utf8");
+    saveMemory("malformed-index", { currentBlocker: "legacy fallback" });
+
+    const recovered = loadNotes("malformed-index");
+    assert.deepEqual(recovered.index.order, ["kept"]);
+    assert.equal(recovered.index.notes.kept.name, "kept");
+    assert.equal(recovered.bodies.kept, "keep this body");
+    assert.equal(Object.values(recovered.bodies).includes("legacy fallback"), false);
+
+    assert.deepEqual(loadNotes("malformed-index"), recovered);
+  });
+});
+
+test("loadNotes preserves an unsupported future index while surfacing every safe body", () => {
+  withFakeHome(() => {
+    const project = join(process.env.HOME!, ".repogarden", "projects", "future-index");
+    const notes = join(project, "notes");
+    mkdirSync(notes, { recursive: true });
+    writeFileSync(join(notes, "second.md"), "two", "utf8");
+    writeFileSync(join(notes, "first.md"), "one", "utf8");
+    const futureIndexPath = join(project, "notes.json");
+    const futureIndex = JSON.stringify(
+      {
+        version: 999,
+        active: "second",
+        order: ["second", "first"],
+        notes: {
+          first: { id: "first", name: "valuable first name", futureColor: "amber" },
+          second: { id: "second", name: "valuable second name", futureColor: "blue" },
+        },
+        futureMetadata: { layout: "manual", unknownButValuable: true },
+      },
+      null,
+      2
+    );
+    writeFileSync(futureIndexPath, futureIndex, "utf8");
+
+    const recovered = loadNotes("future-index");
+    assert.deepEqual(recovered.index.order, ["first", "second"]);
+    assert.deepEqual(recovered.bodies, { first: "one", second: "two" });
+    assert.equal(readFileSync(futureIndexPath, "utf8"), futureIndex);
+
+    const refused = saveNoteBody("future-index", recovered, "first", "do not downgrade");
+    assert.deepEqual(refused, recovered);
+    assert.equal(readFileSync(join(notes, "first.md"), "utf8"), "one");
+    assert.equal(readFileSync(futureIndexPath, "utf8"), futureIndex);
+    assert.deepEqual(loadNotes("future-index"), recovered);
+  });
+});
+
+test("loadNotes recovers safe bodies when every indexed note is invalid", () => {
+  withFakeHome(() => {
+    const project = join(process.env.HOME!, ".repogarden", "projects", "invalid-index");
+    const notes = join(project, "notes");
+    mkdirSync(notes, { recursive: true });
+    writeFileSync(join(notes, "safe_id.md"), "safe body", "utf8");
+    writeFileSync(join(notes, "unsafe.name.md"), "unsafe body", "utf8");
+    writeFileSync(
+      join(project, "notes.json"),
+      JSON.stringify({
+        version: 1,
+        active: "../escape",
+        order: ["../escape", "bad.id"],
+        notes: {
+          "../escape": { name: "escape" },
+          "bad.id": { name: "bad" },
+        },
+      }),
+      "utf8"
+    );
+
+    const recovered = loadNotes("invalid-index");
+    assert.deepEqual(recovered.index.order, ["safe_id"]);
+    assert.equal(recovered.index.active, "safe_id");
+    assert.equal(recovered.bodies.safe_id, "safe body");
+    assert.equal(recovered.bodies["unsafe.name"], undefined);
+    assert.deepEqual(loadNotes("invalid-index"), recovered);
+  });
+});
+
+test("loadNotes keeps a valid index authoritative over an unindexed body", () => {
+  withFakeHome(() => {
+    const initial = loadNotes("authoritative-index");
+    const created = createNote("authoritative-index", initial, "temporary");
+    const deleted = deleteNote("authoritative-index", created.state, created.id);
+    const orphanPath = join(
+      process.env.HOME!,
+      ".repogarden",
+      "projects",
+      "authoritative-index",
+      "notes",
+      `${created.id}.md`
+    );
+
+    // Simulate the index commit succeeding before a body unlink failed.
+    writeFileSync(orphanPath, "must stay deleted", "utf8");
+
+    const reloaded = loadNotes("authoritative-index");
+    assert.deepEqual(reloaded.index.order, deleted.index.order);
+    assert.equal(reloaded.index.notes[created.id], undefined);
+    assert.equal(reloaded.bodies[created.id], undefined);
+    assert.equal(readFileSync(orphanPath, "utf8"), "must stay deleted");
+  });
+});
+
+test("loadNotes surfaces recovered bodies even when index repair cannot be written", () => {
+  withFakeHome(() => {
+    const project = join(process.env.HOME!, ".repogarden", "projects", "repair-write-fail");
+    const notes = join(project, "notes");
+    mkdirSync(notes, { recursive: true });
+    writeFileSync(join(notes, "kept.md"), "still visible", "utf8");
+    // A directory at the index path makes both the read and atomic replacement
+    // fail consistently, including when tests run with elevated permissions.
+    mkdirSync(join(project, "notes.json"));
+
+    const recovered = loadNotes("repair-write-fail");
+    assert.deepEqual(recovered.index.order, ["kept"]);
+    assert.equal(recovered.bodies.kept, "still visible");
+
+    const retried = loadNotes("repair-write-fail");
+    assert.deepEqual(retried, recovered);
+  });
+});
+
+test("note storage permits relocating the whole projects root", () => {
+  withFakeHome(() => {
+    const stateRoot = join(process.env.HOME!, ".repogarden");
+    const relocated = join(process.env.HOME!, "relocated-projects");
+    mkdirSync(stateRoot, { recursive: true });
+    mkdirSync(relocated);
+    symlinkSync(
+      relocated,
+      join(stateRoot, "projects"),
+      process.platform === "win32" ? "junction" : "dir"
+    );
+
+    const initial = loadNotes("relocated-root");
+    const id = initial.index.active;
+    const saved = saveNoteBody("relocated-root", initial, id, "inside relocated state");
+
+    assert.equal(saved.bodies[id], "inside relocated state");
+    assert.equal(
+      readFileSync(join(relocated, "relocated-root", "notes", `${id}.md`), "utf8"),
+      "inside relocated state"
+    );
+    assert.deepEqual(loadNotes("relocated-root"), saved);
+  });
+});
+
+test("loadNotes rejects a symlinked notes directory without reading or writing its target", () => {
+  withFakeHome(() => {
+    const project = join(process.env.HOME!, ".repogarden", "projects", "linked-notes");
+    const external = join(process.env.HOME!, "external-note-store");
+    mkdirSync(project, { recursive: true });
+    mkdirSync(external);
+    const externalBody = join(external, "outside.md");
+    writeFileSync(externalBody, "external sentinel", "utf8");
+    symlinkSync(
+      external,
+      join(project, "notes"),
+      process.platform === "win32" ? "junction" : "dir"
+    );
+
+    const loaded = loadNotes("linked-notes");
+    assert.deepEqual(loaded.index.order, ["scratch"]);
+    assert.equal(Object.values(loaded.bodies).includes("external sentinel"), false);
+
+    const refused = saveNoteBody(
+      "linked-notes",
+      loaded,
+      loaded.index.active,
+      "must not escape"
+    );
+    assert.deepEqual(refused, loaded);
+    assert.equal(readFileSync(externalBody, "utf8"), "external sentinel");
+    assert.equal(existsSync(join(project, "notes.json")), false);
+    assert.deepEqual(loadNotes("linked-notes"), loaded);
+  });
+});
+
+test("loadNotes rejects a symlinked project directory without touching its target", () => {
+  withFakeHome(() => {
+    const projects = join(process.env.HOME!, ".repogarden", "projects");
+    const externalProject = join(process.env.HOME!, "external-project");
+    const externalNotes = join(externalProject, "notes");
+    mkdirSync(projects, { recursive: true });
+    mkdirSync(externalNotes, { recursive: true });
+    const externalBody = join(externalNotes, "outside.md");
+    writeFileSync(externalBody, "project sentinel", "utf8");
+    symlinkSync(
+      externalProject,
+      join(projects, "linked-project"),
+      process.platform === "win32" ? "junction" : "dir"
+    );
+
+    const loaded = loadNotes("linked-project");
+    assert.deepEqual(loaded.index.order, ["scratch"]);
+    assert.equal(Object.values(loaded.bodies).includes("project sentinel"), false);
+
+    const refused = createNote("linked-project", loaded, "must not escape");
+    assert.deepEqual(refused.state, loaded);
+    assert.equal(readFileSync(externalBody, "utf8"), "project sentinel");
+    assert.equal(existsSync(join(externalProject, "notes.json")), false);
   });
 });
 
