@@ -7,7 +7,13 @@ import { spawnSync } from "node:child_process";
 
 import { writeFileSync } from "node:fs";
 
-import { findRepos, scanRoots, expandPath, inspectRepoLight } from "../lib/scanner";
+import {
+  expandPath,
+  findRepos,
+  inspectRepo,
+  inspectRepoLight,
+  scanRoots,
+} from "../lib/scanner";
 
 const initRepo = (path: string) => {
   mkdirSync(path, { recursive: true });
@@ -95,6 +101,52 @@ test("inspectRepoLight returns null when path is not a git repo", () => {
     mkdirSync(join(root, "not-a-repo"), { recursive: true });
     const probe = inspectRepoLight(join(root, "not-a-repo"));
     assert.equal(probe, null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("inspectRepo accepts an unborn repository whose git status succeeds", () => {
+  const root = mkdtempSync(join(tmpdir(), "repogarden-tui-unborn-"));
+  try {
+    const repo = join(root, "alpha");
+    mkdirSync(repo, { recursive: true });
+    const initialized = spawnSync(
+      "git",
+      ["init", "--quiet", "--initial-branch=main"],
+      { cwd: repo }
+    );
+    assert.equal(initialized.status, 0);
+
+    const scan = inspectRepo(repo);
+    assert.equal(scan.scanError, undefined);
+    assert.equal(scan.lastCommitSha, undefined);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("inspectRepo reports a critical failure when git status cannot run", () => {
+  const root = mkdtempSync(join(tmpdir(), "repogarden-tui-no-git-"));
+  try {
+    const repo = join(root, "alpha");
+    const emptyBin = join(root, "empty-bin");
+    initRepo(repo);
+    mkdirSync(emptyBin);
+
+    const oldPath = process.env.PATH;
+    let scan!: ReturnType<typeof inspectRepo>;
+    process.env.PATH = emptyBin;
+    try {
+      scan = inspectRepo(repo);
+    } finally {
+      if (oldPath === undefined) delete process.env.PATH;
+      else process.env.PATH = oldPath;
+    }
+
+    assert.equal(scan.scanError, "git status failed");
+    assert.equal(scan.branch, undefined);
+    assert.equal(scan.lastCommitSha, undefined);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -38,7 +38,6 @@ import {
   type ScanStatus
 } from "@/lib/app-shell-state";
 import {
-  inspectRepo,
   scanRootsProgressive,
   type RootProgress,
   type ScannedRepo,
@@ -54,6 +53,7 @@ import {
 import type { GitHubRepoSnapshot } from "@/lib/scanner-types";
 import { startObserver } from "@/lib/observer";
 import {
+  addDiscoveredCreature,
   buildCreature,
   enrichScans,
   refreshCreaturesLight,
@@ -432,13 +432,7 @@ const App = ({
       },
       onNewRepoDetected: (path) => {
         setCreatures((current) => {
-          if (current.some((creature) => creature.scan.path === path)) {
-            return current;
-          }
-          const fresh = inspectRepo(path);
-          if (fresh.scanError) return current;
-          const nextScans = [...current.map((c) => c.scan), fresh];
-          return enrichScans(nextScans);
+          return addDiscoveredCreature(current, path);
         });
       },
     });

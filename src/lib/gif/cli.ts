@@ -285,7 +285,10 @@ const loadCreatures = (
 ): RepoCreature[] => {
   const root = parsed.root ?? process.cwd();
   const result = dependencies.scanRoots([root], 4);
-  const creatures = dependencies.enrichScans(result.repos);
+  // Export is a scoped read-only render, not an authoritative inventory of
+  // the user's configured garden. Build creatures without touching journal
+  // events or the global scan snapshot.
+  const creatures = dependencies.enrichScans(result.repos, { reconcile: false });
   if (creatures.length === 0) {
     throw new Error(`no git repositories found under ${root}`);
   }
