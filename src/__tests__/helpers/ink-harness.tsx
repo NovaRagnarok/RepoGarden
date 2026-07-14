@@ -11,9 +11,9 @@
 //   (components/App.js → handleReadable). A bare ESC byte is buffered by
 //   Ink's input parser and auto-flushed after 20ms
 //   (pendingInputFlushDelayMilliseconds), so writing "\x1b" alone is enough
-//   for an escape keypress — no follow-up byte needed. (The 30ms flush timer
-//   in cli-main.tsx belongs to the mouse-filtering stdin wrapper, which tests
-//   bypass entirely.)
+//   for an escape keypress — no follow-up byte needed. The harness bypasses
+//   the production mouse-filtering wrapper by default; tests that need its
+//   30ms prefix flush can opt in through createProductionInput().
 // - stdout: Ink reads `columns`/`rows`, subscribes to 'resize', and writes
 //   each frame as a single chunk (erase prefix + newline-joined frame text +
 //   cursor suffix). Ink keeps a per-stdout instance map, so every renderInk()
@@ -41,6 +41,7 @@ import { render } from "ink";
 import { PrivacyProvider } from "../../components/privacy-context";
 import { ThemeProvider } from "../../components/ui/theme-provider";
 import { ToastProvider } from "../../components/ui/toast-host";
+import { buildWrappedStdin, type WrappedStdinOptions } from "../../lib/wrapped-stdin";
 
 // ---------------------------------------------------------------------------
 // ANSI stripping (inline strip-ansi equivalent; covers CSI sequences — SGR
@@ -99,6 +100,11 @@ export class FakeStdin extends EventEmitter {
   write(data: string): void {
     this.chunks.push(data);
     this.emit("readable");
+  }
+
+  /** Emit a source-TTY chunk for the production wrapped-stdin pipeline. */
+  emitData(data: string): void {
+    this.emit("data", Buffer.from(data, "utf8"));
   }
 }
 
@@ -230,6 +236,14 @@ export const waitFor = async (
 export interface RenderOptions {
   columns?: number;
   rows?: number;
+  input?: InkInputAdapter;
+}
+
+export interface InkInputAdapter {
+  source: FakeStdin;
+  stream: NodeJS.ReadStream;
+  send: (data: string) => void;
+  dispose?: () => void;
 }
 
 export interface InkHarness {
@@ -243,6 +257,8 @@ export interface InkHarness {
   output: () => string;
   /** Send a keypress: plain chars, named keys ("escape", "up", …), ctrl chords. */
   press: (key: string, options?: PressOptions) => void;
+  /** Send one exact terminal chunk (used for split-sequence coverage). */
+  writeInput: (data: string) => void;
   rerender: (tree: ReactElement) => void;
   /** Idempotent; clears Ink's timers and the app's own intervals/watchers. */
   unmount: () => void;
@@ -251,10 +267,15 @@ export interface InkHarness {
 /** Render a raw Ink tree against fresh fake TTY streams. */
 export const renderInk = (tree: ReactElement, opts: RenderOptions = {}): InkHarness => {
   const stdout = new FakeStdout(opts);
-  const stdin = new FakeStdin();
+  const directStdin = new FakeStdin();
+  const input: InkInputAdapter = opts.input ?? {
+    source: directStdin,
+    stream: directStdin as unknown as NodeJS.ReadStream,
+    send: (data) => directStdin.write(data),
+  };
   const instance = render(tree, {
     stdout: stdout as unknown as NodeJS.WriteStream,
-    stdin: stdin as unknown as NodeJS.ReadStream,
+    stdin: input.stream,
     exitOnCtrlC: false,
     patchConsole: false,
     // Ink consults is-in-ci before stdout.isTTY: under CI=true (GitHub
@@ -266,18 +287,34 @@ export const renderInk = (tree: ReactElement, opts: RenderOptions = {}): InkHarn
 
   let unmounted = false;
   return {
-    stdin,
+    stdin: input.source,
     stdout,
     frames: stdout.frames,
     lastFrame: () => stdout.lastFrame(),
     output: () => stdout.output(),
-    press: (key, options) => stdin.write(keySequence(key, options)),
+    press: (key, options) => input.send(keySequence(key, options)),
+    writeInput: input.send,
     rerender: instance.rerender,
     unmount: () => {
       if (unmounted) return;
       unmounted = true;
       instance.unmount();
+      input.dispose?.();
     }
+  };
+};
+
+/** Use the exact production mouse/focus wrapper around a fake source TTY. */
+export const createProductionInput = (
+  options: WrappedStdinOptions = {}
+): InkInputAdapter => {
+  const source = new FakeStdin();
+  const stream = buildWrappedStdin(source as unknown as NodeJS.ReadStream, options);
+  return {
+    source,
+    stream,
+    send: (data) => source.emitData(data),
+    dispose: stream.dispose,
   };
 };
 
