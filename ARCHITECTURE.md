@@ -205,7 +205,6 @@ Everything lives under `~/.repogarden`.
 - `events.meta.json`: seeded/backfill marker
 - `scan-snapshot.json`: last known vibe/branch/head per repo
 - `scan-cache.json`: cached scan details for fast startup
-- `update-check.json`: cached npm version check result
 
 This layout is treated as supported local storage while RepoGarden moves toward
 a stable release. Schema-less older `tui.json` files are normalized on read and

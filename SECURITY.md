@@ -38,13 +38,9 @@ For a one-off run that suppresses all GitHub reads regardless of saved settings:
 REPOGARDEN_DISABLE_GITHUB=1 repogarden
 ```
 
-## Update check
+## Updates
 
-Once per launch (cached for 24h under `~/.repogarden/update-check.json`), RepoGarden hits the npm registry at `https://registry.npmjs.org/@outsideheaven/repogarden/latest` to see whether a newer published version is available. If one is, a small toast in the running UI suggests the upgrade — RepoGarden never modifies the user's install.
-
-The check is opt-out via `REPOGARDEN_NO_UPDATE_CHECK=1` and is automatically skipped in demo mode (`REPOGARDEN_DEMO=1`) and on CI runners (`CI=true`).
-
-The implementation lives in `src/lib/update-check.ts`.
+RepoGarden does not perform automatic update checks or contact the npm registry during startup. Installing a newer version is an explicit user action through the user's package manager.
 
 ## Provider integrations
 

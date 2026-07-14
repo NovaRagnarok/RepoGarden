@@ -81,6 +81,8 @@ That runs the Ink-based terminal UI: scan, garden/rooms/journal views, per-repo 
 
 RepoGarden is local-first. No repository contents are sent to any RepoGarden-operated server.
 
+Ordinary startup does not contact npm or another service to check for updates.
+
 RepoGarden stores local app data under `~/.repogarden`, including configured roots, project notes, blockers, event logs, repo paths, commit subjects, and branch/vibe snapshots.
 
 During normal operation the app reads repo paths, branch names, commit subjects and authors, dirty file names, and small diff previews for display in the habitat.
@@ -102,7 +104,6 @@ The `~/.repogarden` layout is the supported local storage location for the 0.9 l
 - `scan-snapshot.json` — last known vibe, mood, branch, and head per repo
 - `scan-cache.json` — cached scan details for faster startup
 - `github-repos.json` — optional cached GitHub repo metadata when GitHub discovery is enabled
-- `update-check.json` — cached npm update-check result
 
 ### Reset local data
 

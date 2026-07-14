@@ -77,8 +77,12 @@ import {
 } from "@/lib/creature";
 import { buildDemoCreatures } from "@/lib/demo-roster";
 import { loadMemory, saveMemory, type ProjectMemory } from "@/lib/memory";
-import { CLI_HELP_TEXT, hasHelpFlag, hasVersionFlag } from "@/lib/cli-help";
-import { checkForUpdate, readCurrentVersion } from "@/lib/update-check";
+import {
+  CLI_HELP_TEXT,
+  hasHelpFlag,
+  hasVersionFlag,
+  readCurrentVersion
+} from "@/lib/cli-help";
 import { scheduleStartupPrune } from "@/lib/startup-prune";
 
 const BOOT_SCAN_DELAY_MS = 400;
@@ -365,32 +369,6 @@ const App = ({
     const handle = scheduleStartupPrune();
     return () => clearTimeout(handle);
   }, []);
-
-  // Fire-and-forget update check. Runs once per session, after the boot
-  // sequence settles. Cached for 24h under ~/.repogarden/update-check.json,
-  // opt out with REPOGARDEN_NO_UPDATE_CHECK=1 (and auto-skipped in demo
-  // mode + CI). The toast is informational — never blocks anything.
-  const didCheckUpdate = useRef(false);
-  useEffect(() => {
-    if (didCheckUpdate.current) return;
-    if (phase === "booting" || phase === "onboarding" || phase === "edit-roots") {
-      return;
-    }
-    didCheckUpdate.current = true;
-    void checkForUpdate({ current: readCurrentVersion() })
-      .then((result) => {
-        if (!result || !result.isOutdated) return;
-        pushToast(
-          `update available · v${result.latest} (npm i -g @outsideheaven/repogarden)`,
-          "info",
-          6000
-        );
-      })
-      .catch(() => {
-        // checkForUpdate never throws, but belt-and-braces — a toast that
-        // never appears is fine; a crash on launch is not.
-      });
-  }, [phase, pushToast]);
 
   // Terminal bell on vibe transitions. Diffs current vs previous creatures
   // and rings BEL once per genuine flip (repo existed before AND vibe
