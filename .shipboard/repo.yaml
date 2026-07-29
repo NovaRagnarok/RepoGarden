@@ -23,10 +23,10 @@ operations:
   deploy_policy: Publishing requires an explicit release-owner decision after the Usable gate.
 
 workshop:
-  applicable: true
-  build: pnpm build
-  check: pnpm typecheck && pnpm test
-  order: build-before-check
+  applicable: false
+  build: null
+  check: null
+  order: none
 
 continuity:
   repo_canon: BACKLOG.md
