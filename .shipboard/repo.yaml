@@ -1,0 +1,54 @@
+version: 1
+
+repository:
+  id: repogarden
+  github: NovaRagnarok/RepoGarden
+  kind: application
+  lifecycle: active
+
+relationships:
+  part_of: []
+  depends_on: []
+  provides: []
+  consumes: []
+
+operations:
+  instructions: null
+  handoff: null
+  verify:
+    quick: pnpm typecheck
+    full: pnpm typecheck && pnpm test && pnpm build && git diff --check
+  pr_policy: One ready-for-review pull request per outcome milestone with runnable receipts.
+  merge_policy: Maintainer review required; never auto-merge.
+  deploy_policy: Publishing requires an explicit release-owner decision after the Usable gate.
+
+workshop:
+  applicable: false
+  build: null
+  check: null
+  order: none
+
+continuity:
+  repo_canon: BACKLOG.md
+  decision_log: docs/AGENT-DECISIONS.md
+  workstreams: []
+
+roadmap:
+  path: BACKLOG.md
+  product: A delightful, dependable, local-first habitat that helps a person resume one repository.
+  goal: Configure, notice, recover truthful context, and hand off to one local repository within five minutes without provider setup.
+  outcomes:
+    real: The supported CLI scans configured roots, renders stable creatures, opens focused context, and never modifies scanned repositories.
+    good: Local memory and habitat membership are truthful, with one evidence-backed next move and an obvious external handoff.
+    usable: Fresh-install runs complete the one-repo loop within five minutes across supported terminal tiers without loss or false success.
+  updated: "2026-07-29"
+  current_milestone:
+    id: M1
+    title: Resume memory tells the truth
+    status: planned
+    verified_at: null
+    receipts:
+      - BACKLOG.md
+      - https://github.com/NovaRagnarok/RepoGarden/issues/76
+      - https://github.com/NovaRagnarok/RepoGarden/issues/77
+  missing_count: 5
