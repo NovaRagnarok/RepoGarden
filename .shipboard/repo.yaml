@@ -14,7 +14,7 @@ relationships:
 
 operations:
   instructions: null
-  handoff: null
+  handoff: HANDOFF.md
   verify:
     quick: pnpm typecheck
     full: pnpm typecheck && pnpm test && pnpm build && git diff --check
