@@ -16,6 +16,29 @@ fail_capture() {
   exit 1
 }
 
+capture_when_visible() {
+  local pattern="$1"
+  local label="$2"
+  local attempts="${REPOGARDEN_OBSERVE_READY_ATTEMPTS:-40}"
+  local interval_ms="${REPOGARDEN_OBSERVE_READY_INTERVAL_MS:-250}"
+  local capture=""
+
+  for ((attempt = 1; attempt <= attempts; attempt += 1)); do
+    capture="$("$HARNESS" capture)"
+    if printf '%s\n' "$capture" | grep -Eq "$pattern"; then
+      "$HARNESS" capture "$label" >/dev/null
+      printf '%s\n' "$capture"
+      return 0
+    fi
+    if [[ "$attempt" -lt "$attempts" ]]; then
+      "$HARNESS" wait "$interval_ms" >/dev/null
+    fi
+  done
+
+  printf '%s\n' "$capture"
+  return 1
+}
+
 command -v tmux >/dev/null 2>&1 || {
   echo "tui-smoke: missing required command: tmux" >&2
   exit 1
@@ -36,8 +59,9 @@ for dimensions in "80 24" "100 32"; do
   REPOGARDEN_OBSERVE_BOOT_WAIT_MS="${REPOGARDEN_OBSERVE_BOOT_WAIT_MS:-2500}" \
     "$HARNESS" start "$ROOT_DIR"
 
-  configure_capture="$("$HARNESS" capture "ci-${columns}x${rows}-configure")"
-  if ! printf '%s\n' "$configure_capture" | grep -Eq "FIRST RUN|choose where your repos live|give at least one folder path"; then
+  if ! configure_capture="$(capture_when_visible \
+    "FIRST RUN|choose where your repos live|give at least one folder path" \
+    "ci-${columns}x${rows}-configure")"; then
     fail_capture "${columns}x${rows} did not show the configure step" "$configure_capture"
   fi
 
