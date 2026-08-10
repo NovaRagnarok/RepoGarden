@@ -49,7 +49,7 @@ After `npm install -g @outsideheaven/repogarden`:
 4. Press `g` to cycle Garden → Rooms → Journal → GitHub. The first three are
    local-repo views; the optional GitHub catalog is available when enabled in
    Settings.
-5. Press `↵` on a creature to drop into its workbench (portrait, notes, recent commits).
+5. Press `↵` on a creature to resume in its workbench: one evidence-backed next move is shown first, with `o` to open the folder and `p` to copy its path.
 6. Press `?` for the full keymap, `s` for settings, `q` to quit.
 
 If anything looks off, `rm -rf ~/.repogarden` resets local state. If you enabled the provider usage bar, `REPOGARDEN_DISABLE_USAGE=1 repogarden` suppresses it for one run.

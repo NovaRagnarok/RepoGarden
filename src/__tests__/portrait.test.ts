@@ -190,7 +190,8 @@ test("buildPortraitClipboardText produces a useful shareable briefing", () => {
 
   assert.match(text, /alpha —/);
   assert.match(text, /path: \/work\/alpha/);
-  assert.match(text, /next actions:/);
+  assert.match(text, /next move:/);
+  assert.equal((text.match(/^- /gm) ?? []).length, 1);
   assert.match(text, /clear the active blocker/);
 });
 

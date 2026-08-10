@@ -19,6 +19,9 @@ mid-animation frames.
 - `~/repos/root` symlinked to a chosen root; first-run onboarding is filled
   with `~/repos/root` and submitted automatically
 
+Set `REPOGARDEN_OBSERVE_AUTO_CONFIGURE=0` to pause at first-run configuration
+so a test can capture and drive each onboarding/resume stage explicitly.
+
 The harness then reads the current visible terminal surface with
 `tmux capture-pane`, which avoids the noisy ANSI stream you get from raw PTY
 logging.
@@ -47,6 +50,15 @@ You can also point the harness at another scan root:
 
 ```bash
 pnpm observe:tui -- start /path/to/repos
+```
+
+The CI smoke uses this manual-configure mode at both supported acceptance
+sizes. It captures configuration, focused Garden, the Workbench next-move cue,
+and copy-path confirmation while asserting that the scanned repository's git
+status does not change:
+
+```bash
+scripts/tui-smoke.sh
 ```
 
 ## Supported commands

@@ -14,7 +14,7 @@ export interface HelpOverlayProps {
 
 const shortcuts: Shortcut[] = [
   { key: "↑↓", description: "move focus", category: "garden" },
-  { key: "↵", description: "open workbench", category: "garden" },
+  { key: "↵", description: "resume in workbench", category: "garden" },
   { key: "/", description: "filter (or search summaries in journal)", category: "garden" },
   { key: "g", description: "cycle garden / shelf / journal", category: "garden" },
   { key: "[ / ]", description: "previous / next garden page (when crowded)", category: "garden" },
@@ -37,7 +37,8 @@ const shortcuts: Shortcut[] = [
   { key: "a / v", description: "portrait: actions / overview", category: "workbench" },
   { key: "↵ / d", description: "portrait: inspect action / toggle details", category: "workbench" },
   { key: "n", description: "portrait: open notes", category: "workbench" },
-  { key: "c / p / r", description: "portrait: copy summary / path / refresh", category: "workbench" },
+  { key: "o / p", description: "portrait: open folder / copy-path fallback", category: "workbench" },
+  { key: "c / r", description: "portrait: copy summary / refresh", category: "workbench" },
   { key: "ctrl+n / ctrl+r / ctrl+d", description: "notes: new / rename / delete", category: "workbench" },
   { key: "ctrl+← / ctrl+→", description: "notes: switch", category: "workbench" },
   { key: "ctrl+s / ctrl+↵", description: "notes: save", category: "workbench" },
@@ -73,10 +74,10 @@ export const HelpOverlay = ({ onClose }: HelpOverlayProps) => {
   }
 
   const compactRows = [
-    "garden  ↑↓ pick · ↵ open · / filter · g view · h hide · [/] page",
+    "garden  ↑↓ pick · ↵ resume · o folder · / filter · g view · [/] page",
     "share  x gif · t small text · T big text",
     "journal  ↑↓/jk scroll · ↵ enter pane · esc back · f/F type · t/T time · d details",
-    "workbench  1-6 section · n notes · ctrl+1/2 mode",
+    "workbench  next move · o folder · p copy path · n notes · ctrl+1/2 mode",
     "notes  ctrl+n new · ctrl+p palette · ctrl+s save",
     "anywhere  r rescan · p roots · s settings · m mask · ? help · q quit",
   ];

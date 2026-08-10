@@ -60,6 +60,8 @@ import { isEditorActive, isEditorVisible } from "@/lib/workbench-mode";
 export interface WorkbenchScreenProps {
   creature: RepoCreature;
   onClose: () => void;
+  /** External handoff owned by the app; never mutates the repository. */
+  onOpenFolder?: () => boolean | Promise<boolean>;
   usageBarDisabled?: boolean;
   /** Cohort the creature belongs to, used for cohort-aware (rank-based)
    *  sizing of the workbench sprite. When omitted the sprite falls back to
@@ -88,6 +90,7 @@ type Mode =
 export const WorkbenchScreen = ({
   creature,
   onClose,
+  onOpenFolder,
   usageBarDisabled = true,
   sizeCohort,
 }: WorkbenchScreenProps) => {
@@ -504,6 +507,32 @@ export const WorkbenchScreen = ({
     });
   }, [creature.scan.path]);
 
+  const openRepoFolder = useCallback(() => {
+    if (!onOpenFolder) {
+      setUiMode({
+        kind: "status",
+        message: "folder handoff unavailable · press p to copy path",
+        variant: "warning",
+      });
+      return;
+    }
+    void Promise.resolve(onOpenFolder())
+      .then((opened) => {
+        setUiMode({
+          kind: "status",
+          message: opened ? "folder opened" : "could not open folder · press p to copy path",
+          variant: opened ? "success" : "warning",
+        });
+      })
+      .catch(() => {
+        setUiMode({
+          kind: "status",
+          message: "could not open folder · press p to copy path",
+          variant: "warning",
+        });
+      });
+  }, [onOpenFolder]);
+
   const handlePortraitEnter = useCallback(() => {
     if (portraitSection === "notes") {
       switchMode("notes");
@@ -746,6 +775,10 @@ export const WorkbenchScreen = ({
       }
       if (input === "p") {
         copyRepoPath();
+        return;
+      }
+      if (input === "o") {
+        openRepoFolder();
         return;
       }
       if (input === "a") {
@@ -1357,8 +1390,8 @@ export const WorkbenchScreen = ({
           <Text dimColor color={theme.colors.mutedForeground} wrap="truncate-end">
             {workbenchMode === "portrait"
               ? isCompact
-                ? "1-6 section · enter details/action · n notes · c summary · esc back"
-                : "1-6 section · j/k/←/→ section · PgUp/PgDn scroll · a actions · v overview · enter act/details · d details · n notes · c copy summary · p copy path · r refresh · ctrl+2 notes · esc back"
+                ? "o open folder · p copy path · n notes · 1-6 section · esc back"
+                : "o open folder · p copy path · 1-6 section · j/k/←/→ section · enter act/details · n notes · c copy summary · r refresh · ctrl+2 notes · esc back"
               : isCompact
                 ? "ctrl+1 portrait · ctrl+n new · ctrl+f find · ctrl+p palette · auto-save · esc back"
                 : "ctrl+1 portrait · tab indent · shift+tab outdent · ctrl+←/→ switch · ctrl+n new · ctrl+r rename · ctrl+d delete · ctrl+f find · ctrl+j/b next/prev · ctrl+g line · ctrl+p palette · ctrl+a select all · ctrl+y copy · ctrl+v paste · ctrl+x cut · ctrl+z undo · auto-save · esc back"}
@@ -1665,9 +1698,18 @@ const PortraitMode = ({
             ? ["no commits visible in this scan"]
             : model.commits.slice(0, 4).map((commit) => `${commit.shortSha} ${commit.subject}`);
         case "actions":
-        case "overview":
-        default:
           return model.actions.slice(0, 4).map((action, index) => `${index + 1}. ${action.title}: ${action.detail}`);
+        case "overview":
+        default: {
+          const nextMove = model.actions[0];
+          return nextMove
+            ? [
+                `next move — ${nextMove.title}`,
+                nextMove.detail,
+                "handoff — o open folder · p copy path",
+              ]
+            : ["no next move available", "handoff — o open folder · p copy path"];
+        }
       }
     })();
 
@@ -1688,15 +1730,14 @@ const PortraitMode = ({
             />
           </Box>
         </Box>
-        {status ? (
-          <Box paddingTop={1}>
-            <Text color={severityColor(status.variant, theme)} bold wrap="truncate-end">
-              {status.message}
-            </Text>
-          </Box>
-        ) : null}
-        <Text color={scoreColor} wrap="truncate-end">
-          {model.score.reasons.length > 0 ? model.score.reasons.join(" · ") : creature.vibe.reason}
+        <Text
+          color={status ? severityColor(status.variant, theme) : scoreColor}
+          bold={Boolean(status)}
+          wrap="truncate-end"
+        >
+          {status?.message ?? (model.score.reasons.length > 0
+            ? model.score.reasons.join(" · ")
+            : creature.vibe.reason)}
         </Text>
         <Box paddingTop={1}>
           <Panel title={sectionLabel(activeSection)} paddingY={0} width={panelWidth}>
@@ -2011,17 +2052,6 @@ const PortraitMode = ({
               </Box>
             </Panel>
 
-            <Box paddingTop={1}>
-              <Panel title="top actions" paddingY={0} width={panelWidth}>
-                {model.actions.slice(0, 3).map((action, index) => (
-                  <Box key={action.id} flexDirection="row" columnGap={1}>
-                    <Text color={severityColor(action.severity, theme)} bold>{index + 1}.</Text>
-                    <Text color={severityColor(action.severity, theme)} bold wrap="truncate-end">{action.title}</Text>
-                    <Text dimColor color={theme.colors.mutedForeground} wrap="truncate-end">— {action.detail}</Text>
-                  </Box>
-                ))}
-              </Panel>
-            </Box>
           </Box>
         );
     }
@@ -2086,8 +2116,8 @@ const PortraitMode = ({
 
       <Box paddingTop={1} flexShrink={0}>
         <Alert
-          variant={model.score.severity}
-          title={model.score.reasons.length > 0 ? model.score.reasons.join(" · ") : creature.vibe.reason}
+          variant={model.actions[0]?.severity ?? model.score.severity}
+          title={`next move · ${model.actions[0]?.title ?? "nothing urgent"}`}
           bordered={false}
           paddingX={0}
         >

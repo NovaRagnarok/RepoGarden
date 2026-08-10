@@ -139,6 +139,8 @@ Owns per-repo deep-dive state:
 - command palette state
 - portrait section selection/details state
 - note search/goto-line UI state
+- the resume contract: one prioritized `PortraitAction` as the next move,
+  beside `o` open-folder and `p` copy-path handoffs
 
 This screen writes directly to notes/memory storage. On close, `App` only
 touches `lastVisitedAt`. Those writes stay under `~/.repogarden`; the

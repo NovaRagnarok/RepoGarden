@@ -27,8 +27,8 @@ const BEHIND_CREATURE = {
   },
 };
 
-// 100×30 is exactly the "rich" tier floor — full (non-compact) workbench.
-const SIZE = { columns: 100, rows: 30 };
+const SIZE = { columns: 100, rows: 32 };
+const SMALL = { columns: 80, rows: 24 };
 
 const creatureForPersistenceTest = (id: string) => ({
   ...CREATURE,
@@ -78,6 +78,43 @@ test("WorkbenchScreen mounts in PORTRAIT mode with portrait sections", async () 
     harness.unmount();
   }
 });
+
+for (const size of [SMALL, SIZE]) {
+  test(`resume cue and folder handoff are obvious at ${size.columns}×${size.rows}`, async () => {
+    let opens = 0;
+    const harness = renderScreen(
+      <WorkbenchScreen
+        creature={CREATURE}
+        onClose={() => {}}
+        onOpenFolder={() => {
+          opens += 1;
+          return true;
+        }}
+        usageBarDisabled
+      />,
+      size
+    );
+    try {
+      await waitFor(() => harness.lastFrame().includes("next move"), {
+        onTimeout: () => harness.lastFrame()
+      });
+      const frame = harness.lastFrame();
+      assert.match(frame, /next move [—·] \S+/);
+      assert.match(frame, /o open folder · p copy path/);
+      for (const line of frame.split("\n")) {
+        assert.ok(line.length <= size.columns, `line wider than terminal: ${JSON.stringify(line)}`);
+      }
+
+      harness.press("o");
+      await waitFor(() => harness.lastFrame().includes("folder opened"), {
+        onTimeout: () => harness.lastFrame()
+      });
+      assert.equal(opens, 1);
+    } finally {
+      harness.unmount();
+    }
+  });
+}
 
 test("Workbench keeps repository updates in the user's external git workflow", async () => {
   const harness = renderScreen(
