@@ -9,6 +9,7 @@ DEFAULT_ROWS="${REPOGARDEN_OBSERVE_ROWS:-32}"
 DEFAULT_BOOT_WAIT_MS="${REPOGARDEN_OBSERVE_BOOT_WAIT_MS:-2000}"
 DEFAULT_SCAN_WAIT_MS="${REPOGARDEN_OBSERVE_SCAN_WAIT_MS:-4000}"
 DEFAULT_SCAN_INPUT="${REPOGARDEN_OBSERVE_SCAN_INPUT:-~/repos/root}"
+DEFAULT_AUTO_CONFIGURE="${REPOGARDEN_OBSERVE_AUTO_CONFIGURE:-1}"
 HOST_COREPACK_HOME="${COREPACK_HOME:-${HOME:-}/.cache/node/corepack}"
 
 usage() {
@@ -98,6 +99,25 @@ sleep_ms() {
   sleep "$seconds"
 }
 
+wait_for_first_run() {
+  local session_dir="$1"
+  local attempts="${REPOGARDEN_OBSERVE_READY_ATTEMPTS:-40}"
+  local interval_ms="${REPOGARDEN_OBSERVE_READY_INTERVAL_MS:-250}"
+  local capture=""
+
+  for ((attempt = 1; attempt <= attempts; attempt += 1)); do
+    sleep_ms "$interval_ms"
+    capture="$(current_capture "$session_dir")"
+    if printf '%s\n' "$capture" | grep -Eq \
+      "FIRST RUN|choose where your repos live|give at least one folder path"; then
+      return 0
+    fi
+  done
+
+  printf '%s\n' "$capture" >&2
+  fail "app did not reach the first-run screen"
+}
+
 sanitize_label() {
   local raw="$1"
   local clean
@@ -163,9 +183,14 @@ start_session() {
     "cd '$ROOT_DIR' && HOME='$home_dir' COREPACK_HOME='$HOST_COREPACK_HOME' COREPACK_ENABLE_DOWNLOAD_PROMPT=0 REPOGARDEN_DISABLE_USAGE=1 COLUMNS='$DEFAULT_COLS' LINES='$DEFAULT_ROWS' pnpm dev"
 
   sleep_ms "$DEFAULT_BOOT_WAIT_MS"
-  tmux send-keys -l -t "$(capture_target "$session_dir")" "$DEFAULT_SCAN_INPUT"
-  tmux send-keys -t "$(capture_target "$session_dir")" Enter
-  sleep_ms "$DEFAULT_SCAN_WAIT_MS"
+  wait_for_first_run "$session_dir"
+  if [[ "$DEFAULT_AUTO_CONFIGURE" == "1" ]]; then
+    tmux send-keys -l -t "$(capture_target "$session_dir")" "$DEFAULT_SCAN_INPUT"
+    tmux send-keys -t "$(capture_target "$session_dir")" Enter
+    sleep_ms "$DEFAULT_SCAN_WAIT_MS"
+  elif [[ "$DEFAULT_AUTO_CONFIGURE" != "0" ]]; then
+    fail "REPOGARDEN_OBSERVE_AUTO_CONFIGURE must be 0 or 1"
+  fi
 
   echo "session: $session"
   echo "root: $root"

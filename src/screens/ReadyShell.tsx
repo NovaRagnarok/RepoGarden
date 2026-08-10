@@ -1832,7 +1832,7 @@ export const ReadyShell = ({
         {/* Spacer pushes the footer to the bottom of the fixed-height card. */}
         <Box flexGrow={1} />
 
-        {/* Footer — tildified path (left), workbench hint (right). */}
+        {/* Footer — tildified path (left), explicit resume path (right). */}
         <Box flexDirection="row" justifyContent="space-between">
           <Box flexShrink={1}>
             <Text dimColor color={theme.colors.mutedForeground} wrap="truncate-end">
@@ -1842,7 +1842,7 @@ export const ReadyShell = ({
           <Box flexShrink={0} marginLeft={1}>
             <Text color={theme.colors.accent}>↵</Text>
             <Text dimColor color={theme.colors.mutedForeground}>
-              {" workbench"}
+              {" resume · o folder"}
             </Text>
           </Box>
         </Box>
@@ -2371,8 +2371,8 @@ export const ReadyShell = ({
                   ? "↑↓/jk move · clone in progress… · o open GitHub · r refresh · / filter · g view · s settings · ? help"
                   : "↑↓/jk move · ↵ clone · o open GitHub · r refresh · / filter · g view · s settings · ? help"
               : isGardenView && gardenPageCount > 1
-                ? "↑↓ move · ↵ open · / filter · g view · [] page · s settings · ? help · q quit"
-                : "↑↓ move · ↵ open · / filter · g view · s settings · ? help · q quit"}
+                ? "↑↓ move · ↵ resume · o folder · / filter · g view · [] page · s settings · ? help · q quit"
+                : "↑↓ move · ↵ resume · o folder · / filter · g view · s settings · ? help · q quit"}
           </Text>
         </Box>
         <Box flexDirection="row" columnGap={2} flexShrink={0} alignItems="flex-end">

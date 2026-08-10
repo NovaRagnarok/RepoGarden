@@ -848,6 +848,16 @@ const App = ({
         creature={activeWorkbench}
         usageBarDisabled={usageBarDisabled}
         sizeCohort={sizeCohort}
+        onOpenFolder={async () => {
+          const opened = await openInFileBrowser(activeWorkbench.scan.path);
+          pushToast(
+            opened
+              ? `opened ${activeWorkbench.scan.name} in file browser`
+              : `couldn't open ${activeWorkbench.scan.name} in file browser`,
+            opened ? "info" : "error"
+          );
+          return opened;
+        }}
         onClose={() => {
           // The workbench owns note persistence now; we only stamp
           // lastVisitedAt so the creature's vibe and sort order reflect

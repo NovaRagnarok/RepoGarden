@@ -48,5 +48,8 @@ export const runCli = async (): Promise<void> => {
   const stdin = process.stdin.isTTY
     ? buildWrappedStdin(process.stdin)
     : process.stdin;
-  render(<Root />, { stdin });
+  // Ink defaults to non-interactive under CI even when it is running inside a
+  // real TTY. The tmux smoke is such a TTY, so derive this from stdout rather
+  // than letting the CI environment suppress every frame until unmount.
+  render(<Root />, { stdin, interactive: process.stdout.isTTY });
 };

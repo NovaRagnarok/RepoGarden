@@ -637,8 +637,10 @@ export const buildPortraitClipboardText = (creature: RepoCreature, model: Portra
     (creature.scan.ahead ?? 0) > 0 ? `ahead: ${creature.scan.ahead}` : undefined,
     (creature.scan.behind ?? 0) > 0 ? `behind: ${creature.scan.behind}` : undefined,
     "",
-    "next actions:",
-    ...model.actions.slice(0, 4).map((action) => `- ${action.title}: ${action.detail}`),
+    "next move:",
+    model.actions[0]
+      ? `- ${model.actions[0].title}: ${model.actions[0].detail}`
+      : "- no next move available",
   ];
 
   return lines.filter((line): line is string => line !== undefined).join("\n").trimEnd();

@@ -520,3 +520,19 @@ bounded refresh batches as earlier issues leave the queue.
 - Note journal events require a durable body and index. Blocker feedback and
   blocker events additionally require the compatibility-memory mirror write to
   succeed; a failed mirror remains locally visible and Ctrl+S retries it.
+
+## 2026-08-10 — M3 one-repository resume contract
+
+- The ready-shell Enter action is named `resume` rather than the ambiguous
+  `open`; it still enters the existing Workbench and adds no top-level view.
+- The Workbench overview promotes only the first prioritized `PortraitAction`
+  as `next move`. The full action list remains available as supporting depth,
+  but the default resume decision is singular.
+- The external handoff is adjacent and read-only: `o` delegates folder opening
+  to the app, while `p` copies the repository path as the portable fallback.
+  Neither action runs git or writes inside the scanned repository.
+- Rejected alternatives: a new resume view would expand top-level navigation;
+  showing three equal “top actions” preserves the inference burden; making
+  Enter launch the file browser would skip RepoGarden's local memory context.
+- `scripts/tui-smoke.sh` now captures configuration, Garden focus, next-move,
+  and handoff stages at 80×24 and 100×32, with a before/after git-status guard.

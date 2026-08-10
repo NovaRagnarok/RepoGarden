@@ -142,7 +142,7 @@ test("ReadyShell mounts in garden view with chrome, view badges, and sidebar rep
     assert.match(frame, /⌂ home/);
     assert.ok(frame.includes(FIRST_NAME), `sidebar should list ${FIRST_NAME}`);
     // Garden footer hint.
-    assert.match(frame, /↑↓ move · ↵ open/);
+    assert.match(frame, /↑↓ move · ↵ resume · o folder/);
   } finally {
     harness.unmount();
   }
@@ -179,7 +179,7 @@ test("pressing g cycles view garden → rooms → journal → github → garden"
     await waitFor(
       () => {
         const frame = harness.lastFrame();
-        return frame.includes("↑↓ move · ↵ open") && !frame.includes("enter journal");
+        return frame.includes("↑↓ move · ↵ resume · o folder") && !frame.includes("enter journal");
       },
       { onTimeout: () => harness.lastFrame() }
     );
@@ -383,7 +383,7 @@ test("small terminal (80×24): ReadyShell renders without throwing and keeps chr
     assert.match(frame, /GARDEN/);
     assert.match(frame, /ROOMS/);
     assert.match(frame, /JOURNAL/);
-    assert.match(frame, /↑↓ move · ↵ open/);
+    assert.match(frame, /↑↓ move · ↵ resume · o folder/);
     // Sanity: no rendered line exceeds the terminal width.
     for (const line of frame.split("\n")) {
       assert.ok(line.length <= SMALL.columns, `line wider than terminal: ${JSON.stringify(line)}`);
