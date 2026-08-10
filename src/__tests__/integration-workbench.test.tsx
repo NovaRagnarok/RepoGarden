@@ -11,7 +11,8 @@ import { join } from "node:path";
 
 import { buildDemoCreatures } from "../lib/demo-roster";
 import { readEvents } from "../lib/events";
-import { createNote, getNotePath, loadNotes } from "../lib/notes";
+import { loadMemory } from "../lib/memory";
+import { createNote, getNotePath, loadNotes, saveNoteBody, setActive } from "../lib/notes";
 import { WorkbenchScreen } from "../screens/WorkbenchScreen";
 import { TEST_HOME } from "./helpers/test-env";
 
@@ -398,6 +399,49 @@ test("blocker success waits for the durable legacy-memory mirror and can be retr
       { onTimeout: () => harness.lastFrame() }
     );
     assert.match(harness.lastFrame(), /blocker set/);
+  } finally {
+    rmSync(memoryPath, { recursive: true, force: true });
+    harness.press("1", { ctrl: true });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    harness.unmount();
+  }
+});
+
+test("saving a non-blocker note does not retry a failed blocker mirror", async () => {
+  const creature = creatureForPersistenceTest("workbench-non-blocker-does-not-retry-mirror");
+  const initial = loadNotes(creature.id);
+  const scratchId = initial.index.active;
+  const created = createNote(creature.id, initial, "blocker");
+  const blockerSaved = saveNoteBody(creature.id, created.state, created.id, "still blocked");
+  assert.equal(blockerSaved.outcome, "durable");
+  setActive(creature.id, blockerSaved.state, scratchId);
+
+  const memoryPath = join(TEST_HOME, ".repogarden", "projects", `${creature.id}.json`);
+  mkdirSync(memoryPath, { recursive: true });
+  const harness = renderScreen(
+    <WorkbenchScreen creature={creature} onClose={() => {}} usageBarDisabled />,
+    SIZE
+  );
+  try {
+    await waitFor(
+      () => harness.lastFrame().includes("note saved · blocker status not updated"),
+      { onTimeout: () => harness.lastFrame() }
+    );
+    harness.press("2", { ctrl: true });
+    await waitFor(() => harness.lastFrame().includes("ctrl+1 portrait"), {
+      onTimeout: () => harness.lastFrame(),
+    });
+
+    rmSync(memoryPath, { recursive: true, force: true });
+    harness.press("s", { ctrl: true });
+    await waitFor(() => harness.lastFrame().includes("nothing to save"), {
+      onTimeout: () => harness.lastFrame(),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    assert.equal(loadMemory(creature.id).currentBlocker, undefined);
+    assert.equal(readEvents({ repoId: creature.id }).some((event) => event.kind === "blocker-added"), false);
+    assert.doesNotMatch(harness.lastFrame(), /blocker status saved|blocker set · stuck/);
   } finally {
     rmSync(memoryPath, { recursive: true, force: true });
     harness.press("1", { ctrl: true });

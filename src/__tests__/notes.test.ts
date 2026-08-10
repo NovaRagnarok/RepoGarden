@@ -7,6 +7,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -78,6 +79,21 @@ test("loadNotes recovers safe Markdown bodies when the index is missing", () => 
     assert.equal(recovered.bodies.directory, undefined);
 
     assert.deepEqual(loadNotes("missing-index"), recovered);
+  });
+});
+
+test("loadNotes recovers bodies through a symlinked notes directory", () => {
+  withFakeHome(() => {
+    const project = join(process.env.HOME!, ".repogarden", "projects", "linked-notes");
+    const notesTarget = join(process.env.HOME!, "linked-notes-target");
+    mkdirSync(project, { recursive: true });
+    mkdirSync(notesTarget, { recursive: true });
+    writeFileSync(join(notesTarget, "kept.md"), "linked body", "utf8");
+    symlinkSync(notesTarget, join(project, "notes"), process.platform === "win32" ? "junction" : "dir");
+
+    const recovered = loadNotes("linked-notes");
+    assert.deepEqual(recovered.index.order, ["kept"]);
+    assert.equal(recovered.bodies.kept, "linked body");
   });
 });
 

@@ -248,7 +248,9 @@ export const WorkbenchScreen = ({
     } else {
       setUiMode({ kind: "edit" });
     }
-    setBlockerSyncAttempt((attempt) => attempt + 1);
+    if (feedback.kind === "blocker") {
+      setBlockerSyncAttempt((attempt) => attempt + 1);
+    }
     return true;
   };
 

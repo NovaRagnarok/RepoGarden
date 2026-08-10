@@ -1,10 +1,10 @@
 import {
   existsSync,
-  lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
   renameSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -253,8 +253,8 @@ interface MaterializedNote {
 const recoverNoteBodies = (creatureId: string): MaterializedNote[] => {
   let entries;
   try {
-    const directory = lstatSync(notesDir(creatureId));
-    if (directory.isSymbolicLink() || !directory.isDirectory()) return [];
+    const directory = statSync(notesDir(creatureId));
+    if (!directory.isDirectory()) return [];
     entries = readdirSync(notesDir(creatureId), { withFileTypes: true });
   } catch {
     return [];
