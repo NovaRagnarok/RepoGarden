@@ -18,6 +18,54 @@ const TMP_ROOT = realpathSync.native(tmpdir());
 
 import { startObserver } from "../lib/observer";
 
+interface FakeWatchHandle {
+  path: string;
+  listener: (eventType: string, filename: string | null) => void;
+  errorListener?: () => void;
+  closed: boolean;
+  close: () => void;
+  on: (event: "error", listener: () => void) => void;
+}
+
+const deterministicObserver = (
+  findRepos: (root: string, maxDepth: number) => readonly string[] | Promise<readonly string[]>
+) => {
+  const watches: FakeWatchHandle[] = [];
+  let interval: (() => void) | undefined;
+  let intervalCleared = false;
+  return {
+    watches,
+    dependencies: {
+      exists: () => true,
+      findRepos,
+      watch: (path: string, listener: FakeWatchHandle["listener"]) => {
+        const handle: FakeWatchHandle = {
+          path,
+          listener,
+          closed: false,
+          close: () => {
+            handle.closed = true;
+          },
+          on: (_event, errorListener) => {
+            handle.errorListener = errorListener;
+          },
+        };
+        watches.push(handle);
+        return handle;
+      },
+      setInterval: ((callback: () => void) => {
+        interval = callback;
+        return 1;
+      }) as typeof globalThis.setInterval,
+      clearInterval: (() => {
+        intervalCleared = true;
+      }) as typeof globalThis.clearInterval,
+    },
+    runInterval: () => interval?.(),
+    intervalWasCleared: () => intervalCleared,
+  };
+};
+
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 const withTempDir = async (run: (dir: string) => Promise<void>): Promise<void> => {
@@ -243,4 +291,91 @@ test("observer returns a callable even if a watched root is missing", async () =
     assert.equal(typeof stop, "function");
     stop();
   });
+});
+
+test("root reconciliation discovers pre-existing nested repos and dedupes later passes", async () => {
+  const nested = "/scan/group/nested/repo";
+  const fake = deterministicObserver(async (_root, maxDepth) => {
+    assert.equal(maxDepth, 4);
+    return [nested, nested];
+  });
+  const discovered: string[] = [];
+  const stop = startObserver({
+    repos: [],
+    roots: ["/scan"],
+    onCommitDetected: () => {},
+    onNewRepoDetected: (path) => discovered.push(path),
+    dependencies: fake.dependencies,
+  });
+  await sleep(0);
+  fake.runInterval();
+  await sleep(0);
+  assert.deepEqual(discovered, [nested]);
+  stop();
+  stop();
+  assert.equal(fake.intervalWasCleared(), true);
+  assert.ok(fake.watches.every((entry) => entry.closed));
+});
+
+test("periodic, null-name, and watcher-error reconciliation recover dropped events", async () => {
+  let repos: string[] = [];
+  const fake = deterministicObserver(() => repos);
+  const discovered: string[] = [];
+  const stop = startObserver({
+    repos: [],
+    roots: ["/scan"],
+    onCommitDetected: () => {},
+    onNewRepoDetected: (path) => discovered.push(path),
+    dependencies: fake.dependencies,
+  });
+  await sleep(0);
+
+  repos = ["/scan/a/b/missed"];
+  fake.runInterval();
+  await sleep(0);
+  assert.deepEqual(discovered, ["/scan/a/b/missed"]);
+
+  repos.push("/scan/a/b/null-event");
+  fake.watches[0].listener("rename", null);
+  await sleep(550);
+  assert.ok(discovered.includes("/scan/a/b/null-event"));
+
+  repos.push("/scan/a/b/error-recovery");
+  fake.watches[0].errorListener?.();
+  await sleep(550);
+  assert.ok(discovered.includes("/scan/a/b/error-recovery"));
+  stop();
+});
+
+test("root reconciliation serializes passes and suppresses callbacks after close", async () => {
+  let active = 0;
+  let maxActive = 0;
+  const releases: Array<(paths: readonly string[]) => void> = [];
+  const fake = deterministicObserver(() => new Promise<readonly string[]>((resolve) => {
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    releases.push((paths) => {
+      active -= 1;
+      resolve(paths);
+    });
+  }));
+  const discovered: string[] = [];
+  const stop = startObserver({
+    repos: [],
+    roots: ["/scan"],
+    onCommitDetected: () => {},
+    onNewRepoDetected: (path) => discovered.push(path),
+    dependencies: fake.dependencies,
+  });
+  fake.runInterval();
+  fake.runInterval();
+  assert.equal(releases.length, 1);
+  releases[0](["/scan/first"]);
+  await sleep(0);
+  assert.equal(releases.length, 2);
+  assert.equal(maxActive, 1);
+  stop();
+  releases[1](["/scan/after-close"]);
+  await sleep(0);
+  assert.deepEqual(discovered, ["/scan/first"]);
 });

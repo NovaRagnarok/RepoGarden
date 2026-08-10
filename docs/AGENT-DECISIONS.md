@@ -486,3 +486,20 @@ bounded refresh batches as earlier issues leave the queue.
   findings. Unsolicited issue `#83` is not part of the engineering queue.
 - Local and remote `main` are synchronized at the final merge, required CI and
   package smoke are green, and no implementation branch remains in flight.
+
+## 2026-08-10 — M2 scan continuity implementation
+
+- Scanner completeness is explicit: a directory read/stat/marker failure
+  produces bounded, path-local error detail and makes the whole inventory
+  partial. Raw operating-system messages are intentionally not surfaced.
+- Partial inventory substitutes preservation for pruning in three places:
+  the visible creature registry, the journal snapshot, and the scan cache.
+  A later error-free full scan remains the sole authority for removal.
+- Root watching is treated as a latency hint, not an inventory authority.
+  One non-overlapping reconciliation loop runs the scanner's depth-bounded
+  discovery at startup, after named/null/error events, and every 30 seconds.
+  Known paths are deduplicated globally and disposal suppresses late callbacks.
+- Rejected alternatives: top-level event candidate inspection cannot recover
+  nested repos; recursive platform watches are inconsistent across supported
+  operating systems; pruning only the event snapshot would still make a
+  creature visibly disappear during a transient filesystem failure.
