@@ -310,7 +310,7 @@ test("failed explicit saves keep tab, palette, mode, and close transitions retry
   }
 });
 
-test("index-write failure reports partial durability without note or blocker success", async () => {
+test("index-write failure stays dirty and Ctrl+S retries the index write", async () => {
   const creature = creatureForPersistenceTest("workbench-index-write-fail");
   const initial = loadNotes(creature.id);
   const activeId = initial.index.active;
@@ -344,11 +344,23 @@ test("index-write failure reports partial durability without note or blocker suc
     assert.match(harness.lastFrame(), /index update failed · ctrl\+s to retry/);
     assert.equal(readFileSync(getNotePath(creature.id, activeId), "utf8"), "y");
     assert.deepEqual(readEvents({ repoId: creature.id }), []);
-  } finally {
+
     rmSync(indexPath, { recursive: true, force: true });
     writeFileSync(indexPath, JSON.stringify(initial.index, null, 2), "utf8");
     harness.press("s", { ctrl: true });
-    await new Promise((resolve) => setTimeout(resolve, 40));
+    await waitFor(() => harness.lastFrame().includes("saved · line"), {
+      onTimeout: () => harness.lastFrame(),
+    });
+
+    assert.match(harness.lastFrame(), /saved ·/);
+    assert.notEqual(
+      JSON.parse(readFileSync(indexPath, "utf8")).notes[activeId].updatedAt,
+      initial.index.notes[activeId].updatedAt
+    );
+    assert.equal(readEvents({ repoId: creature.id })[0]?.kind, "note-edited");
+  } finally {
+    rmSync(indexPath, { recursive: true, force: true });
+    writeFileSync(indexPath, JSON.stringify(initial.index, null, 2), "utf8");
     harness.press("1", { ctrl: true });
     await new Promise((resolve) => setTimeout(resolve, 40));
     harness.unmount();

@@ -220,7 +220,10 @@ export const WorkbenchScreen = ({
       const message = partial
         ? "partially saved · note body is durable; index update failed · ctrl+s to retry"
         : "not saved · local note write failed · ctrl+s to retry";
-      if (result.state !== notes) setNotes(result.state);
+      // A partial result means the body reached disk but the index did not.
+      // Keep the pre-save body as the editor baseline so dirty remains true
+      // and the advertised Ctrl+S retry attempts both writes again.
+      if (!partial && result.state !== notes) setNotes(result.state);
       setUiMode({
         kind: "status",
         message,
