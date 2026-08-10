@@ -66,19 +66,19 @@ for dimensions in "80 24" "100 32"; do
   fi
 
   "$HARNESS" send text:~/repos/root Enter
-  "$HARNESS" wait "${REPOGARDEN_OBSERVE_SCAN_WAIT_MS:-6000}" >/dev/null
-  garden_capture="$("$HARNESS" capture "ci-${columns}x${rows}-garden-focus")"
+  if ! garden_capture="$(capture_when_visible \
+    "↵ resume" \
+    "ci-${columns}x${rows}-garden-focus")"; then
+    fail_capture "${columns}x${rows} garden did not expose the resume path" "$garden_capture"
+  fi
   if ! printf '%s\n' "$garden_capture" | grep -Eq "(^|[^[:alnum:]_])root([^[:alnum:]_]|$)"; then
     fail_capture "${columns}x${rows} garden did not contain the scanned repo" "$garden_capture"
   fi
-  if ! printf '%s\n' "$garden_capture" | grep -q "↵ resume"; then
-    fail_capture "${columns}x${rows} garden did not expose the resume path" "$garden_capture"
-  fi
 
   "$HARNESS" send Enter
-  "$HARNESS" wait 500 >/dev/null
-  cue_capture="$("$HARNESS" capture "ci-${columns}x${rows}-next-move")"
-  if ! printf '%s\n' "$cue_capture" | grep -q "next move"; then
+  if ! cue_capture="$(capture_when_visible \
+    "next move" \
+    "ci-${columns}x${rows}-next-move")"; then
     fail_capture "${columns}x${rows} workbench did not show one next-move cue" "$cue_capture"
   fi
   if ! printf '%s\n' "$cue_capture" | grep -q "p copy path"; then
@@ -86,9 +86,9 @@ for dimensions in "80 24" "100 32"; do
   fi
 
   "$HARNESS" send p
-  "$HARNESS" wait 150 >/dev/null
-  handoff_capture="$("$HARNESS" capture "ci-${columns}x${rows}-handoff")"
-  if ! printf '%s\n' "$handoff_capture" | grep -q "path copied"; then
+  if ! handoff_capture="$(capture_when_visible \
+    "path copied" \
+    "ci-${columns}x${rows}-handoff")"; then
     fail_capture "${columns}x${rows} copy-path handoff did not confirm success" "$handoff_capture"
   fi
 done
