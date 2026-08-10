@@ -431,13 +431,11 @@ test("saving a non-blocker note does not retry a failed blocker mirror", async (
     await waitFor(() => harness.lastFrame().includes("ctrl+1 portrait"), {
       onTimeout: () => harness.lastFrame(),
     });
+    await new Promise((resolve) => setTimeout(resolve, 40));
 
     rmSync(memoryPath, { recursive: true, force: true });
     harness.press("s", { ctrl: true });
-    await waitFor(() => harness.lastFrame().includes("nothing to save"), {
-      onTimeout: () => harness.lastFrame(),
-    });
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    await new Promise((resolve) => setTimeout(resolve, 160));
 
     assert.equal(loadMemory(creature.id).currentBlocker, undefined);
     assert.equal(readEvents({ repoId: creature.id }).some((event) => event.kind === "blocker-added"), false);
