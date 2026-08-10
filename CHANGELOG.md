@@ -11,6 +11,8 @@ All notable changes to RepoGarden land here. Format follows [Keep a Changelog](h
 ### Changed
 
 - The per-repo workbench is read-only with respect to scanned repositories. Pull guidance now sends users to their normal git workflow; the `u` shortcut, command-palette pull action, and in-app `git pull --ff-only` runner have been removed. Historical `pull` journal entries remain readable.
+- Repository discovery now treats unreadable descendants as a partial inventory. Partial scans retain the last visible habitat and cache membership, report bounded local errors, and defer pruning until a later complete scan.
+- Scan-root observation now reconciles every configured root to the scanner's supported depth on startup, after watcher activity/errors, and every 30 seconds, so nested repositories recover after dropped or filename-less filesystem events.
 
 ## [0.9.4] — 2026-06-10
 

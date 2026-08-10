@@ -24,7 +24,7 @@ import {
   type JournalEvent,
 } from "../lib/events";
 import { saveMemory } from "../lib/memory";
-import { enrichScans } from "../lib/creature";
+import { enrichScans, mergePartialCreatureInventory } from "../lib/creature";
 import type { ScannedRepo } from "../lib/scanner";
 
 // ---------------------------------------------------------------------------
@@ -583,6 +583,28 @@ test("enrichScans with preserveMissing preserves snapshot entries for absent rep
     enrichScans([fakeRepo("alpha"), fakeRepo("beta")]);
     const repoAdded = readEvents({ kinds: ["repo-added"] });
     assert.equal(repoAdded.length, 0);
+  });
+});
+
+test("partial creature inventory keeps a repo hidden by an unreadable subtree visible", () => {
+  withFakeHome(() => {
+    const previous = enrichScans([fakeRepo("alpha"), fakeRepo("beta")], {
+      reconcile: false,
+    });
+    const refreshedAlpha = { ...fakeRepo("alpha"), branch: "feature" };
+
+    const partial = mergePartialCreatureInventory(previous, [refreshedAlpha]);
+    assert.deepEqual(
+      partial.map((creature) => creature.scan.id).sort(),
+      ["alpha", "beta"]
+    );
+    assert.equal(
+      partial.find((creature) => creature.scan.id === "alpha")?.scan.branch,
+      "feature"
+    );
+
+    const complete = enrichScans([refreshedAlpha], { reconcile: false });
+    assert.deepEqual(complete.map((creature) => creature.scan.id), ["alpha"]);
   });
 });
 

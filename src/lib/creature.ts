@@ -412,6 +412,30 @@ export const addDiscoveredCreature = (
   });
 };
 
+/**
+ * Merge a known-partial scan with the last visible habitat inventory. Fresh
+ * rows replace matching paths and newly discovered rows are appended, while
+ * paths hidden behind an unreadable subtree remain visible. Only a later
+ * complete scan is allowed to prune them.
+ */
+export const mergePartialCreatureInventory = (
+  previous: RepoCreature[],
+  refreshed: ScannedRepo[],
+  options: EnrichScansOptions = { reconcile: false }
+): RepoCreature[] => {
+  const refreshedByPath = new Map(refreshed.map((scan) => [scan.path, scan]));
+  const merged = previous.map((creature) => {
+    const scan = refreshedByPath.get(creature.scan.path);
+    if (scan) refreshedByPath.delete(creature.scan.path);
+    return scan ?? creature.scan;
+  });
+  merged.push(...refreshedByPath.values());
+  return enrichScans(merged, {
+    ...options,
+    preserveMissing: true,
+  });
+};
+
 export const enrichScans = (
   scans: ScannedRepo[],
   options: EnrichScansOptions = {}

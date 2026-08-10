@@ -184,7 +184,11 @@ Relevant files:
 Important behavior:
 
 - Full scans use `scanRootsProgressive()`, which streams repos back into the
-  UI while scanning.
+  UI while scanning. Discovery returns bounded error details as well as paths;
+  any unreadable descendant marks the inventory partial. Streaming and final
+  partial results merge into the last visible creature registry, and the scan
+  cache retains entries that the unreadable subtree may have hidden. A later
+  error-free inventory is the only authority that prunes absent membership.
 - GitHub discovery is opt-in. `src/lib/github.ts` fetches and caches repository
   metadata through the user's `gh` CLI authentication before a scan; local git
   data remains authoritative, and remote-only GitHub repos stay in the catalog
@@ -204,14 +208,13 @@ Important behavior:
   full inspect so commit/journal data stay accurate.
 - A background observer (`src/lib/observer.ts`) layers on top: `fs.watch`
   on each repo's `.git/logs/HEAD` triggers a single-repo
-  `refreshOneCreature` within ~250 ms of any commit / amend / pull / reset;
-  a non-recursive watch on each scan root surfaces new repos within
-  ~500 ms by running `inspectRepo` + splicing into the registry. Both
-  paths flow through `enrichScans`'s preservation-aware snapshot reconcile so
-  the journal events still come from the same seam without treating an
-  incremental registry as a complete inventory. The 30s light refresh stays
-  underneath as a safety net for filesystems where `fs.watch` is
-  unreliable (network mounts, `/mnt/c` on WSL2).
+  `refreshOneCreature` within ~250 ms of any commit / amend / pull / reset.
+  Root watches trigger a serialized, depth-bounded reconciliation using the
+  scanner's discovery algorithm; the same reconciliation runs at startup and
+  every 30 seconds, recovering nested repos after missed, filename-less, or
+  error events. Discovered paths are globally deduplicated before they flow
+  through `enrichScans`'s preservation-aware snapshot reconcile. The separate
+  30s light refresh remains the safety net for changes inside known repos.
 
 If a change affects vibe, commit visibility, branch changes, or what appears in
 the garden after rescans, follow this pipeline before touching UI code.
@@ -260,9 +263,9 @@ Two hooks poll local/external state on intervals:
 - `src/hooks/use-usage.ts`: refreshes Claude/Codex usage roughly every 120s
 
 Repository-side changes are driven by the same pattern: `src/lib/observer.ts`
-watches each tracked repo's `.git/logs/HEAD` and each scan-root directory for
-new repos, and the existing 30s light refresh covers anything `fs.watch`
-misses.
+watches each tracked repo's `.git/logs/HEAD`, reconciles every scan root at a
+bounded depth after watch events and on a 30s interval, and the existing 30s
+light refresh updates known-repository git state.
 
 ## Input and terminal plumbing
 

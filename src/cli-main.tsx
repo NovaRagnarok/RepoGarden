@@ -38,6 +38,8 @@ import {
   type ScanStatus
 } from "@/lib/app-shell-state";
 import {
+  formatScanErrors,
+  isPartialScan,
   scanRootsProgressive,
   type RootProgress,
   type ScannedRepo,
@@ -56,6 +58,7 @@ import {
   addDiscoveredCreature,
   buildCreature,
   enrichScans,
+  mergePartialCreatureInventory,
   refreshCreaturesLight,
   refreshOneCreature,
   type RepoCreature,
@@ -125,6 +128,8 @@ const App = ({
   const [themeId, setThemeId] = useState<string>(initialThemeId);
   const [roots, setRoots] = useState<string[]>(initialRoots);
   const [creatures, setCreatures] = useState<RepoCreature[]>([]);
+  const creaturesRef = useRef(creatures);
+  creaturesRef.current = creatures;
   const [isRescanning, setIsRescanning] = useState(false);
   const [rescanError, setRescanError] = useState<string | undefined>();
   const [activeWorkbench, setActiveWorkbench] = useState<RepoCreature | null>(null);
@@ -252,6 +257,7 @@ const App = ({
       setRescanError(undefined);
       setScanProgress({ done: 0, total: 0 });
       setScanProgressByRoot(undefined);
+      const baselineCreatures = creaturesRef.current;
       // Map keyed by path so the three scanner phases (skeleton → enrichment →
       // extras) all patch the same row, regardless of which worker emits first.
       // Iteration order matches insertion (= skeleton-arrival order), so the
@@ -260,7 +266,12 @@ const App = ({
       const pushPartial = () => {
         // reconcile:false — partial batches mid-scan would otherwise trim the
         // snapshot and re-emit phantom repo-added events as more arrive.
-        setCreatures(enrichScans(Array.from(collected.values()), { reconcile: false }));
+        setCreatures(
+          mergePartialCreatureInventory(
+            baselineCreatures,
+            Array.from(collected.values())
+          )
+        );
       };
       try {
         const result = await scanRootsProgressive(rootsToScan, {
@@ -300,17 +311,20 @@ const App = ({
         setIsRescanning(false);
         setScanProgress(undefined);
         setScanProgressByRoot(undefined);
-        if (result.errors.length > 0) {
-          const joined = result.errors.map((entry) => `${entry.root}: ${entry.message}`).join(" · ");
+        const partial = isPartialScan(result);
+        if (partial) {
+          const joined = formatScanErrors(result);
           setRescanError(joined);
           pushToast(`scan errors · ${joined}`, "warning");
         }
         // If any configured root errored (unmounted drive, missing folder),
         // treat the scan as partial: preserve snapshot entries for repos
         // from the failed root so they don't look "new" next clean scan.
-        const finalCreatures = enrichScans(result.repos, {
-          preserveMissing: result.errors.length > 0,
-        });
+        const finalCreatures = partial
+          ? mergePartialCreatureInventory(baselineCreatures, result.repos, {
+              reconcile: true,
+            })
+          : enrichScans(result.repos);
         setCreatures(finalCreatures);
         const message =
           finalCreatures.length === 0
@@ -402,8 +416,6 @@ const App = ({
   // fs.watch silently drops events (network mounts, /mnt/c on WSL2).
   // Skipped while a full rescan is in flight to avoid racing the
   // single-repo refresh against the global enrichScans pass.
-  const creaturesRef = useRef(creatures);
-  creaturesRef.current = creatures;
   const watchedRepoKey = creatures
     .map((creature) => `${creature.id}::${creature.scan.path}`)
     .join("|");

@@ -1,18 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 
 import { writeFileSync } from "node:fs";
+import { loadScanCache } from "../lib/scan-cache";
 
 import {
   expandPath,
   findRepos,
+  findReposWithStatus,
+  formatScanErrors,
   inspectRepo,
   inspectRepoLight,
+  isPartialScan,
   scanRoots,
+  scanRootsProgressive,
 } from "../lib/scanner";
 
 const initRepo = (path: string) => {
@@ -55,6 +60,97 @@ test("findRepos skips node_modules and other heavy dirs", () => {
     const found = findRepos(root, 4);
     assert.equal(found.length, 1);
     assert.ok(found[0].endsWith(`${sep}real`));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("progressive scans report an unreadable descendant without hiding readable repos", async () => {
+  const root = mkdtempSync(join(tmpdir(), "repogarden-partial-"));
+  try {
+    const visible = join(root, "visible");
+    const unreadable = join(root, "unreadable");
+    initRepo(visible);
+    initRepo(join(unreadable, "hidden"));
+
+    const fileSystem = {
+      readDirectory: (path: string) => {
+        if (path === unreadable) throw new Error("EACCES secret detail");
+        return readdirSync(path);
+      },
+    };
+    const discovery = findReposWithStatus(root, 4, fileSystem);
+
+    assert.deepEqual(discovery.repos, [visible]);
+    assert.deepEqual(discovery.errors, [{
+      root: unreadable,
+      message: "could not read directory; inventory is partial",
+    }]);
+    assert.equal(discovery.omittedErrorCount, 0);
+
+    const scan = await scanRootsProgressive([root], {}, 4, {
+      cache: false,
+      fileSystem,
+    });
+    assert.equal(isPartialScan(scan), true);
+    assert.deepEqual(scan.repos.map((repo) => repo.path), [visible]);
+    assert.equal(scan.errors[0].root, unreadable);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("scan discovery error details and rendered status stay bounded", () => {
+  const root = mkdtempSync(join(tmpdir(), "repogarden-errors-"));
+  try {
+    const names = Array.from({ length: 12 }, (_, index) => `blocked-${index}`);
+    const result = findReposWithStatus(root, 4, {
+      isDirectory: () => true,
+      readDirectory: (path) => {
+        if (path === root) return names;
+        throw new Error("unbounded operating-system error detail");
+      },
+    });
+    assert.equal(result.errors.length, 8);
+    assert.equal(result.omittedErrorCount, 4);
+    const status = formatScanErrors(result, 180);
+    assert.ok(status.length <= 180);
+    assert.match(status, /…$/);
+    assert.doesNotMatch(status, /operating-system/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("partial scans retain hidden cache entries until a complete scan prunes them", async () => {
+  const root = mkdtempSync(join(tmpdir(), "repogarden-partial-cache-"));
+  const cacheFile = join(root, "cache", "scan.json");
+  try {
+    const visible = join(root, "visible");
+    const blocked = join(root, "blocked");
+    const hidden = join(blocked, "hidden");
+    initRepo(visible);
+    initRepo(hidden);
+
+    await scanRootsProgressive([root], {}, 4, { cacheFile });
+    assert.deepEqual(Object.keys(loadScanCache(cacheFile)).sort(), [hidden, visible].sort());
+
+    const partial = await scanRootsProgressive([root], {}, 4, {
+      cacheFile,
+      fileSystem: {
+        readDirectory: (path) => {
+          if (path === blocked) throw new Error("unreadable");
+          return readdirSync(path);
+        },
+      },
+    });
+    assert.equal(isPartialScan(partial), true);
+    assert.deepEqual(Object.keys(loadScanCache(cacheFile)).sort(), [hidden, visible].sort());
+
+    rmSync(blocked, { recursive: true, force: true });
+    const complete = await scanRootsProgressive([root], {}, 4, { cacheFile });
+    assert.equal(isPartialScan(complete), false);
+    assert.deepEqual(Object.keys(loadScanCache(cacheFile)), [visible]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

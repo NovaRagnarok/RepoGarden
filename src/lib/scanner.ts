@@ -593,43 +593,134 @@ const isDir = (path: string): boolean => {
   }
 };
 
-export const findRepos = (root: string, maxDepth = 4): string[] => {
+export interface ScannerFileSystem {
+  exists: (path: string) => boolean;
+  isDirectory: (path: string) => boolean;
+  readDirectory: (path: string) => string[];
+}
+
+export type ScannerFileSystemOverrides = Partial<ScannerFileSystem>;
+
+const DEFAULT_SCANNER_FILE_SYSTEM: ScannerFileSystem = {
+  exists: existsSync,
+  isDirectory: (path) => {
+    try {
+      return statSync(path).isDirectory();
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw error;
+    }
+  },
+  readDirectory: readdirSync,
+};
+
+const resolveScannerFileSystem = (
+  overrides: ScannerFileSystemOverrides = {}
+): ScannerFileSystem => ({
+  ...DEFAULT_SCANNER_FILE_SYSTEM,
+  ...overrides,
+});
+
+export interface ScanError {
+  root: string;
+  message: string;
+}
+
+export const MAX_SCAN_ERROR_DETAILS = 8;
+
+export interface RepoDiscoveryResult {
+  repos: string[];
+  errors: ScanError[];
+  omittedErrorCount: number;
+}
+
+const recordBoundedError = (
+  target: { errors: ScanError[]; omittedErrorCount: number },
+  error: ScanError
+): void => {
+  if (target.errors.length < MAX_SCAN_ERROR_DETAILS) {
+    target.errors.push(error);
+  } else {
+    target.omittedErrorCount += 1;
+  }
+};
+
+export const findReposWithStatus = (
+  root: string,
+  maxDepth = 4,
+  fileSystemOverrides: ScannerFileSystemOverrides = {}
+): RepoDiscoveryResult => {
   const repos: string[] = [];
+  const result: RepoDiscoveryResult = { repos, errors: [], omittedErrorCount: 0 };
+  const fileSystem = resolveScannerFileSystem(fileSystemOverrides);
   const expandedRoot = expandPath(root);
-  if (!existsSync(expandedRoot) || !isDir(expandedRoot)) {
-    return repos;
+  try {
+    if (!fileSystem.exists(expandedRoot) || !fileSystem.isDirectory(expandedRoot)) {
+      return result;
+    }
+  } catch {
+    recordBoundedError(result, {
+      root: expandedRoot,
+      message: "could not inspect directory",
+    });
+    return result;
   }
 
   const stack: { path: string; depth: number }[] = [{ path: expandedRoot, depth: 0 }];
 
   while (stack.length > 0) {
     const { path, depth } = stack.pop()!;
-    if (existsSync(join(path, ".git"))) {
-      repos.push(path);
-      // Keep descending so nested repos under a parent monorepo (or a
-      // folder-of-projects that itself happens to be a git repo) are found.
+    try {
+      if (fileSystem.exists(join(path, ".git"))) {
+        repos.push(path);
+        // Keep descending so nested repos under a parent monorepo (or a
+        // folder-of-projects that itself happens to be a git repo) are found.
+      }
+    } catch {
+      recordBoundedError(result, {
+        root: path,
+        message: "could not inspect repository marker; inventory is partial",
+      });
     }
     if (depth >= maxDepth) continue;
 
     let entries: string[];
     try {
-      entries = readdirSync(path);
+      entries = fileSystem.readDirectory(path);
     } catch {
+      recordBoundedError(result, {
+        root: path,
+        message: "could not read directory; inventory is partial",
+      });
       continue;
     }
 
-    for (const entry of entries) {
+    for (const entry of entries.sort()) {
       if (entry.startsWith(".") && entry !== ".git") continue;
       if (SKIP_DIRS.has(entry)) continue;
       const full = join(path, entry);
-      if (isDir(full)) {
-        stack.push({ path: full, depth: depth + 1 });
+      try {
+        if (fileSystem.isDirectory(full)) {
+          stack.push({ path: full, depth: depth + 1 });
+        }
+      } catch {
+        recordBoundedError(result, {
+          root: full,
+          message: "could not inspect path; inventory is partial",
+        });
       }
     }
   }
 
-  return repos.sort();
+  repos.sort();
+  return result;
 };
+
+export const findRepos = (
+  root: string,
+  maxDepth = 4,
+  fileSystemOverrides: ScannerFileSystemOverrides = {}
+): string[] => findReposWithStatus(root, maxDepth, fileSystemOverrides).repos;
 
 // Extra exclusions on top of SKIP_DIRS — these are files that match a
 // recognized source extension but shouldn't count toward "mass" because
@@ -1170,12 +1261,55 @@ export const inspectRepoExtrasAsync = async (
 export interface ScanResult {
   repos: ScannedRepo[];
   rootsUsed: string[];
-  errors: { root: string; message: string }[];
+  errors: ScanError[];
+  /** Additional errors suppressed after MAX_SCAN_ERROR_DETAILS. */
+  omittedErrorCount?: number;
 }
 
 export interface ScanRootsOptions {
   githubRepos?: GitHubRepoSnapshot[];
+  /** Injectable discovery filesystem for deterministic failure tests. */
+  fileSystem?: ScannerFileSystemOverrides;
 }
+
+const addScanError = (result: ScanResult, error: ScanError): void => {
+  if (result.errors.length < MAX_SCAN_ERROR_DETAILS) {
+    result.errors.push(error);
+  } else {
+    result.omittedErrorCount = (result.omittedErrorCount ?? 0) + 1;
+  }
+};
+
+const addDiscoveryErrors = (
+  result: ScanResult,
+  discovery: RepoDiscoveryResult,
+  onError?: (root: string, message: string) => void
+): void => {
+  for (const error of discovery.errors) {
+    addScanError(result, error);
+    onError?.(error.root, error.message);
+  }
+  result.omittedErrorCount =
+    (result.omittedErrorCount ?? 0) + discovery.omittedErrorCount;
+};
+
+export const isPartialScan = (result: ScanResult): boolean =>
+  result.errors.length > 0 || (result.omittedErrorCount ?? 0) > 0;
+
+export const formatScanErrors = (
+  result: Pick<ScanResult, "errors" | "omittedErrorCount">,
+  maxLength = 600
+): string => {
+  const details = result.errors.map(
+    (entry) => `${entry.root}: ${entry.message}`
+  );
+  if ((result.omittedErrorCount ?? 0) > 0) {
+    details.push(`+${result.omittedErrorCount} more scan errors`);
+  }
+  const message = details.join(" · ");
+  if (message.length <= maxLength) return message;
+  return `${message.slice(0, Math.max(0, maxLength - 1))}…`;
+};
 
 export const scanRoots = (
   roots: string[],
@@ -1192,17 +1326,18 @@ export const scanRoots = (
     const root = expandPath(raw);
     if (!root) continue;
     if (!existsSync(root)) {
-      result.errors.push({ root, message: "path does not exist" });
+      addScanError(result, { root, message: "path does not exist" });
       continue;
     }
     if (!isDir(root)) {
-      result.errors.push({ root, message: "not a directory" });
+      addScanError(result, { root, message: "not a directory" });
       continue;
     }
     result.rootsUsed.push(root);
 
-    const found = findRepos(root, maxDepth);
-    for (const repoPath of found) {
+    const discovery = findReposWithStatus(root, maxDepth, options.fileSystem);
+    addDiscoveryErrors(result, discovery);
+    for (const repoPath of discovery.repos) {
       if (seen.has(repoPath)) continue;
       seen.add(repoPath);
       try {
@@ -1296,6 +1431,8 @@ export interface ScanOptions {
    *  authoritative; this only annotates repos whose origin remote matches
    *  a fetched GitHub repo full_name. */
   githubRepos?: GitHubRepoSnapshot[];
+  /** Injectable discovery filesystem for deterministic failure tests. */
+  fileSystem?: ScannerFileSystemOverrides;
 }
 
 export const scanRootsProgressive = async (
@@ -1321,20 +1458,22 @@ export const scanRootsProgressive = async (
     if (!root) continue;
     if (!existsSync(root)) {
       const message = "path does not exist";
-      result.errors.push({ root, message });
+      addScanError(result, { root, message });
       events.onError?.(root, message);
       continue;
     }
     if (!isDir(root)) {
       const message = "not a directory";
-      result.errors.push({ root, message });
+      addScanError(result, { root, message });
       events.onError?.(root, message);
       continue;
     }
     result.rootsUsed.push(root);
     rootTotals.set(root, 0);
     rootDone.set(root, 0);
-    for (const repoPath of findRepos(root, maxDepth)) {
+    const discovery = findReposWithStatus(root, maxDepth, options.fileSystem);
+    addDiscoveryErrors(result, discovery, events.onError);
+    for (const repoPath of discovery.repos) {
       if (!seen.has(repoPath)) {
         seen.add(repoPath);
         allPaths.push(repoPath);
@@ -1541,11 +1680,14 @@ export const scanRootsProgressive = async (
   }
   result.repos.sort((left, right) => left.name.localeCompare(right.name));
 
-  // Persist the scan so the next launch hits the cache. We rebuild the
-  // entire entry set rather than merging — entries for repos no longer
-  // under any root naturally fall out, keeping the file from growing.
+  // A complete inventory authorizes pruning. A partial inventory does not:
+  // retain prior cache entries for paths hidden by an unreadable subtree.
   if (cacheEnabled) {
-    saveScanCache(buildUpdatedCache(result.repos), options.cacheFile);
+    const updated = buildUpdatedCache(result.repos);
+    saveScanCache(
+      isPartialScan(result) ? { ...priorCache, ...updated } : updated,
+      options.cacheFile
+    );
   }
 
   events.onComplete?.(result);
