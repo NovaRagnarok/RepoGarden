@@ -261,6 +261,19 @@ test("saveMemory does NOT emit when both blockers are empty", () => {
   });
 });
 
+test("saveMemory emits no blocker event when the memory write fails", () => {
+  withFakeHome((home) => {
+    const projects = join(home, ".repogarden", "projects");
+    mkdirSync(join(projects, "repo-write-fail.json"), { recursive: true });
+
+    assert.equal(
+      saveMemory("repo-write-fail", { currentBlocker: "not durable" }, "my-repo"),
+      false
+    );
+    assert.deepEqual(readEvents({ repoId: "repo-write-fail" }), []);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Vibe diff via snapshot
 // ---------------------------------------------------------------------------

@@ -503,3 +503,20 @@ bounded refresh batches as earlier issues leave the queue.
   nested repos; recursive platform watches are inconsistent across supported
   operating systems; pruning only the event snapshot would still make a
   creature visibly disappear during a transient filesystem failure.
+
+## 2026-08-10 — M1 note recovery and persistence truth
+
+- Corrupt-index recovery treats directly contained regular Markdown bodies as
+  the recoverable source of user writing. It uses safe ids, lexical order, and
+  fixed fallback timestamps; unsafe entries, directories, and symlinks are not
+  followed.
+- Missing, malformed, and structurally empty version-1 indexes are repairable.
+  An explicitly unsupported version is read-only: safe bodies may be surfaced,
+  but the existing index is never replaced and note mutations are refused.
+- Note-body persistence uses four explicit outcomes. `partial` means the body
+  is durable but index metadata is stale; the in-session persisted state stays
+  behind the editor so Ctrl+S can retry the complete transaction. Failed or
+  partial saves block transitions that could hide the retryable buffer.
+- Note journal events require a durable body and index. Blocker feedback and
+  blocker events additionally require the compatibility-memory mirror write to
+  succeed; a failed mirror remains locally visible and Ctrl+S retries it.

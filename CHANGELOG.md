@@ -4,6 +4,16 @@ All notable changes to RepoGarden land here. Format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Fixed
+
+- Safe Markdown note bodies are recovered when a per-repository note index is
+  missing, malformed, incompatible, or structurally empty. Unsupported future
+  indexes are preserved read-only instead of being downgraded.
+- Note saves now report durable, partial, failed, and no-op outcomes. The
+  workbench keeps failed edits retryable, blocks transitions that would discard
+  them, and emits note/blocker success only after the corresponding local writes
+  succeed.
+
 ### Removed
 
 - Automatic npm update checks on startup. Ordinary launches no longer contact the registry or write `~/.repogarden/update-check.json`, and the obsolete `REPOGARDEN_NO_UPDATE_CHECK` override has been removed from CLI help.

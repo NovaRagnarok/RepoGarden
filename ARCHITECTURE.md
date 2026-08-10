@@ -246,13 +246,29 @@ in-session state even when the disk write fails, while the app keeps a keyed,
 visible warning until a later save successfully persists that complete session
 state.
 
+Note bodies and their index use the same sibling-temporary/rename pattern, but
+body and metadata durability are reported separately. `saveNoteBody` returns a
+`durable`, `partial`, `failed`, or `no-op` outcome. A partial write means the
+Markdown body reached disk while `notes.json` did not; the workbench keeps the
+edit visibly retryable and emits no note/blocker success until both writes are
+durable. A failed body write blocks tab, mode, palette, and close transitions so
+the editor buffer cannot be silently discarded.
+
+When `notes.json` is missing, malformed, or structurally empty, the loader
+recovers directly contained regular `notes/<safe-id>.md` files in lexical order
+before repairing the index. Recovery never follows note-file or notes-directory
+symlinks. An explicitly unsupported index version is preserved rather than
+downgraded; safe Markdown bodies remain readable, but note mutations are refused
+until a compatible migration exists.
+
 Two details matter when editing persistence code:
 
 - Notes are the primary editable long-form store now. `ProjectMemory` is a
   small compatibility layer for fields like `hidden`, `lastVisitedAt`, and the
   blocker mirror.
 - The note named `blocker` is mirrored back into `ProjectMemory.currentBlocker`
-  so the habitat's vibe inference can stay simple.
+  so the habitat's vibe inference can stay simple. The mirror reports its write
+  result and appends blocker journal events only after that write succeeds.
 
 ## Events and usage polling
 

@@ -1,6 +1,8 @@
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   renameSync,
   unlinkSync,
@@ -15,6 +17,7 @@ import { loadMemory } from "./memory";
 const INDEX_VERSION = 1;
 const MAX_NOTE_NAME_LENGTH = 80;
 const SAFE_NOTE_ID = /^[A-Za-z0-9_-]+$/;
+const RECOVERED_NOTE_TIMESTAMP = "1970-01-01T00:00:00.000Z";
 
 export interface NoteMeta {
   id: string;
@@ -33,6 +36,13 @@ export interface NoteIndex {
 export interface NotesState {
   index: NoteIndex;
   bodies: Record<string, string>;
+}
+
+export type NoteSaveOutcome = "durable" | "partial" | "failed" | "no-op";
+
+export interface NoteSaveResult {
+  outcome: NoteSaveOutcome;
+  state: NotesState;
 }
 
 const projectDir = (id: string): string => join(homedir(), ".repogarden", "projects", id);
@@ -142,23 +152,39 @@ const atomicWriteFile = (path: string, contents: string): boolean => {
 const normalizeMeta = (id: string, raw: unknown): NoteMeta | null => {
   if (!raw || typeof raw !== "object") return null;
   const meta = raw as Partial<NoteMeta>;
-  const stamp = now();
   return {
     id,
     name: sanitizeNoteName(typeof meta.name === "string" ? meta.name : id, id),
-    createdAt: isIsoishString(meta.createdAt) ? meta.createdAt : stamp,
-    updatedAt: isIsoishString(meta.updatedAt) ? meta.updatedAt : stamp,
+    createdAt: isIsoishString(meta.createdAt)
+      ? meta.createdAt
+      : RECOVERED_NOTE_TIMESTAMP,
+    updatedAt: isIsoishString(meta.updatedAt)
+      ? meta.updatedAt
+      : RECOVERED_NOTE_TIMESTAMP,
   };
 };
 
-const readIndexFromDisk = (creatureId: string): NoteIndex | null => {
+type NoteIndexReadResult =
+  | { kind: "missing" }
+  | { kind: "invalid" }
+  | { kind: "unsupported" }
+  | { kind: "valid"; index: NoteIndex };
+
+const readIndexFromDisk = (creatureId: string): NoteIndexReadResult => {
   const path = indexPath(creatureId);
-  if (!existsSync(path)) return null;
+  if (!existsSync(path)) return { kind: "missing" };
   try {
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<NoteIndex>;
-    if (parsed.version !== INDEX_VERSION) return null;
-    if (!parsed.notes || typeof parsed.notes !== "object") return null;
-    if (!Array.isArray(parsed.order)) return null;
+    const raw = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return { kind: "invalid" };
+    }
+    const parsed = raw as Partial<NoteIndex>;
+    if (parsed.version !== undefined && parsed.version !== INDEX_VERSION) {
+      return { kind: "unsupported" };
+    }
+    if (parsed.version !== INDEX_VERSION) return { kind: "invalid" };
+    if (!parsed.notes || typeof parsed.notes !== "object") return { kind: "invalid" };
+    if (!Array.isArray(parsed.order)) return { kind: "invalid" };
 
     const notes: Record<string, NoteMeta> = {};
     const order: string[] = [];
@@ -172,20 +198,25 @@ const readIndexFromDisk = (creatureId: string): NoteIndex | null => {
       notes[rawId] = meta;
     }
 
-    if (order.length === 0) return null;
+    if (order.length === 0) return { kind: "invalid" };
     const active =
       typeof parsed.active === "string" && notes[parsed.active]
         ? parsed.active
         : order[0];
 
-    return { version: INDEX_VERSION, active, order, notes };
+    return {
+      kind: "valid",
+      index: { version: INDEX_VERSION, active, order, notes },
+    };
   } catch {
-    return null;
+    return { kind: "invalid" };
   }
 };
 
-const writeIndexToDisk = (creatureId: string, index: NoteIndex): boolean =>
-  atomicWriteFile(indexPath(creatureId), JSON.stringify(index, null, 2));
+const writeIndexToDisk = (creatureId: string, index: NoteIndex): boolean => {
+  if (readIndexFromDisk(creatureId).kind === "unsupported") return false;
+  return atomicWriteFile(indexPath(creatureId), JSON.stringify(index, null, 2));
+};
 
 const readBody = (creatureId: string, noteId: string): string => {
   const path = notePath(creatureId, noteId);
@@ -213,40 +244,83 @@ interface MaterializedNote {
   body: string;
 }
 
-const replaceBodyFromDisk = (
-  creatureId: string,
-  state: NotesState,
-  noteId: string
-): NotesState => ({
-  ...state,
-  bodies: {
-    ...state.bodies,
-    [noteId]: readBody(creatureId, noteId),
-  },
-});
+/**
+ * Recover only ordinary, directly-contained `<safe-id>.md` files. Directory
+ * entries, symlinks, nested paths, non-Markdown files, and unsafe ids are not
+ * followed. Lexical id order plus fixed fallback metadata keeps recovery
+ * deterministic even when the index cannot contribute any trusted metadata.
+ */
+const recoverNoteBodies = (creatureId: string): MaterializedNote[] => {
+  let entries;
+  try {
+    const directory = lstatSync(notesDir(creatureId));
+    if (directory.isSymbolicLink() || !directory.isDirectory()) return [];
+    entries = readdirSync(notesDir(creatureId), { withFileTypes: true });
+  } catch {
+    return [];
+  }
 
-const buildFreshScratch = (creatureId: string): MaterializedNote => {
+  const recovered: MaterializedNote[] = [];
+  const filenames = entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+    .map((entry) => entry.name)
+    .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+
+  for (const filename of filenames) {
+    const id = filename.slice(0, -3);
+    if (!isSafeNoteId(id)) continue;
+    try {
+      const body = normalizeBodyText(readFileSync(notePath(creatureId, id), "utf8"));
+      recovered.push({
+        meta: {
+          id,
+          name: sanitizeNoteName(id, "recovered note"),
+          createdAt: RECOVERED_NOTE_TIMESTAMP,
+          updatedAt: RECOVERED_NOTE_TIMESTAMP,
+        },
+        body,
+      });
+    } catch {
+      // An entry may disappear or become unreadable between listing and read.
+    }
+  }
+  return recovered;
+};
+
+const buildFreshScratch = (creatureId: string, persist = true): MaterializedNote => {
   const id = newId();
   const stamp = now();
   const meta: NoteMeta = { id, name: "scratch", createdAt: stamp, updatedAt: stamp };
-  writeBody(creatureId, id, "");
+  if (persist) writeBody(creatureId, id, "");
   return { meta, body: "" };
 };
+
+const buildUnsupportedIndexPlaceholder = (): MaterializedNote => ({
+  meta: {
+    id: "unsupported_index",
+    name: "unsupported notes index",
+    createdAt: RECOVERED_NOTE_TIMESTAMP,
+    updatedAt: RECOVERED_NOTE_TIMESTAMP,
+  },
+  body: "",
+});
 
 /**
  * Build a notes state for a creature, migrating from legacy ProjectMemory
  * (currentBlocker / noteToFutureSelf) on first access.
  */
 export const loadNotes = (creatureId: string): NotesState => {
-  const existing = readIndexFromDisk(creatureId);
+  const indexRead = readIndexFromDisk(creatureId);
 
-  if (!existing) {
+  if (indexRead.kind !== "valid") {
     const legacy = loadMemory(creatureId);
-    const seeded: MaterializedNote[] = [];
+    const recovered = recoverNoteBodies(creatureId);
+    const seeded: MaterializedNote[] = [...recovered];
     const stamp = now();
 
+    const canSeed = indexRead.kind !== "unsupported" && recovered.length === 0;
     const blocker = legacy.currentBlocker?.trim();
-    if (blocker) {
+    if (blocker && canSeed) {
       const id = newId();
       const body = normalizeBodyText(legacy.currentBlocker ?? "");
       writeBody(creatureId, id, body);
@@ -257,7 +331,7 @@ export const loadNotes = (creatureId: string): NotesState => {
     }
 
     const future = legacy.noteToFutureSelf?.trim();
-    if (future) {
+    if (future && canSeed) {
       const id = newId();
       const body = normalizeBodyText(legacy.noteToFutureSelf ?? "");
       writeBody(creatureId, id, body);
@@ -268,7 +342,11 @@ export const loadNotes = (creatureId: string): NotesState => {
     }
 
     if (seeded.length === 0) {
-      seeded.push(buildFreshScratch(creatureId));
+      seeded.push(
+        indexRead.kind === "unsupported"
+          ? buildUnsupportedIndexPlaceholder()
+          : buildFreshScratch(creatureId)
+      );
     }
 
     const index: NoteIndex = {
@@ -277,10 +355,14 @@ export const loadNotes = (creatureId: string): NotesState => {
       order: seeded.map((n) => n.meta.id),
       notes: Object.fromEntries(seeded.map((n) => [n.meta.id, n.meta])),
     };
-    writeIndexToDisk(creatureId, index);
+    if (indexRead.kind !== "unsupported") {
+      writeIndexToDisk(creatureId, index);
+    }
     const bodies = Object.fromEntries(seeded.map((n) => [n.meta.id, n.body]));
     return { index, bodies };
   }
+
+  const existing = indexRead.index;
 
   // Reconcile against disk: a note in the index whose body file is missing
   // has been deleted out-of-band; drop it. If everything is gone, recreate
@@ -330,12 +412,18 @@ export const saveNoteBody = (
   noteId: string,
   body: string,
   repoName = ""
-): NotesState => {
-  if (!state.index.notes[noteId] || !isSafeNoteId(noteId)) return state;
+): NoteSaveResult => {
+  if (!state.index.notes[noteId] || !isSafeNoteId(noteId)) {
+    return { outcome: "failed", state };
+  }
   const oldBody = normalizeBodyText(state.bodies[noteId] ?? "");
   const nextBody = normalizeBodyText(body);
+  if (oldBody === nextBody) return { outcome: "no-op", state };
+  if (readIndexFromDisk(creatureId).kind === "unsupported") {
+    return { outcome: "failed", state };
+  }
   if (!writeBody(creatureId, noteId, nextBody)) {
-    return replaceBodyFromDisk(creatureId, state, noteId);
+    return { outcome: "failed", state };
   }
   const stamp = now();
   const nextIndex: NoteIndex = {
@@ -347,8 +435,8 @@ export const saveNoteBody = (
   };
   if (!writeIndexToDisk(creatureId, nextIndex)) {
     return {
-      ...state,
-      bodies: { ...state.bodies, [noteId]: nextBody },
+      outcome: "partial",
+      state: { ...state, bodies: { ...state.bodies, [noteId]: nextBody } },
     };
   }
 
@@ -370,7 +458,10 @@ export const saveNoteBody = (
     }
   }
 
-  return { index: nextIndex, bodies: { ...state.bodies, [noteId]: nextBody } };
+  return {
+    outcome: "durable",
+    state: { index: nextIndex, bodies: { ...state.bodies, [noteId]: nextBody } },
+  };
 };
 
 export const createNote = (
@@ -379,6 +470,9 @@ export const createNote = (
   name: string,
   repoName = ""
 ): { state: NotesState; id: string } => {
+  if (readIndexFromDisk(creatureId).kind === "unsupported") {
+    return { state, id: state.index.active };
+  }
   const id = newId();
   const stamp = now();
   const fallback = `note ${state.index.order.length + 1}`;
@@ -422,6 +516,7 @@ export const deleteNote = (
   repoName = ""
 ): NotesState => {
   if (!state.index.notes[noteId] || !isSafeNoteId(noteId)) return state;
+  if (readIndexFromDisk(creatureId).kind === "unsupported") return state;
 
   const deletedName = state.index.notes[noteId].name;
   const nextOrder = state.index.order.filter((id) => id !== noteId);
@@ -487,6 +582,7 @@ export const setActive = (
   noteId: string
 ): NotesState => {
   if (!state.index.notes[noteId] || !isSafeNoteId(noteId) || state.index.active === noteId) return state;
+  if (readIndexFromDisk(creatureId).kind === "unsupported") return state;
   const nextIndex: NoteIndex = { ...state.index, active: noteId };
   if (!writeIndexToDisk(creatureId, nextIndex)) return state;
   return { ...state, index: nextIndex };
@@ -522,6 +618,7 @@ export const renameNote = (
   repoName = ""
 ): NotesState => {
   if (!state.index.notes[noteId] || !isSafeNoteId(noteId)) return state;
+  if (readIndexFromDisk(creatureId).kind === "unsupported") return state;
   const trimmed = sanitizeNoteName(name, "");
   if (!trimmed) return state;
   const uniqueName = uniqueNoteName(state, trimmed, noteId);

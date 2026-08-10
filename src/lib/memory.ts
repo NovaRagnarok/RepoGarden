@@ -55,7 +55,7 @@ export const loadMemory = (id: string): ProjectMemory => {
  *   - both nonempty, changed → no emit (avoids typo-edit spam)
  *   - no change → no emit
  */
-export const saveMemory = (id: string, memory: ProjectMemory, repoName = ""): void => {
+export const saveMemory = (id: string, memory: ProjectMemory, repoName = ""): boolean => {
   ensureDir();
 
   // Read prior state from disk so call sites don't need to thread it through.
@@ -64,7 +64,7 @@ export const saveMemory = (id: string, memory: ProjectMemory, repoName = ""): vo
   try {
     writeFileSync(filePath(id), JSON.stringify(memory, null, 2), "utf8");
   } catch {
-    // best-effort; in-memory copy lives on regardless.
+    return false;
   }
 
   // Only emit blocker events when a repoName was provided (so internal
@@ -94,6 +94,7 @@ export const saveMemory = (id: string, memory: ProjectMemory, repoName = ""): vo
     // both nonempty but changed → no emit (avoids typo spam)
     // both empty → no emit
   }
+  return true;
 };
 
 export const touchMemory = (id: string, current: ProjectMemory): ProjectMemory => {
