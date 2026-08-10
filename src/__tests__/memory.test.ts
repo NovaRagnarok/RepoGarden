@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -23,10 +23,26 @@ const withFakeHome = (run: () => void) => {
 
 test("saveMemory + loadMemory roundtrip", () => {
   withFakeHome(() => {
-    saveMemory("alpha", { currentBlocker: "fix builds", noteToFutureSelf: "look at CI logs" });
+    assert.equal(
+      saveMemory("alpha", {
+        currentBlocker: "fix builds",
+        noteToFutureSelf: "look at CI logs",
+      }),
+      true
+    );
     const loaded = loadMemory("alpha");
     assert.equal(loaded.currentBlocker, "fix builds");
     assert.equal(loaded.noteToFutureSelf, "look at CI logs");
+  });
+});
+
+test("saveMemory reports a structural write failure", () => {
+  withFakeHome(() => {
+    const projects = join(process.env.HOME!, ".repogarden", "projects");
+    mkdirSync(join(projects, "blocked.json"), { recursive: true });
+
+    assert.equal(saveMemory("blocked", { currentBlocker: "not durable" }), false);
+    assert.deepEqual(loadMemory("blocked"), {});
   });
 });
 

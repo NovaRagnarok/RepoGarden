@@ -6,9 +6,15 @@ import { renderScreen, waitFor } from "./helpers/ink-harness";
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { buildDemoCreatures } from "../lib/demo-roster";
+import { readEvents } from "../lib/events";
+import { loadMemory } from "../lib/memory";
+import { createNote, getNotePath, loadNotes, saveNoteBody, setActive } from "../lib/notes";
 import { WorkbenchScreen } from "../screens/WorkbenchScreen";
+import { TEST_HOME } from "./helpers/test-env";
 
 const CREATURE = buildDemoCreatures()[0];
 const BEHIND_CREATURE = {
@@ -23,6 +29,17 @@ const BEHIND_CREATURE = {
 
 // 100×30 is exactly the "rich" tier floor — full (non-compact) workbench.
 const SIZE = { columns: 100, rows: 30 };
+
+const creatureForPersistenceTest = (id: string) => ({
+  ...CREATURE,
+  id,
+  scan: {
+    ...CREATURE.scan,
+    id,
+    name: id,
+    path: join(TEST_HOME, "repos", id),
+  },
+});
 
 // NOTE on ordering: WorkbenchScreen remembers the last-used mode in a
 // module-level variable (session-scoped, intentionally not persisted), so a
@@ -188,6 +205,245 @@ test("ctrl+2 switches PORTRAIT → NOTES and ctrl+1 switches back", async () => 
     });
     assert.match(harness.lastFrame(), /2 actions/);
   } finally {
+    harness.unmount();
+  }
+});
+
+test("failed explicit saves keep tab, palette, mode, and close transitions retryable", async () => {
+  const creature = creatureForPersistenceTest("workbench-body-write-fail");
+  const initial = loadNotes(creature.id);
+  const created = createNote(creature.id, initial, "retry note");
+  const activeId = created.state.index.active;
+  const bodyPath = getNotePath(creature.id, activeId);
+  rmSync(bodyPath, { force: true });
+  mkdirSync(bodyPath, { recursive: true });
+  writeFileSync(join(bodyPath, ".keep"), "", "utf8");
+
+  let closed = 0;
+  const harness = renderScreen(
+    <WorkbenchScreen creature={creature} onClose={() => (closed += 1)} usageBarDisabled />,
+    SIZE
+  );
+  try {
+    await waitFor(() => harness.lastFrame().includes("1-6 section"), {
+      onTimeout: () => harness.lastFrame(),
+    });
+    harness.press("2", { ctrl: true });
+    await waitFor(() => harness.lastFrame().includes("ctrl+1 portrait"), {
+      onTimeout: () => harness.lastFrame(),
+    });
+
+    harness.press("x");
+    await waitFor(() => harness.lastFrame().includes("│ x"), {
+      onTimeout: () => harness.lastFrame(),
+    });
+    harness.press("s", { ctrl: true });
+    await waitFor(() => harness.lastFrame().includes("not saved · local note write failed"), {
+      onTimeout: () => harness.lastFrame(),
+    });
+    assert.match(harness.lastFrame(), /unsaved|not saved/);
+    assert.deepEqual(readEvents({ repoId: creature.id }), []);
+
+    const indexPath = join(TEST_HOME, ".repogarden", "projects", creature.id, "notes.json");
+    harness.writeInput("\x1b[1;5D");
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.equal(JSON.parse(readFileSync(indexPath, "utf8")).active, activeId);
+
+    harness.press("p", { ctrl: true });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.doesNotMatch(harness.lastFrame(), /palette ·/);
+
+    harness.press("1", { ctrl: true });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.match(harness.lastFrame(), /ctrl\+1 portrait/);
+    assert.doesNotMatch(harness.lastFrame(), /1-6 section/);
+
+    harness.press("escape");
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.equal(closed, 0);
+    assert.match(harness.lastFrame(), /not saved · local note write failed/);
+  } finally {
+    rmSync(bodyPath, { recursive: true, force: true });
+    writeFileSync(bodyPath, "", "utf8");
+    harness.press("s", { ctrl: true });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    harness.press("1", { ctrl: true });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    harness.unmount();
+  }
+});
+
+test("index-write failure reports partial durability without note or blocker success", async () => {
+  const creature = creatureForPersistenceTest("workbench-index-write-fail");
+  const initial = loadNotes(creature.id);
+  const activeId = initial.index.active;
+  const project = join(TEST_HOME, ".repogarden", "projects", creature.id);
+  const indexPath = join(project, "notes.json");
+  rmSync(indexPath, { force: true });
+  mkdirSync(indexPath, { recursive: true });
+  writeFileSync(join(indexPath, ".keep"), "", "utf8");
+
+  const harness = renderScreen(
+    <WorkbenchScreen creature={creature} onClose={() => {}} usageBarDisabled />,
+    SIZE
+  );
+  try {
+    await waitFor(() => harness.lastFrame().includes("1-6 section"), {
+      onTimeout: () => harness.lastFrame(),
+    });
+    harness.press("2", { ctrl: true });
+    await waitFor(() => harness.lastFrame().includes("ctrl+1 portrait"), {
+      onTimeout: () => harness.lastFrame(),
+    });
+
+    harness.press("y");
+    await waitFor(() => harness.lastFrame().includes("│ y"), {
+      onTimeout: () => harness.lastFrame(),
+    });
+    harness.press("s", { ctrl: true });
+    await waitFor(() => harness.lastFrame().includes("partially saved"), {
+      onTimeout: () => harness.lastFrame(),
+    });
+    assert.match(harness.lastFrame(), /index update failed · ctrl\+s to retry/);
+    assert.equal(readFileSync(getNotePath(creature.id, activeId), "utf8"), "y");
+    assert.deepEqual(readEvents({ repoId: creature.id }), []);
+  } finally {
+    rmSync(indexPath, { recursive: true, force: true });
+    writeFileSync(indexPath, JSON.stringify(initial.index, null, 2), "utf8");
+    harness.press("s", { ctrl: true });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    harness.press("1", { ctrl: true });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    harness.unmount();
+  }
+});
+
+test("idle autosave reports a body-write failure and keeps the editor unsaved", async () => {
+  const creature = creatureForPersistenceTest("workbench-autosave-fail");
+  const initial = loadNotes(creature.id);
+  const activeId = initial.index.active;
+  const bodyPath = getNotePath(creature.id, activeId);
+  rmSync(bodyPath, { force: true });
+  mkdirSync(bodyPath, { recursive: true });
+  writeFileSync(join(bodyPath, ".keep"), "", "utf8");
+
+  const harness = renderScreen(
+    <WorkbenchScreen creature={creature} onClose={() => {}} usageBarDisabled />,
+    SIZE
+  );
+  try {
+    await waitFor(() => harness.lastFrame().includes("1-6 section"), {
+      onTimeout: () => harness.lastFrame(),
+    });
+    harness.press("2", { ctrl: true });
+    await waitFor(() => harness.lastFrame().includes("ctrl+1 portrait"), {
+      onTimeout: () => harness.lastFrame(),
+    });
+    harness.press("z");
+
+    await waitFor(() => harness.lastFrame().includes("not saved · local note write failed"), {
+      timeoutMs: 2_500,
+      onTimeout: () => harness.lastFrame(),
+    });
+    assert.deepEqual(readEvents({ repoId: creature.id }), []);
+  } finally {
+    rmSync(bodyPath, { recursive: true, force: true });
+    writeFileSync(bodyPath, "", "utf8");
+    harness.press("s", { ctrl: true });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    harness.press("1", { ctrl: true });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    harness.unmount();
+  }
+});
+
+test("blocker success waits for the durable legacy-memory mirror and can be retried", async () => {
+  const creature = creatureForPersistenceTest("workbench-blocker-mirror-fail");
+  const initial = loadNotes(creature.id);
+  createNote(creature.id, initial, "blocker");
+  const memoryPath = join(TEST_HOME, ".repogarden", "projects", `${creature.id}.json`);
+  mkdirSync(memoryPath, { recursive: true });
+
+  const harness = renderScreen(
+    <WorkbenchScreen creature={creature} onClose={() => {}} usageBarDisabled />,
+    SIZE
+  );
+  try {
+    await waitFor(() => harness.lastFrame().includes("1-6 section"), {
+      onTimeout: () => harness.lastFrame(),
+    });
+    harness.press("2", { ctrl: true });
+    await waitFor(() => harness.lastFrame().includes("ctrl+1 portrait"), {
+      onTimeout: () => harness.lastFrame(),
+    });
+    harness.press("b");
+    await waitFor(() => harness.lastFrame().includes("│ b"), {
+      onTimeout: () => harness.lastFrame(),
+    });
+    harness.press("s", { ctrl: true });
+
+    await waitFor(
+      () => harness.lastFrame().includes("note saved · blocker status not updated"),
+      { onTimeout: () => harness.lastFrame() }
+    );
+    const beforeRetry = readEvents({ repoId: creature.id });
+    assert.equal(beforeRetry.filter((event) => event.kind === "note-edited").length, 1);
+    assert.equal(beforeRetry.filter((event) => event.kind === "blocker-added").length, 0);
+
+    rmSync(memoryPath, { recursive: true, force: true });
+    harness.press("s", { ctrl: true });
+    await waitFor(
+      () =>
+        readEvents({ repoId: creature.id }).some((event) => event.kind === "blocker-added") &&
+        harness.lastFrame().includes("blocker set"),
+      { onTimeout: () => harness.lastFrame() }
+    );
+    assert.match(harness.lastFrame(), /blocker set/);
+  } finally {
+    rmSync(memoryPath, { recursive: true, force: true });
+    harness.press("1", { ctrl: true });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    harness.unmount();
+  }
+});
+
+test("saving a non-blocker note does not retry a failed blocker mirror", async () => {
+  const creature = creatureForPersistenceTest("workbench-non-blocker-does-not-retry-mirror");
+  const initial = loadNotes(creature.id);
+  const scratchId = initial.index.active;
+  const created = createNote(creature.id, initial, "blocker");
+  const blockerSaved = saveNoteBody(creature.id, created.state, created.id, "still blocked");
+  assert.equal(blockerSaved.outcome, "durable");
+  setActive(creature.id, blockerSaved.state, scratchId);
+
+  const memoryPath = join(TEST_HOME, ".repogarden", "projects", `${creature.id}.json`);
+  mkdirSync(memoryPath, { recursive: true });
+  const harness = renderScreen(
+    <WorkbenchScreen creature={creature} onClose={() => {}} usageBarDisabled />,
+    SIZE
+  );
+  try {
+    await waitFor(
+      () => harness.lastFrame().includes("note saved · blocker status not updated"),
+      { onTimeout: () => harness.lastFrame() }
+    );
+    harness.press("2", { ctrl: true });
+    await waitFor(() => harness.lastFrame().includes("ctrl+1 portrait"), {
+      onTimeout: () => harness.lastFrame(),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    rmSync(memoryPath, { recursive: true, force: true });
+    harness.press("s", { ctrl: true });
+    await new Promise((resolve) => setTimeout(resolve, 160));
+
+    assert.equal(loadMemory(creature.id).currentBlocker, undefined);
+    assert.equal(readEvents({ repoId: creature.id }).some((event) => event.kind === "blocker-added"), false);
+    assert.doesNotMatch(harness.lastFrame(), /blocker status saved|blocker set · stuck/);
+  } finally {
+    rmSync(memoryPath, { recursive: true, force: true });
+    harness.press("1", { ctrl: true });
+    await new Promise((resolve) => setTimeout(resolve, 40));
     harness.unmount();
   }
 });

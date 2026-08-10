@@ -4,8 +4,10 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,6 +19,7 @@ import {
   createNote,
   deleteNote,
   deriveBlockerFromNotes,
+  getNotePath,
   loadNotes,
   renameNote,
   sanitizeNoteName,
@@ -51,6 +54,152 @@ test("loadNotes seeds a single scratch note when no legacy memory exists", () =>
     assert.equal(only.name, "scratch");
     assert.equal(state.index.active, only.id);
     assert.equal(state.bodies[only.id], "");
+  });
+});
+
+test("loadNotes recovers safe Markdown bodies when the index is missing", () => {
+  withFakeHome(() => {
+    const project = join(process.env.HOME!, ".repogarden", "projects", "missing-index");
+    const notes = join(project, "notes");
+    mkdirSync(notes, { recursive: true });
+    writeFileSync(join(notes, "zeta.md"), "last", "utf8");
+    writeFileSync(join(notes, "alpha.md"), "first\r\nsecond", "utf8");
+    writeFileSync(join(notes, "unsafe.name.md"), "ignore me", "utf8");
+    writeFileSync(join(notes, "not-markdown.txt"), "ignore me too", "utf8");
+    mkdirSync(join(notes, "directory.md"));
+
+    const recovered = loadNotes("missing-index");
+    assert.deepEqual(recovered.index.order, ["alpha", "zeta"]);
+    assert.equal(recovered.index.active, "alpha");
+    assert.equal(recovered.index.notes.alpha.name, "alpha");
+    assert.equal(recovered.index.notes.alpha.createdAt, "1970-01-01T00:00:00.000Z");
+    assert.equal(recovered.bodies.alpha, "first\nsecond");
+    assert.equal(recovered.bodies.zeta, "last");
+    assert.equal(recovered.bodies["unsafe.name"], undefined);
+    assert.equal(recovered.bodies.directory, undefined);
+
+    assert.deepEqual(loadNotes("missing-index"), recovered);
+  });
+});
+
+test("loadNotes recovers bodies through a symlinked notes directory", () => {
+  withFakeHome(() => {
+    const project = join(process.env.HOME!, ".repogarden", "projects", "linked-notes");
+    const notesTarget = join(process.env.HOME!, "linked-notes-target");
+    mkdirSync(project, { recursive: true });
+    mkdirSync(notesTarget, { recursive: true });
+    writeFileSync(join(notesTarget, "kept.md"), "linked body", "utf8");
+    symlinkSync(notesTarget, join(project, "notes"), process.platform === "win32" ? "junction" : "dir");
+
+    const recovered = loadNotes("linked-notes");
+    assert.deepEqual(recovered.index.order, ["kept"]);
+    assert.equal(recovered.bodies.kept, "linked body");
+  });
+});
+
+test("loadNotes recovers bodies from malformed index JSON instead of re-seeding", () => {
+  withFakeHome(() => {
+    const project = join(process.env.HOME!, ".repogarden", "projects", "malformed-index");
+    const notes = join(project, "notes");
+    mkdirSync(notes, { recursive: true });
+    writeFileSync(join(notes, "kept.md"), "keep this body", "utf8");
+    writeFileSync(join(project, "notes.json"), "{ definitely not json", "utf8");
+    saveMemory("malformed-index", { currentBlocker: "legacy fallback" });
+
+    const recovered = loadNotes("malformed-index");
+    assert.deepEqual(recovered.index.order, ["kept"]);
+    assert.equal(recovered.bodies.kept, "keep this body");
+    assert.equal(Object.values(recovered.bodies).includes("legacy fallback"), false);
+    assert.deepEqual(loadNotes("malformed-index"), recovered);
+  });
+});
+
+test("loadNotes preserves an unsupported index while surfacing safe bodies read-only", () => {
+  withFakeHome(() => {
+    const project = join(process.env.HOME!, ".repogarden", "projects", "future-index");
+    const notes = join(project, "notes");
+    mkdirSync(notes, { recursive: true });
+    writeFileSync(join(notes, "second.md"), "two", "utf8");
+    writeFileSync(join(notes, "first.md"), "one", "utf8");
+    const futureIndexPath = join(project, "notes.json");
+    const futureIndex = JSON.stringify(
+      { version: 99, active: "future", order: ["future"], notes: { future: {} } },
+      null,
+      2
+    );
+    writeFileSync(futureIndexPath, futureIndex, "utf8");
+
+    const recovered = loadNotes("future-index");
+    assert.deepEqual(recovered.index.order, ["first", "second"]);
+    assert.deepEqual(recovered.bodies, { first: "one", second: "two" });
+    assert.equal(readFileSync(futureIndexPath, "utf8"), futureIndex);
+
+    const refused = saveNoteBody("future-index", recovered, "first", "do not downgrade");
+    assert.equal(refused.outcome, "failed");
+    assert.equal(readFileSync(join(notes, "first.md"), "utf8"), "one");
+    assert.equal(readFileSync(futureIndexPath, "utf8"), futureIndex);
+  });
+});
+
+test("loadNotes recovers bodies when every index entry is invalid", () => {
+  withFakeHome(() => {
+    const project = join(process.env.HOME!, ".repogarden", "projects", "invalid-index");
+    const notes = join(project, "notes");
+    mkdirSync(notes, { recursive: true });
+    writeFileSync(join(notes, "safe_id.md"), "safe body", "utf8");
+    writeFileSync(
+      join(project, "notes.json"),
+      JSON.stringify({
+        version: 1,
+        active: "../escape",
+        order: ["../escape", "missing-meta"],
+        notes: { "../escape": { name: "unsafe" } },
+      }),
+      "utf8"
+    );
+
+    const recovered = loadNotes("invalid-index");
+    assert.deepEqual(recovered.index.order, ["safe_id"]);
+    assert.equal(recovered.index.active, "safe_id");
+    assert.equal(recovered.bodies.safe_id, "safe body");
+    assert.deepEqual(loadNotes("invalid-index"), recovered);
+  });
+});
+
+test("loadNotes repairs a structurally empty index from bodies and keeps true empty first run", () => {
+  withFakeHome(() => {
+    const project = join(process.env.HOME!, ".repogarden", "projects", "empty-index");
+    const notes = join(project, "notes");
+    mkdirSync(notes, { recursive: true });
+    writeFileSync(join(notes, "kept.md"), "still here", "utf8");
+    writeFileSync(
+      join(project, "notes.json"),
+      JSON.stringify({ version: 1, active: "", order: [], notes: {} }),
+      "utf8"
+    );
+
+    const recovered = loadNotes("empty-index");
+    assert.deepEqual(recovered.index.order, ["kept"]);
+    assert.equal(recovered.bodies.kept, "still here");
+
+    const trulyEmpty = loadNotes("truly-empty");
+    assert.equal(trulyEmpty.index.order.length, 1);
+    assert.equal(trulyEmpty.index.notes[trulyEmpty.index.active].name, "scratch");
+  });
+});
+
+test("loadNotes keeps recovered bodies visible when index repair cannot be written", () => {
+  withFakeHome(() => {
+    const project = join(process.env.HOME!, ".repogarden", "projects", "repair-write-fail");
+    const notes = join(project, "notes");
+    mkdirSync(notes, { recursive: true });
+    writeFileSync(join(notes, "kept.md"), "still visible", "utf8");
+    mkdirSync(join(project, "notes.json"));
+
+    const recovered = loadNotes("repair-write-fail");
+    assert.deepEqual(recovered.index.order, ["kept"]);
+    assert.equal(recovered.bodies.kept, "still visible");
+    assert.deepEqual(loadNotes("repair-write-fail"), recovered);
   });
 });
 
@@ -96,11 +245,25 @@ test("saveNoteBody persists and bumps updatedAt", async () => {
     while (Date.now() === start) {
       /* spin */
     }
-    const next = saveNoteBody("delta", initial, id, "new content");
+    const result = saveNoteBody("delta", initial, id, "new content");
+    assert.equal(result.outcome, "durable");
+    const next = result.state;
     assert.equal(next.bodies[id], "new content");
     assert.notEqual(next.index.notes[id].updatedAt, originalUpdatedAt);
     const reloaded = loadNotes("delta");
     assert.equal(reloaded.bodies[id], "new content");
+  });
+});
+
+test("saveNoteBody reports no-op without advancing metadata or emitting an event", () => {
+  withFakeHome(() => {
+    const initial = loadNotes("save-no-op");
+    const id = initial.index.active;
+    const result = saveNoteBody("save-no-op", initial, id, "", "save no op repo");
+
+    assert.equal(result.outcome, "no-op");
+    assert.equal(result.state, initial);
+    assert.deepEqual(readEvents({ repoId: "save-no-op" }), []);
   });
 });
 
@@ -114,6 +277,38 @@ test("createNote appends a new note and makes it active", () => {
     const reloaded = loadNotes("epsilon");
     assert.equal(reloaded.index.order.length, 2);
     assert.equal(reloaded.index.active, id);
+  });
+});
+
+test("create, rename, and delete leave state and events unchanged when the index write fails", () => {
+  withFakeHome(() => {
+    const creatureId = "mutation-index-fail";
+    const initial = loadNotes(creatureId);
+    const activeId = initial.index.active;
+    const project = join(process.env.HOME!, ".repogarden", "projects", creatureId);
+    const noteFilesBefore = readdirSync(join(project, "notes")).sort();
+    const notesIndexPath = join(project, "notes.json");
+    rmSync(notesIndexPath, { force: true });
+    mkdirSync(notesIndexPath, { recursive: true });
+    writeFileSync(join(notesIndexPath, ".keep"), "", "utf8");
+
+    const created = createNote(creatureId, initial, "not durable", "mutation repo");
+    assert.equal(created.state, initial);
+    assert.deepEqual(readdirSync(join(project, "notes")).sort(), noteFilesBefore);
+
+    const renamed = renameNote(
+      creatureId,
+      initial,
+      activeId,
+      "not durable",
+      "mutation repo"
+    );
+    assert.equal(renamed, initial);
+
+    const deleted = deleteNote(creatureId, initial, activeId, "mutation repo");
+    assert.equal(deleted, initial);
+    assert.equal(existsSync(getNotePath(creatureId, activeId)), true);
+    assert.deepEqual(readEvents({ repoId: creatureId }), []);
   });
 });
 
@@ -232,7 +427,7 @@ test("deriveBlockerFromNotes is case-insensitive and trims the name", () => {
     const initial = loadNotes("nu");
     const { state } = createNote("nu", initial, "  BLOCKER  ");
     const blockerId = state.index.active;
-    const written = saveNoteBody("nu", state, blockerId, "the thing");
+    const written = saveNoteBody("nu", state, blockerId, "the thing").state;
     assert.equal(deriveBlockerFromNotes(written), "the thing");
   });
 });
@@ -281,7 +476,7 @@ test("emptying the blocker note clears the legacy mirror", () => {
     saveMemory("rho", { currentBlocker: "initial" });
     const initial = loadNotes("rho");
     const blockerId = initial.index.order[0];
-    const cleared = saveNoteBody("rho", initial, blockerId, "");
+    const cleared = saveNoteBody("rho", initial, blockerId, "").state;
     const derived = deriveBlockerFromNotes(cleared);
     saveMemory("rho", { ...loadMemory("rho"), currentBlocker: derived });
     assert.equal(loadMemory("rho").currentBlocker, undefined);
@@ -318,7 +513,7 @@ test("saveNoteBody normalizes CRLF and CR bodies to LF", () => {
   withFakeHome(() => {
     const initial = loadNotes("phi");
     const id = initial.index.active;
-    const next = saveNoteBody("phi", initial, id, "a\r\nb\rc");
+    const next = saveNoteBody("phi", initial, id, "a\r\nb\rc").state;
     assert.equal(next.bodies[id], "a\nb\nc");
 
     const path = join(process.env.HOME!, ".repogarden", "projects", "phi", "notes", `${id}.md`);
@@ -359,11 +554,36 @@ test("loadNotes ignores unsafe note ids from a hand-edited index", () => {
   });
 });
 
+test("loadNotes uses deterministic fallback metadata for a hand-edited valid index", () => {
+  withFakeHome(() => {
+    const project = join(process.env.HOME!, ".repogarden", "projects", "fallback-meta");
+    const notesDir = join(project, "notes");
+    mkdirSync(notesDir, { recursive: true });
+    writeFileSync(join(notesDir, "safe.md"), "safe body", "utf8");
+    writeFileSync(
+      join(project, "notes.json"),
+      JSON.stringify({
+        version: 1,
+        active: "safe",
+        order: ["safe"],
+        notes: { safe: { id: "safe", name: "safe" } },
+      }),
+      "utf8"
+    );
+
+    const first = loadNotes("fallback-meta");
+    const second = loadNotes("fallback-meta");
+    assert.deepEqual(second, first);
+    assert.equal(first.index.notes.safe.createdAt, "1970-01-01T00:00:00.000Z");
+    assert.equal(first.index.notes.safe.updatedAt, "1970-01-01T00:00:00.000Z");
+  });
+});
+
 test("saveNoteBody emits note-edited for same-length content edits", () => {
   withFakeHome(() => {
     const initial = loadNotes("psi");
     const id = initial.index.active;
-    const first = saveNoteBody("psi", initial, id, "ab", "repo psi");
+    const first = saveNoteBody("psi", initial, id, "ab", "repo psi").state;
     saveNoteBody("psi", first, id, "cd", "repo psi");
     const events = readEvents({ repoId: "psi" });
     assert.equal(
@@ -377,7 +597,12 @@ test("saveNoteBody does not advance metadata or emit events when the body write 
   withFakeHome(() => {
     const initial = loadNotes("persist-fail-body");
     const id = initial.index.active;
-    const persisted = saveNoteBody("persist-fail-body", initial, id, "stable body");
+    const persisted = saveNoteBody(
+      "persist-fail-body",
+      initial,
+      id,
+      "stable body"
+    ).state;
     const previousUpdatedAt = persisted.index.notes[id].updatedAt;
     const project = join(process.env.HOME!, ".repogarden", "projects", "persist-fail-body");
     const bodyPath = join(project, "notes", `${id}.md`);
@@ -400,9 +625,10 @@ test("saveNoteBody does not advance metadata or emit events when the body write 
 
     // Core invariants: index metadata was not advanced, no event leaked out,
     // and the failed body text was not silently adopted into in-memory state.
-    assert.equal(failed.index.notes[id].updatedAt, previousUpdatedAt);
+    assert.equal(failed.outcome, "failed");
+    assert.equal(failed.state.index.notes[id].updatedAt, previousUpdatedAt);
     assert.deepEqual(readEvents({ repoId: "persist-fail-body" }), []);
-    assert.notEqual(failed.bodies[id], "lost body");
+    assert.notEqual(failed.state.bodies[id], "lost body");
   });
 });
 
@@ -427,8 +653,9 @@ test("saveNoteBody keeps the new body but skips metadata when the index write fa
       "persist fail index repo"
     );
 
-    assert.equal(failed.bodies[id], "durable body");
-    assert.equal(failed.index.notes[id].updatedAt, previousUpdatedAt);
+    assert.equal(failed.outcome, "partial");
+    assert.equal(failed.state.bodies[id], "durable body");
+    assert.equal(failed.state.index.notes[id].updatedAt, previousUpdatedAt);
     assert.equal(readFileSync(bodyPath, "utf8"), "durable body");
     assert.deepEqual(readEvents({ repoId: "persist-fail-index" }), []);
 
@@ -497,7 +724,13 @@ test("workbench blocker note flips a creature's vibe to stuck via buildCreature"
     const initial = loadNotes(scan.id);
     const { state: withBlockerNote } = createNote(scan.id, initial, "blocker");
     const blockerId = withBlockerNote.index.active;
-    const filled = saveNoteBody(scan.id, withBlockerNote, blockerId, "auth flow", scan.name);
+    const filled = saveNoteBody(
+      scan.id,
+      withBlockerNote,
+      blockerId,
+      "auth flow",
+      scan.name
+    ).state;
     const derived = deriveBlockerFromNotes(filled);
     saveMemory(scan.id, { ...loadMemory(scan.id), currentBlocker: derived }, scan.name);
 
@@ -522,7 +755,7 @@ test("clearing a workbench blocker note flips the vibe back off stuck", () => {
       (id) => state.index.notes[id].name === "blocker"
     );
     assert.ok(blockerId, "blocker note should exist after migration");
-    const emptied = saveNoteBody(scan.id, state, blockerId, "", scan.name);
+    const emptied = saveNoteBody(scan.id, state, blockerId, "", scan.name).state;
     const derived = deriveBlockerFromNotes(emptied);
     saveMemory(scan.id, { ...loadMemory(scan.id), currentBlocker: derived }, scan.name);
 

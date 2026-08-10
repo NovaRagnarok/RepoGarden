@@ -33,8 +33,10 @@ import {
   deriveBlockerFromNotes,
   loadNotes,
   renameNote,
+  sanitizeNoteName,
   saveNoteBody,
   setActive,
+  type NoteSaveResult,
   type NotesState,
 } from "@/lib/notes";
 import {
@@ -80,6 +82,7 @@ type Mode =
       kind: "status";
       message: string;
       variant: "success" | "info" | "warning" | "error";
+      sticky?: boolean;
     };
 
 export const WorkbenchScreen = ({
@@ -128,7 +131,9 @@ export const WorkbenchScreen = ({
     readEvents({ repoId: creature.id, limit: 40 })
   );
   const selectionRequestCounterRef = useRef(0);
-  const lastBlockerFeedbackRef = useRef<{ previous: string; next: string } | null>(null);
+  const lastBlockerFeedbackRef = useRef<MemoryEditFeedback | null>(null);
+  const blockerMirrorFailedRef = useRef(false);
+  const [blockerSyncAttempt, setBlockerSyncAttempt] = useState(0);
 
   // Workbench mode: PORTRAIT (read snapshot) or NOTES (write editor).
   // Default is PORTRAIT on first launch — matches notice → understand → act.
@@ -136,21 +141,6 @@ export const WorkbenchScreen = ({
   const [workbenchMode, setWorkbenchMode] = useState<"portrait" | "notes">(
     () => lastWorkbenchMode ?? "portrait"
   );
-  const switchMode = (next: "portrait" | "notes") => {
-    if (next === "portrait" && workbenchMode === "notes" && (notes.bodies[activeId] ?? "") !== editor) {
-      setNotes(saveNoteBody(creature.id, notes, activeId, editor, creature.scan.name));
-    }
-
-    lastWorkbenchMode = next;
-    setWorkbenchMode(next);
-    // If flipping away from notes, close any open palette / prompts to avoid a stuck modal.
-    if (next !== "notes") {
-      setPaletteOpen(false);
-      setPendingName("");
-      setUiMode({ kind: "edit" });
-    }
-  };
-
   const dirty = (notes.bodies[activeId] ?? "") !== editor;
 
   const portraitSection = PORTRAIT_SECTIONS[portraitSectionIndex] ?? "overview";
@@ -204,21 +194,89 @@ export const WorkbenchScreen = ({
   // Auto-dismiss transient status banners after ~1.5s. Confirmations use
   // their own modes and stay visible until the user acts or hits escape.
   useEffect(() => {
-    if (uiMode.kind !== "status") return;
+    if (uiMode.kind !== "status" || uiMode.sticky) return;
     const timer = setTimeout(() => setUiMode({ kind: "edit" }), 1500);
     return () => clearTimeout(timer);
   }, [uiMode]);
 
   const rememberMemoryEditFeedback = (feedback: MemoryEditFeedback): void => {
     if (feedback.kind !== "blocker" || !feedback.changed) return;
-    lastBlockerFeedbackRef.current = {
-      previous: feedback.previousTrimmed,
-      next: feedback.nextTrimmed,
-    };
+    lastBlockerFeedbackRef.current = feedback;
   };
 
   const feedbackForActiveNote = (previousBody: string, nextBody: string): MemoryEditFeedback =>
     buildMemoryEditFeedback(notes.index.notes[activeId]?.name ?? "note", previousBody, nextBody);
+
+  const reportSaveResult = (
+    result: NoteSaveResult,
+    feedback: MemoryEditFeedback,
+    successFeedback: "status-and-toast" | "toast" | "silent"
+  ): boolean => {
+    if (result.outcome === "failed" || result.outcome === "partial") {
+      const partial = result.outcome === "partial";
+      const message = partial
+        ? "partially saved · note body is durable; index update failed · ctrl+s to retry"
+        : "not saved · local note write failed · ctrl+s to retry";
+      if (result.state !== notes) setNotes(result.state);
+      setUiMode({
+        kind: "status",
+        message,
+        variant: partial ? "warning" : "error",
+        sticky: true,
+      });
+      pushToast(message, partial ? "warning" : "error");
+      return false;
+    }
+
+    if (result.state !== notes) setNotes(result.state);
+    if (result.outcome === "durable") {
+      rememberMemoryEditFeedback(feedback);
+      if (successFeedback !== "silent" && feedback.kind !== "blocker") {
+        pushToast(feedback.toast, "info");
+      }
+      if (successFeedback === "status-and-toast") {
+        setUiMode({
+          kind: "status",
+          message: feedback.kind === "blocker" ? "note saved · syncing blocker status" : feedback.status,
+          variant: feedback.kind === "blocker" ? "info" : "success",
+        });
+      } else {
+        setUiMode({ kind: "edit" });
+      }
+    } else if (successFeedback === "status-and-toast") {
+      setUiMode({ kind: "status", message: "nothing to save", variant: "info" });
+    } else {
+      setUiMode({ kind: "edit" });
+    }
+    if (feedback.kind === "blocker") {
+      setBlockerSyncAttempt((attempt) => attempt + 1);
+    }
+    return true;
+  };
+
+  const persistCurrentEditor = (state: NotesState): NoteSaveResult =>
+    saveNoteBody(creature.id, state, activeId, editor, creature.scan.name);
+
+  const persistForTransition = (state: NotesState): NoteSaveResult | null => {
+    const oldBody = state.bodies[activeId] ?? "";
+    const feedback = feedbackForActiveNote(oldBody, editor);
+    const result = persistCurrentEditor(state);
+    return reportSaveResult(result, feedback, "toast") ? result : null;
+  };
+
+  const switchMode = (next: "portrait" | "notes") => {
+    if (next === workbenchMode) return;
+    if (workbenchMode === "notes" && !persistForTransition(notes)) return;
+
+    lastWorkbenchMode = next;
+    setWorkbenchMode(next);
+    // If flipping away from notes, close any open palette / prompts to avoid a stuck modal.
+    if (next !== "notes") {
+      setPaletteOpen(false);
+      setPendingName("");
+      setUiMode({ kind: "edit" });
+    }
+  };
 
   // Auto-save on idle: when the editor buffer diverges from the persisted
   // body, schedule a save 1s after the last keystroke. Cancelled on every
@@ -231,10 +289,8 @@ export const WorkbenchScreen = ({
     const timer = setTimeout(() => {
       const oldBody = notes.bodies[activeId] ?? "";
       const feedback = feedbackForActiveNote(oldBody, editor);
-      const saved = saveNoteBody(creature.id, notes, activeId, editor, creature.scan.name);
-      rememberMemoryEditFeedback(feedback);
-      setNotes(saved);
-      pushToast(feedback.toast, "info");
+      const result = saveNoteBody(creature.id, notes, activeId, editor, creature.scan.name);
+      reportSaveResult(result, feedback, "toast");
     }, 1000);
     return () => clearTimeout(timer);
   }, [editor, notes, activeId, creature.id, pushToast]);
@@ -249,17 +305,44 @@ export const WorkbenchScreen = ({
   useEffect(() => {
     const blocker = deriveBlockerFromNotes(notes);
     const current = loadMemory(creature.id);
-    if ((current.currentBlocker ?? undefined) === blocker) return;
+    if ((current.currentBlocker ?? undefined) === blocker) {
+      const savedFeedback = lastBlockerFeedbackRef.current;
+      if (savedFeedback?.nextTrimmed === (blocker?.trim() ?? "")) {
+        lastBlockerFeedbackRef.current = null;
+        setUiMode({ kind: "status", message: savedFeedback.status, variant: "success" });
+        pushToast(savedFeedback.toast, "info");
+      }
+      return;
+    }
     const prevBlocker = current.currentBlocker?.trim() ?? "";
     const nextBlocker = blocker?.trim() ?? "";
-    saveMemory(creature.id, { ...current, currentBlocker: blocker }, creature.scan.name);
+    const persisted = saveMemory(
+      creature.id,
+      { ...current, currentBlocker: blocker },
+      creature.scan.name
+    );
     const savedFeedback = lastBlockerFeedbackRef.current;
     const matchingSaveFeedback =
-      savedFeedback?.previous === prevBlocker &&
-      savedFeedback?.next === nextBlocker;
+      savedFeedback?.previousTrimmed === prevBlocker &&
+      savedFeedback?.nextTrimmed === nextBlocker;
+    if (!persisted) {
+      blockerMirrorFailedRef.current = true;
+      const message = "note saved · blocker status not updated · ctrl+s to retry";
+      setUiMode({ kind: "status", message, variant: "error", sticky: true });
+      pushToast(message, "error");
+      return;
+    }
+
+    const recoveredMirror = blockerMirrorFailedRef.current;
+    blockerMirrorFailedRef.current = false;
     lastBlockerFeedbackRef.current = null;
     if (matchingSaveFeedback) {
+      setUiMode({ kind: "status", message: savedFeedback.status, variant: "success" });
+      pushToast(savedFeedback.toast, "info");
       return;
+    }
+    if (recoveredMirror) {
+      setUiMode({ kind: "status", message: "blocker status saved", variant: "success" });
     }
     // Only toast on the empty↔nonempty transitions so a typo-edit inside an
     // existing blocker note doesn't fire a "set" toast on every keystroke
@@ -269,12 +352,7 @@ export const WorkbenchScreen = ({
     } else if (prevBlocker && !nextBlocker) {
       pushToast("blocker cleared", "success");
     }
-  }, [notes, creature.id, pushToast]);
-
-  const persistCurrentEditor = (state: NotesState): NotesState => {
-    if ((state.bodies[activeId] ?? "") === editor) return state;
-    return saveNoteBody(creature.id, state, activeId, editor, creature.scan.name);
-  };
+  }, [notes, creature.id, pushToast, blockerSyncAttempt]);
 
   const cycleActive = (direction: 1 | -1) => {
     if (notes.index.order.length < 2) return;
@@ -282,15 +360,17 @@ export const WorkbenchScreen = ({
     const nextIdx =
       (idx + direction + notes.index.order.length) % notes.index.order.length;
     const nextId = notes.index.order[nextIdx];
-    const saved = persistCurrentEditor(notes);
-    const switched = setActive(creature.id, saved, nextId);
+    const saved = persistForTransition(notes);
+    if (!saved) return;
+    const switched = setActive(creature.id, saved.state, nextId);
     setNotes(switched);
   };
 
   const switchToNoteId = (nextId: string) => {
     if (nextId === activeId) return;
-    const saved = persistCurrentEditor(notes);
-    const switched = setActive(creature.id, saved, nextId);
+    const saved = persistForTransition(notes);
+    if (!saved) return;
+    const switched = setActive(creature.id, saved.state, nextId);
     setNotes(switched);
   };
 
@@ -501,10 +581,6 @@ export const WorkbenchScreen = ({
             const left = cursor;
             const right = cursor + widths[i] - 1;
             if (event.col >= left && event.col <= right) {
-              if (workbenchMode === "notes" && segments[i].mode !== "notes") {
-                const saved = persistCurrentEditor(notes);
-                if (saved !== notes) setNotes(saved);
-              }
               switchMode(segments[i].mode);
               return;
             }
@@ -544,8 +620,7 @@ export const WorkbenchScreen = ({
             const indicatorLeft = cursorCol;
             const indicatorRight = indicatorLeft + indicatorLabel.length + 1; // +2 for paddingX, -1 since the gutter already counted
             if (event.col >= indicatorLeft && event.col <= indicatorRight) {
-              const saved = persistCurrentEditor(notes);
-              if (saved !== notes) setNotes(saved);
+              if (!persistForTransition(notes)) return;
               setPaletteOpen(true);
               return;
             }
@@ -599,8 +674,7 @@ export const WorkbenchScreen = ({
         setUiMode({ kind: "edit" });
         return;
       }
-      const saved = persistCurrentEditor(notes);
-      if (saved !== notes) setNotes(saved);
+      if (!persistForTransition(notes)) return;
       onClose();
       return;
     }
@@ -696,15 +770,9 @@ export const WorkbenchScreen = ({
 
     if (key.ctrl && (key.return || input === "s")) {
       const oldBody = notes.bodies[activeId] ?? "";
-      const wasDirty = oldBody !== editor;
       const feedback = feedbackForActiveNote(oldBody, editor);
-      const saved = persistCurrentEditor(notes);
-      if (wasDirty) rememberMemoryEditFeedback(feedback);
-      setNotes(saved);
-      setUiMode({ kind: "status", message: feedback.status, variant: "success" });
-      if (wasDirty) {
-        pushToast(feedback.toast, "info");
-      }
+      const result = persistCurrentEditor(notes);
+      reportSaveResult(result, feedback, "status-and-toast");
       return;
     }
 
@@ -748,19 +816,18 @@ export const WorkbenchScreen = ({
 
     if (key.ctrl && input === "k") {
       if (uiMode.kind === "confirm-clear") {
-        const stateWithEditor =
-          (notes.bodies[activeId] ?? "") === editor
-            ? notes
-            : { ...notes, bodies: { ...notes.bodies, [activeId]: editor } };
         const clearedName = notes.index.notes[activeId]?.name ?? "note";
         const feedback = buildMemoryEditFeedback(clearedName, editor, "");
         setEditor("");
         requestEditorSelection({ line: 0, col: 0 }, { line: 0, col: 0 });
-        const saved = saveNoteBody(creature.id, stateWithEditor, activeId, "", creature.scan.name);
-        rememberMemoryEditFeedback(feedback);
-        setNotes(saved);
-        setUiMode({ kind: "status", message: feedback.status, variant: "success" });
-        pushToast(feedback.toast, "info");
+        const result = saveNoteBody(
+          creature.id,
+          notes,
+          activeId,
+          "",
+          creature.scan.name
+        );
+        reportSaveResult(result, feedback, "status-and-toast");
       } else {
         setUiMode({ kind: "confirm-clear" });
       }
@@ -771,6 +838,12 @@ export const WorkbenchScreen = ({
       if (uiMode.kind === "confirm-delete") {
         const deletedName = notes.index.notes[activeId]?.name ?? "note";
         const next = deleteNote(creature.id, notes, activeId, creature.scan.name);
+        if (next === notes) {
+          const message = "not deleted · local note index write failed · ctrl+d to retry";
+          setUiMode({ kind: "status", message, variant: "error", sticky: true });
+          pushToast(message, "error");
+          return;
+        }
         setNotes(next);
         // deleteNote resets active; pull the new active's body in immediately
         // rather than waiting for the active-id effect, so the editor doesn't
@@ -780,18 +853,21 @@ export const WorkbenchScreen = ({
         setUiMode({ kind: "status", message: "deleted", variant: "success" });
         pushToast(`deleted · note "${deletedName}"`, "info");
       } else {
+        if (!persistForTransition(notes)) return;
         setUiMode({ kind: "confirm-delete" });
       }
       return;
     }
 
     if (key.ctrl && input === "n") {
+      if (!persistForTransition(notes)) return;
       setPendingName("");
       setUiMode({ kind: "naming", target: "create" });
       return;
     }
 
     if (key.ctrl && input === "r") {
+      if (!persistForTransition(notes)) return;
       setPendingName(activeMeta?.name ?? "");
       setUiMode({ kind: "naming", target: { rename: activeId } });
       return;
@@ -802,8 +878,7 @@ export const WorkbenchScreen = ({
       // on a saved-from buffer rather than dropping in-flight edits. Also
       // reset a pending confirmation; opening the palette is an implicit
       // change-of-mind and the dialog under it would be confusing.
-      const saved = persistCurrentEditor(notes);
-      if (saved !== notes) setNotes(saved);
+      if (!persistForTransition(notes)) return;
       if (uiMode.kind !== "edit") setUiMode({ kind: "edit" });
       setPaletteOpen(true);
       return;
@@ -840,8 +915,9 @@ export const WorkbenchScreen = ({
         hint: isActive ? undefined : "switch",
         onSelect: () => {
           if (isActive) return;
-          const saved = persistCurrentEditor(notes);
-          const switched = setActive(creature.id, saved, id);
+          const saved = persistForTransition(notes);
+          if (!saved) return;
+          const switched = setActive(creature.id, saved.state, id);
           setNotes(switched);
         },
       });
@@ -934,13 +1010,9 @@ export const WorkbenchScreen = ({
       hint: "ctrl+s",
       onSelect: () => {
         const oldBody = notes.bodies[activeId] ?? "";
-        const wasDirty = oldBody !== editor;
         const feedback = feedbackForActiveNote(oldBody, editor);
-        const saved = persistCurrentEditor(notes);
-        if (wasDirty) rememberMemoryEditFeedback(feedback);
-        setNotes(saved);
-        setUiMode({ kind: "status", message: feedback.status, variant: "success" });
-        if (wasDirty) pushToast(feedback.toast, "info");
+        const result = persistCurrentEditor(notes);
+        reportSaveResult(result, feedback, "status-and-toast");
       },
     });
     items.push({
@@ -948,8 +1020,7 @@ export const WorkbenchScreen = ({
       label: "close workbench",
       hint: "esc",
       onSelect: () => {
-        const saved = persistCurrentEditor(notes);
-        if (saved !== notes) setNotes(saved);
+        if (!persistForTransition(notes)) return;
         onClose();
       },
     });
@@ -959,7 +1030,19 @@ export const WorkbenchScreen = ({
   const handleNamingSubmit = (rawName: string) => {
     if (uiMode.kind !== "naming") return;
     if (uiMode.target === "create") {
-      const { state: next, id: newId } = createNote(creature.id, persistCurrentEditor(notes), rawName, creature.scan.name);
+      const { state: next, id: newId } = createNote(
+        creature.id,
+        notes,
+        rawName,
+        creature.scan.name
+      );
+      if (next === notes) {
+        const message = "not created · local note write failed · ctrl+n to retry";
+        setPendingName("");
+        setUiMode({ kind: "status", message, variant: "error", sticky: true });
+        pushToast(message, "error");
+        return;
+      }
       setNotes(next);
       setEditor("");
       lastActiveIdRef.current = next.index.active;
@@ -979,7 +1062,22 @@ export const WorkbenchScreen = ({
       return;
     }
     const fromName = notes.index.notes[targetId]?.name ?? "note";
-    const renamed = renameNote(creature.id, persistCurrentEditor(notes), targetId, trimmed, creature.scan.name);
+    const renamed = renameNote(creature.id, notes, targetId, trimmed, creature.scan.name);
+    if (renamed === notes) {
+      const requestedName = sanitizeNoteName(trimmed, "");
+      const unchanged = requestedName === fromName;
+      setPendingName("");
+      setUiMode({
+        kind: "status",
+        message: unchanged
+          ? "name unchanged"
+          : "not renamed · local note index write failed · ctrl+r to retry",
+        variant: unchanged ? "info" : "error",
+        sticky: !unchanged,
+      });
+      if (!unchanged) pushToast("not renamed · local note index write failed", "error");
+      return;
+    }
     setNotes(renamed);
     setPendingName("");
     setUiMode({ kind: "status", message: "renamed", variant: "success" });
@@ -998,7 +1096,13 @@ export const WorkbenchScreen = ({
     uiMode.kind === "naming" || uiMode.kind === "search" || uiMode.kind === "goto-line"
       ? 2
       : 0;
-  const chromeRows = (isCompact ? 13 : 20) + promptRows;
+  const expandedActionRows =
+    uiMode.kind === "status" ||
+    uiMode.kind === "confirm-clear" ||
+    uiMode.kind === "confirm-delete"
+      ? 2
+      : 0;
+  const chromeRows = (isCompact ? 13 : 20) + promptRows + expandedActionRows;
   const editorRows = Math.max(6, containerHeight - chromeRows);
 
   if (responsive.tier === "too-small") {
