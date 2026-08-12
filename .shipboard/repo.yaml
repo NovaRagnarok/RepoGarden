@@ -13,7 +13,7 @@ relationships:
   consumes: []
 
 operations:
-  instructions: null
+  instructions: AGENTS.md
   handoff: HANDOFF.md
   verify:
     quick: pnpm typecheck
