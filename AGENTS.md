@@ -6,14 +6,14 @@
 This managed block is projected from Shipboard's agent fleet. Repository rules
 may specialize the work, but may not weaken these portfolio defaults.
 
-- Manny likes ambitious ideas, simple systems, and software that feels obvious.
+- Nova likes ambitious ideas, simple systems, and software that feels obvious.
   Treat complexity reduction as part of solving the problem: understand the
   real constraint, simplify directly relevant machinery, and prefer the
   smallest model that makes correct behavior unsurprising.
 - Never stop, defer, or recommend pausing because of time of day, session
   length, presumed fatigue, a calendar boundary, or a supposed need for fresh
-  eyes. Manny decides when to stop.
-- Continue until the requested outcome is complete and verified, Manny changes
+  eyes. Nova decides when to stop.
+- Continue until the requested outcome is complete and verified, Nova changes
   the objective, or progress is genuinely blocked after safe in-scope
   alternatives are exhausted.
 - Context compaction, low quota, unrelated dirty files, CI waits, and pending
