@@ -1,0 +1,4 @@
+# Refuse package versions published less than 3 days ago (minutes): a hijacked
+# release is usually caught and pulled within that window. pnpm 10 already
+# blocks dependency build scripts unless they are allowlisted.
+minimumReleaseAge: 4320
